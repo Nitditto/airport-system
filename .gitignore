@@ -1,0 +1,58 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### Sensitive configs ###
+application-local.yml
+**/application-local.yml
+./src/main/resources/application-local.yml
+.env
+.env.testing
+!.env.example
+
+### Config testing
+application-testing.yml
+**/application-testing.yml
+./src/main/resources/application-testing.yml
+
+firebase-service-account.json
+firebase-service-account-testing.json
+
+### Note files ###
+ca_nhan.md
+
+### Agent harness (personal / local only) ###
+.claude/settings.local.json
+.grok/*.local.toml
+.grok/hooks/*.local.json
+.grok/logs/
