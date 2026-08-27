@@ -67,11 +67,10 @@ public class AirlineController {
   }
 
   @DeleteMapping("/{id}")
-  public ResponseEntity<ApiResponse> deleteAirline(@PathVariable Long id,
+  public ResponseEntity<ApiResponse<String>> deleteAirline(@PathVariable Long id,
       @RequestHeader("X-User-Id") Long userId) throws Exception {
     airlineService.deleteAirline(id, userId);
-    ApiResponse response = new ApiResponse("airline deleted successfully");
-    return ResponseEntity.ok(response);
+    return ResponseEntity.ok(ApiResponse.success("airline deleted successfully"));
   }
 
   @PostMapping("/{id}/approve")

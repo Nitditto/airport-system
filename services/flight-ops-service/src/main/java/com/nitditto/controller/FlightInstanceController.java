@@ -64,9 +64,8 @@ public class FlightInstanceController {
   }
 
   @DeleteMapping("/{id}")
-  public ResponseEntity<ApiResponse> deleteFlightInstance(@PathVariable Long id) throws Exception {
+  public ResponseEntity<ApiResponse<String>> deleteFlightInstance(@PathVariable Long id) throws Exception {
     flightInstanceService.deleteFlightInstance(id);
-    ApiResponse response = new ApiResponse("flight instance deleted");
-    return ResponseEntity.ok(response);
+    return ResponseEntity.ok(ApiResponse.success("flight instance deleted"));
   }
 }

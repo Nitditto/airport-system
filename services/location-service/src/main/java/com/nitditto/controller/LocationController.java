@@ -65,9 +65,9 @@ public class LocationController {
   }
 
   @DeleteMapping("/{id}")
-  public ResponseEntity<ApiResponse> deleteCity(@PathVariable Long id) throws Exception {
+  public ResponseEntity<ApiResponse<String>> deleteCity(@PathVariable Long id) throws Exception {
     cityService.deleteCityById(id);
-    return ResponseEntity.ok(new ApiResponse("City deleted successfully"));
+    return ResponseEntity.ok(ApiResponse.success("City deleted successfully"));
   }
 
   @GetMapping("/search")
