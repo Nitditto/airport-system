@@ -843,6 +843,268 @@ Ba việc dưới đây đụng vào cùng những file entity/mapper/service, v
 17. **`cloud/` module rỗng** — service registry / config server / API gateway mới là comment trong `pom.xml`. Cho tới khi dựng xong, service gọi nhau phải hardcode `localhost:<port>`.
 18. **Không có test, không có CI/CD, không có Docker/docker-compose** — cần lưu ý khi ước lượng công sức refactor.
 
+## Git Convention (BẮT BUỘC)
+
+Phần này chuẩn hoá lại đúng cách repo `Nitditto/airport-system` đang làm, và vá các chỗ đang lệch.
+
+### Branch Model
+
+Repo dùng mô hình **develop-centric**: `develop` là base branch mặc định (`origin/HEAD -> origin/develop`). **Chưa có `main`/`master`** — khi nào có release thật mới tạo `main`, còn hiện tại mọi PR đều nhắm vào `develop`.
+
+```
+develop                 ← base branch, luôn ở trạng thái build được
+   ├── feature/xxx      ← nhánh làm việc, tách ra từ develop
+   ├── fix/xxx
+   └── docs/xxx
+```
+
+**Quy tắc:**
+- **KHÔNG commit trực tiếp lên `develop`.** Mọi thay đổi đi qua nhánh riêng + Pull Request, kể cả sửa một dòng config (`chore: change port to 5003` đã làm đúng — đi qua nhánh `fix/flight-ops` và PR #6).
+- Luôn tách nhánh mới từ `develop` đã cập nhật, không tách từ nhánh feature khác (trừ khi thật sự phụ thuộc, và phải ghi rõ trong PR).
+- Một nhánh = một mục đích. Không gộp "thêm pricing-service" và "sửa port flight-ops" vào cùng nhánh.
+
+### Branch Naming
+
+```
+<type>/<scope-hoặc-mô-tả-ngắn>
+```
+
+| Prefix | Dùng khi | Ví dụ thật trong repo |
+|---|---|---|
+| `feature/` | Thêm tính năng / module mới | `feature/pricing-service`, `feature/user-service` |
+| `fix/` | Sửa bug, sửa cấu hình sai | `fix/flight-ops` |
+| `docs/` | Chỉ đụng tài liệu | `docs/build-base` |
+| `refactor/` | Đổi cấu trúc, không đổi hành vi | `refactor/uuid-migration` |
+| `chore/` | Build, dependency, config vặt | `chore/bump-spring-boot` |
+| `test/` | Chỉ thêm/sửa test | `test/fare-service` |
+
+**Quy tắc đặt tên:**
+- Toàn bộ **lowercase, kebab-case**. Không dấu tiếng Việt, không space, không camelCase.
+- Ngắn gọn nhưng đủ nghĩa: `feature/pricing-service` tốt hơn `feature/new-stuff`.
+- Nếu có issue tracker, thêm số vào cuối: `feature/pricing-service-42`.
+
+> ⚠️ **Lệch đang tồn tại cần thống nhất:** repo có 5 nhánh dùng `feature/` nhưng nhánh `feat/seat-service` lại dùng `feat/`. **Chốt dùng `feature/`** cho branch (còn `feat` chỉ dùng làm *type của commit*, xem mục dưới) — hai khái niệm khác nhau, đừng trộn. Nhánh `feat/seat-service` hiện **chưa merge** vào develop, nên đổi tên trước khi mở PR:
+> ```bash
+> git branch -m feat/seat-service feature/seat-service
+> git push origin :feat/seat-service
+> git push -u origin feature/seat-service
+> ```
+
+### Commit Message — Conventional Commits
+
+Repo đang theo Conventional Commits (conventionalcommits.org) — giữ nguyên và áp dụng nhất quán.
+
+```
+<type>(<scope>): <subject>
+
+<body — tuỳ chọn, giải thích WHY>
+
+<footer — tuỳ chọn: BREAKING CHANGE, Refs #issue>
+```
+
+**Bảng `type`:**
+
+| Type | Ý nghĩa |
+|---|---|
+| `feat` | Thêm tính năng mới cho người dùng/API |
+| `fix` | Sửa bug |
+| `refactor` | Đổi code nhưng **không** đổi hành vi bên ngoài |
+| `perf` | Tối ưu hiệu năng (vd. thêm index, gỡ N+1) |
+| `docs` | Chỉ tài liệu (`CLAUDE.md`, `docs/ROADMAP.md`) |
+| `test` | Thêm/sửa test |
+| `chore` | Build, dependency, cấu hình, việc vặt không đụng logic |
+| `style` | Format, khoảng trắng, import — không đổi logic |
+| `build` | Maven POM, version, reactor structure |
+
+**Bảng `scope`** — bám theo module trong reactor, dùng tên rút gọn (bỏ đuôi `-service`):
+
+| Scope | Module |
+|---|---|
+| `common` | `common-lib/` |
+| `cloud` | `cloud/` |
+| `user` | `services/user-service/` |
+| `airline-core` | `services/airline-core-service/` |
+| `location` | `services/location-service/` |
+| `flight-ops` | `services/flight-ops-service/` |
+| `pricing` | `services/pricing-service/` |
+| `build` | `pom.xml` gốc, `services/pom.xml`, cấu hình reactor |
+
+- Đụng **một** module → bắt buộc có scope: `feat(pricing): ...`
+- Đụng **nhiều** module cùng lúc (vd. refactor UUID toàn repo) → **bỏ scope**: `refactor: migrate all entity ids to uuidv7`
+- Không bịa scope ngoài bảng trên.
+
+**Quy tắc viết `subject`:**
+- **Tiếng Anh**, thể mệnh lệnh (imperative): `add`, `implement`, `fix`, `remove` — không phải `added`/`adding`/`adds`.
+- Chữ đầu **thường**, **không** có dấu chấm cuối câu.
+- Tối đa **72 ký tự**.
+- Mô tả *cái gì thay đổi*, không phải *đã làm bao nhiêu file*.
+
+```
+✅ ĐÚNG (lấy từ chính repo)
+feat(pricing): implement baggage policy management feature
+feat(user): add user-service with authentication and jwt configuration
+feat(common): add shared models and request/response payloads for pricing
+chore: change port to 5003
+docs: add project roadmap and CLAUDE documentation files
+
+❌ SAI
+Feature/pricing service              # tên nhánh, không phải commit message
+feat(pricing): Implemented Fares.    # hoa đầu + quá khứ + dấu chấm cuối
+update code                          # thiếu type, không rõ nghĩa
+fix bug                              # không biết bug gì, ở đâu
+feat(pricing): add fare + fix port + update docs   # gộp 3 việc vào 1 commit
+```
+
+> ⚠️ Repo hiện có vài commit thiếu scope dù chỉ đụng đúng một module — `feat: add location-service with airport and city controllers` lẽ ra là `feat(location): ...`. Từ giờ áp dụng đủ scope.
+
+**Body — khi nào cần:**
+
+Bỏ qua được với commit hiển nhiên. **Bắt buộc có** khi thay đổi cần giải thích lý do hoặc có đánh đổi:
+
+```
+perf(pricing): add composite index on fares(flight_id, cabin_class_id)
+
+FareRepository lọc theo đúng cặp cột này ở 3 method, trước đó full table
+scan vì ddl-auto: update chỉ tự tạo index cho PK và unique constraint.
+
+Refs #12
+```
+
+- Body cách subject đúng **một dòng trống**.
+- Wrap ở **72 ký tự**.
+- Viết **WHY**, không viết WHAT — WHAT đã nằm trong diff rồi.
+
+**Footer — breaking change:**
+
+Bắt buộc khai báo khi thay đổi phá vỡ client đang gọi API hoặc phá schema DB:
+
+```
+refactor: migrate all entity ids from Long to UUIDv7
+
+BREAKING CHANGE: mọi @PathVariable, *Request/*Response trong common-lib
+và mọi FK cross-service đổi từ Long sang UUID. ddl-auto: update không
+alter được kiểu cột — bắt buộc drop và tạo lại database dev.
+```
+
+Các thay đổi trong "Known Gaps / Nhóm A" và mục "API Response Wrapper" đều là breaking change — phải ghi footer này.
+
+**Kích thước commit:**
+- Một commit = một thay đổi logic hoàn chỉnh, build được. Không commit code không compile.
+- Nhánh `feature/pricing-service` đang là mẫu tốt: tách thành 5 commit theo từng bước (`initialize module` → `add shared payloads` → `Fare` → `Fare Rules` → `Baggage Policy`) thay vì một commit khổng lồ.
+- Không commit file build (`target/`), file IDE (`.idea/`, `.vscode/`) — `.gitignore` đã chặn sẵn, đừng dùng `git add -f` để lách.
+
+### Pull Request Convention
+
+**Title:** viết đúng như một commit message conventional — **không** để tên nhánh tự sinh.
+
+```
+✅ feat(pricing): add fare, fare rules and baggage policy management
+❌ Feature/pricing service        # PR #5 đang bị thế này, GitHub tự sinh ra
+```
+
+**Description — template tối thiểu:**
+
+```markdown
+## Mục đích
+<Giải quyết vấn đề gì, tại sao cần>
+
+## Thay đổi chính
+- <thay đổi 1>
+- <thay đổi 2>
+
+## Cách kiểm thử
+./mvnw -pl services/pricing-service -am clean install
+./mvnw -pl services/pricing-service spring-boot:run
+<endpoint đã gọi thử, kết quả mong đợi>
+
+## Breaking change
+<Có/Không — nếu có, ghi rõ client nào phải sửa, có phải drop DB không>
+
+## Checklist
+- [ ] Không có annotation quan hệ mới (`@ManyToOne`/`@OneToMany`/`@OneToOne`/`@ManyToMany`/`@JoinColumn`/`@ElementCollection`)
+- [ ] Không có `repository.*` hay HTTP client nằm trong `for`/`stream().map()`/`forEach`
+- [ ] Endpoint trả list đã phân trang (`Page<T>` + `Pageable`)
+- [ ] Method ghi đụng ≥2 bảng đã có `@Transactional`
+- [ ] `@RequestBody` đã có `@Valid`
+- [ ] Cột mới dùng để lọc đã có `@Index`
+- [ ] Controller inject qua interface, không phải `*ServiceImpl`
+- [ ] Đã bật SQL log và đếm query cho endpoint trả list
+```
+
+**Quy tắc:**
+- PR luôn nhắm vào `develop`.
+- PR nhỏ, tập trung. Trên khoảng 400 dòng thay đổi thì cân nhắc tách — trừ các đợt refactor nền tảng (Nhóm A) vốn buộc phải làm một lần.
+- Tự review diff của mình trước khi mở PR: `git diff develop...HEAD`.
+- Không merge PR đang đỏ build.
+
+### Merge Strategy
+
+Repo đang dùng **merge commit** (`Merge pull request #7 from Nitditto/docs/build-base`) — giữ nguyên, vì nó bảo toàn từng commit nhỏ trong nhánh feature (đúng với cách nhánh `feature/pricing-service` chia 5 commit theo bước).
+
+- **Merge commit** — mặc định cho `feature/*`: giữ lại lịch sử từng bước.
+- **Squash** — dùng cho nhánh lặt vặt nhiều commit rác kiểu `fix typo`, `fix again`, gộp thành một commit sạch.
+- **KHÔNG force-push lên `develop`.** Force-push chỉ được phép trên nhánh feature cá nhân **chưa có ai khác cùng làm**, và dùng `--force-with-lease` chứ không phải `--force`.
+
+**Cập nhật nhánh feature khi develop đã chạy trước:**
+
+```bash
+# Ưu tiên rebase khi nhánh CHƯA push hoặc chỉ mình bạn làm — giữ lịch sử thẳng
+git fetch origin
+git rebase origin/develop
+
+# Nếu nhánh đã push và có người khác cùng làm thì merge, đừng rebase
+git merge origin/develop
+```
+
+### Dọn nhánh sau khi merge
+
+**Xoá nhánh ngay sau khi PR được merge**, cả local lẫn remote:
+
+```bash
+git branch -d feature/pricing-service
+git push origin --delete feature/pricing-service
+```
+
+> ⚠️ **Đang tồn đọng:** 7 nhánh đã merge vào `develop` nhưng vẫn còn cả local lẫn `origin` — `docs/build-base`, `fix/flight-ops`, và 5 nhánh `feature/*-service`. Cần dọn:
+> ```bash
+> git branch --merged develop | grep -v develop | xargs -r git branch -d
+> git remote prune origin
+> ```
+> Giữ lại `feat/seat-service` — nhánh này **chưa merge**, còn đang làm dở (và cần đổi tên theo mục Branch Naming ở trên).
+
+### Lệnh Git hay dùng cho repo này
+
+```bash
+# Bắt đầu một task mới
+git checkout develop && git pull origin develop
+git checkout -b feature/seat-service
+
+# Xem mình đã thay đổi gì so với base trước khi mở PR
+git diff develop...HEAD --stat
+git diff develop...HEAD
+
+# Kiểm tra không lỡ commit file build/IDE
+git status --short
+
+# Đẩy nhánh lần đầu
+git push -u origin feature/seat-service
+
+# Sửa lại commit message vừa tạo (CHỈ khi chưa push)
+git commit --amend
+
+# Xem lịch sử gọn
+git log --oneline --graph --decorate -20
+```
+
+### Những điều TUYỆT ĐỐI không làm
+
+- Commit trực tiếp lên `develop`.
+- Force-push lên `develop`.
+- Commit credential, mật khẩu DB thật, JWT secret. `application.yaml` hiện đang hardcode user/password MySQL — khi lên môi trường thật phải chuyển sang biến môi trường hoặc config server, và **không bao giờ** commit giá trị thật.
+- Commit `target/`, `.idea/`, `.vscode/`, `*.iml` (đã có trong `.gitignore` — đừng `git add -f`).
+- Commit code không compile được, hoặc "commit tạm để mai sửa" lên nhánh chung.
+- Gộp refactor lớn chung với feature mới trong một PR — reviewer không tách được đâu là thay đổi hành vi.
+
 ## Reference
 
 - Không có `docs/`, `README.md`, hay tài liệu thiết kế nào khác trong repo hiện tại — file này (`CLAUDE.md`) là nguồn quy tắc duy nhất cho tới khi có thêm tài liệu.
