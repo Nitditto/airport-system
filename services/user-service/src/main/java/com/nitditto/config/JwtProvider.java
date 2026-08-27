@@ -1,7 +1,8 @@
 package com.nitditto.config;
 
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
 import java.util.Collection;
 import java.util.Date;
@@ -18,6 +19,14 @@ public class JwtProvider {
   private final SecretKey key = Keys.hmacShaKeyFor(
       JwtConstant.SECRET_KEY.getBytes()
   );
+
+  public Claims parseClaims(final String token) throws JwtException {
+    return Jwts.parser()
+        .verifyWith(key)
+        .build()
+        .parseSignedClaims(token)
+        .getPayload();
+  }
 
   public String generateToken(Authentication auth, Long userId) {
     Collection<? extends GrantedAuthority> authorities = auth.getAuthorities();

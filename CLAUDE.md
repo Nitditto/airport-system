@@ -56,25 +56,27 @@ config/        # (chỉ user-service hiện có: SecurityConfig, JwtProvider, Jw
 
 ## Build Commands
 
+**Không có Maven Wrapper ở thư mục gốc** — dùng `mvn` cài trên máy. Mỗi service con có `mvnw`/`mvnw.cmd`/`.mvn/` riêng (rác còn lại từ lúc mỗi service được khởi tạo độc lập bằng Spring Initializr trước khi gộp vào reactor) — **đừng dùng** các wrapper lẻ đó, luôn chạy `mvn` từ thư mục gốc để giữ đúng version do parent POM quản lý.
+
 ```bash
 # Build toàn bộ reactor (common-lib -> cloud -> services)
-./mvnw clean install
+mvn clean install
 
 # Build/run một service cụ thể (chạy từ thư mục gốc, dùng -pl với path module)
-./mvnw -pl services/pricing-service -am clean install
-./mvnw -pl services/pricing-service spring-boot:run
+mvn -pl services/pricing-service -am clean install
+mvn -pl services/pricing-service spring-boot:run
 
 # Run tests toàn repo / một service / một class / một method
-./mvnw test
-./mvnw -pl services/pricing-service test
-./mvnw -pl services/pricing-service test -Dtest=ClassName
-./mvnw -pl services/pricing-service test -Dtest=ClassName#methodName
+mvn test
+mvn -pl services/pricing-service test
+mvn -pl services/pricing-service test -Dtest=ClassName
+mvn -pl services/pricing-service test -Dtest=ClassName#methodName
 
 # Package không chạy test
-./mvnw clean package -DskipTests
+mvn clean package -DskipTests
 ```
 
-**Lưu ý khi thêm dependency/version:** chỉ khai báo `<version>` ở root `pom.xml` (`dependencyManagement`) hoặc dùng version do `spring-boot-dependencies`/`spring-cloud-dependencies` BOM quản lý. Service con KHÔNG tự ghim version riêng — tránh lệch version giữa các service.
+**Lưu ý khi thêm dependency/version:** chỉ khai báo `<version>` ở root `pom.xml` (`dependencyManagement`) hoặc dùng version do `spring-boot-dependencies`/`spring-cloud-dependencies` BOM quản lý. Service con KHÔNG tự ghim version riêng — tránh lệch version giữa các service. Vi phạm hiện có cần dọn: `user-service/pom.xml` đang tự ghim `<version>0.13.0</version>` cho 3 dependency `jjwt-*` thay vì khai ở `dependencyManagement` gốc.
 
 ## Architecture
 
@@ -816,11 +818,13 @@ Ba việc dưới đây đụng vào cùng những file entity/mapper/service, v
 2. **Gỡ toàn bộ relationship annotation** — 8 chỗ vi phạm (bảng chi tiết ở mục "NO JPA Relationship Annotations"). Kéo theo: mất `cascade`/`orphanRemoval` nên phải viết tay luồng xoá cha-con, và mapper phải đổi signature để nhận dữ liệu liên quan qua tham số.
 3. **Sửa `@Query` sau khi gỡ quan hệ** — `FlightInstanceRepository` đang dùng `fi.flight.id = :flightId`, phải đổi thành `fi.flightId = :flightId`. JPQL sai chỉ fail lúc khởi động chứ không phải lúc compile, nên phải rà hết.
 
-### Nhóm B — Bug cấu hình (sửa độc lập, nhanh)
+### Nhóm B — Bug cấu hình (sửa độc lập, nhanh) — ĐÃ XỬ LÝ XONG
 
-4. **Port collision**: `flight-ops-service` và `pricing-service` cùng khai `server.port: 5005` — không thể chạy đồng thời. Đổi pricing-service → `5003` (5001/5002/5004/5005 đã dùng).
-5. **`user-service` sai datasource**: trỏ `jdbc:mysql://localhost:3306/airline_location` (copy từ location-service) thay vì DB riêng, ví dụ `airline_user`.
-6. **`SecurityConfig` của user-service đang `permitAll()` toàn bộ request** — JWT được sinh ra nhưng chưa enforce ở filter chain.
+4. ~~**Port collision**~~ — **đã tự fix trước đó**: `flight-ops-service` đã đổi sang `server.port: 5003` (commit "chore: change port to 5003", PR #6). Port thật hiện tại: `user=5001, airline-core=5002, flight-ops=5003, location=5004, pricing=5005` — không còn trùng. Bảng ở mục "Repository & Module Structure" phía trên phản ánh số port cũ đã lỗi thời, cần soát lại nếu thấy sai lệch với `application.yaml` thực tế của từng service.
+5. ~~**`user-service` sai datasource`**~~ — **đã fix**: đổi từ `jdbc:mysql://localhost:3306/airline_location` (copy nhầm từ location-service) sang `jdbc:mysql://localhost:3306/airline_user`. Cần tự tạo database mới trước khi chạy: `CREATE DATABASE airline_user;` (Hibernate `ddl-auto: update` sẽ tự tạo bảng).
+6. ~~**`SecurityConfig` của user-service đang `permitAll()` toàn bộ request`~~ — **đã fix**: thêm [`JwtAuthenticationFilter`](services/user-service/src/main/java/com/nitditto/config/JwtAuthenticationFilter.java) (`OncePerRequestFilter`) đọc header `Authorization: Bearer <token>`, validate bằng `JwtProvider.parseClaims()`, dựng `Authentication` từ claim `email`/`authorities` rồi nạp vào `SecurityContextHolder`. `SecurityConfig` giờ chỉ `permitAll()` cho `/` và `/auth/**`, còn lại bắt buộc `authenticated()`. Filter gắn trước `UsernamePasswordAuthenticationFilter` bằng `addFilterBefore`.
+   - **Nợ kỹ thuật phát sinh, chưa xử lý** (ngoài phạm vi fix này, cân nhắc làm riêng): `UserController.getUserProfile()`/`getAllUsers()` đang tin tưởng header `X-User-Email` do client tự gửi để xác định danh tính — giờ endpoint đã yêu cầu đăng nhập nhưng **chưa** kiểm tra danh tính đó khớp với người dùng trong JWT, nên một user bất kỳ đã đăng nhập vẫn có thể đọc profile của người khác bằng cách tự đổi header. Cần sửa để lấy email từ `SecurityContextHolder` thay vì tin header client.
+   - **Nợ kỹ thuật phát sinh khác**: `AuthServiceImpl.signup()` tạo `Authentication` bằng constructor 2 tham số (`new UsernamePasswordAuthenticationToken(email, password)`), constructor này luôn trả `getAuthorities()` rỗng — nghĩa là JWT sinh ra lúc đăng ký mới **không có claim `authorities`**, user vừa signup chưa có role nào cho tới lần login kế tiếp (`login()` dùng path tạo `Authentication` khác, có authorities đúng). Cần dùng cùng cách tạo `Authentication` như `login()`.
 
 ### Nhóm C — Chất lượng tầng dữ liệu
 
