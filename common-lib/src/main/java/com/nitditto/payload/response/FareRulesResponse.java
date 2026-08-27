@@ -6,16 +6,17 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class FareRulesResponse {
-  private Long id;
+  private UUID id;
   private String ruleName;
-  private Long fareId;
-  private Long airlineId;
+  private UUID fareId;
+  private UUID airlineId;
   private Boolean isRefundable;
   private Double changeFee;
   private Double cancellationFee;

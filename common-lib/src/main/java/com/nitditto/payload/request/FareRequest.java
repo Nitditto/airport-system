@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -22,10 +23,10 @@ public class FareRequest {
   private Character rbdCode;
 
   @NotNull(message = "Flight ID is required")
-  private Long flightId;
+  private UUID flightId;
 
   @NotNull(message = "Cabin class ID is required")
-  private Long cabinClassId;
+  private UUID cabinClassId;
 
   @NotNull(message = "Base fare is required")
   @Positive
