@@ -1,28 +1,22 @@
 package com.nitditto.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.nitditto.entity.BaseEntity;
+
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
-
-import java.time.Instant;
+import java.util.UUID;
 
 @Entity
+@Table(name = "baggage_policies")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class BaggagePolicy {
+public class BaggagePolicy extends BaseEntity {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
-    private Long id;
-
-    @OneToOne
-    @JsonIgnore
-    private Fare fare;
+    @Column(name = "fare_id", columnDefinition = "binary(16)", nullable = false, unique = true)
+    private UUID fareId;
 
     @Column(nullable = false)
     private String name;
@@ -44,13 +38,7 @@ public class BaggagePolicy {
 
     private Boolean extraBaggageAllowance = false;
 
-    private Long airlineId;
-
-    @CreationTimestamp
-    private Instant createdAt;
-
-    @UpdateTimestamp
-    private Instant updatedAt;
-
+    @Column(name = "airline_id", columnDefinition = "binary(16)")
+    private UUID airlineId;
 
 }
