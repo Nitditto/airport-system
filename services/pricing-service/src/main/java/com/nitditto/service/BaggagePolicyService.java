@@ -4,18 +4,19 @@ import com.nitditto.payload.request.BaggagePolicyRequest;
 import com.nitditto.payload.response.BaggagePolicyResponse;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface BaggagePolicyService {
 
     BaggagePolicyResponse createBaggagePolicy(BaggagePolicyRequest baggagePolicyRequest) throws Exception;
 
-    BaggagePolicyResponse getBaggagePolicyById(Long id) throws Exception;
+    BaggagePolicyResponse getBaggagePolicyById(UUID id) throws Exception;
 
-    BaggagePolicyResponse getBaggagePolicyByFareId(Long fareId);
+    BaggagePolicyResponse getBaggagePolicyByFareId(UUID fareId);
 
-    List<BaggagePolicyResponse> getBaggagePoliciesByAirlineId(Long airlineId);
+    List<BaggagePolicyResponse> getBaggagePoliciesByAirlineId(UUID airlineId);
 
-    BaggagePolicyResponse updateBaggagePolicy(Long id, BaggagePolicyRequest baggagePolicyRequest) throws Exception;
+    BaggagePolicyResponse updateBaggagePolicy(UUID id, BaggagePolicyRequest baggagePolicyRequest) throws Exception;
 
-    void deleteBaggagePolicy(Long id);
+    void deleteBaggagePolicy(UUID id);
 }

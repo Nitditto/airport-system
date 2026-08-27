@@ -5,7 +5,9 @@ import com.nitditto.embeddable.FlexibilityBenefits;
 import com.nitditto.embeddable.InFlightBenefits;
 import com.nitditto.embeddable.PremiumServiceBenefits;
 import com.nitditto.embeddable.SeatBenefits;
+import com.nitditto.model.BaggagePolicy;
 import com.nitditto.model.Fare;
+import com.nitditto.model.FareRules;
 import com.nitditto.payload.request.FareRequest;
 import com.nitditto.payload.response.FareResponse;
 
@@ -72,7 +74,8 @@ public class FareMapper {
                 .build();
     }
 
-    public static FareResponse toResponse(Fare fare) {
+    public static FareResponse toResponse(final Fare fare, final FareRules fareRules,
+            final BaggagePolicy baggagePolicy) {
         if (fare == null) {
             return null;
         }
@@ -89,7 +92,7 @@ public class FareMapper {
                 .currentPrice(fare.getCurrentPrice())
                 .totalPrice(fare.getTotalPrice())
                 .fareLabel(fare.getFareLabel())
-                .fareRulesId(fare.getFareRules() != null ? fare.getFareRules().getId() : null)
+                .fareRulesId(fareRules != null ? fareRules.getId() : null)
 
                 // Seat benefits
                 .extraSeatSpace(
@@ -147,8 +150,8 @@ public class FareMapper {
                         .getAirportTransfer() : false)
 
                 // Nested responses
-                .fareRules(fare.getFareRules() != null ? FareRuleMapper.toResponse(fare.getFareRules()) : null)
-                .baggagePolicy(fare.getBaggagePolicy() != null ? BaggagePolicyMapper.toResponse(fare.getBaggagePolicy()) : null)
+                .fareRules(FareRuleMapper.toResponse(fareRules))
+                .baggagePolicy(BaggagePolicyMapper.toResponse(baggagePolicy))
                 .createdAt(fare.getCreatedAt())
                 .updatedAt(fare.getUpdatedAt())
                 .build();
