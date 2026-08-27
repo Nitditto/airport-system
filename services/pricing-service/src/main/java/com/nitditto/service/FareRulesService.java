@@ -7,15 +7,15 @@ import java.util.List;
 import java.util.UUID;
 
 public interface FareRulesService {
-    FareRulesResponse createFareRules(FareRulesRequest fareRulesRequest) throws Exception;
+    FareRulesResponse createFareRules(FareRulesRequest fareRulesRequest);
 
-    FareRulesResponse getFareRulesById(UUID id) throws Exception;
+    FareRulesResponse getFareRulesById(UUID id);
 
     FareRulesResponse getFareRulesByFareId(UUID fareId);
 
     List<FareRulesResponse> getFareRulesByAirlineId(UUID airlineId);
 
-    FareRulesResponse updateFareRules(UUID id, FareRulesRequest fareRulesRequest) throws Exception;
+    FareRulesResponse updateFareRules(UUID id, FareRulesRequest fareRulesRequest);
 
     void deleteFareRules(UUID id);
 }

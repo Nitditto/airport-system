@@ -1,5 +1,7 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.exception.BusinessException;
+import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.BaggagePolicyMapper;
 import com.nitditto.model.BaggagePolicy;
 import com.nitditto.payload.request.BaggagePolicyRequest;
@@ -7,7 +9,6 @@ import com.nitditto.payload.response.BaggagePolicyResponse;
 import com.nitditto.repository.BaggagePolicyRepository;
 import com.nitditto.repository.FareRepository;
 import com.nitditto.service.BaggagePolicyService;
-import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -23,13 +24,13 @@ public class BaggagePolicyServiceImpl implements BaggagePolicyService {
     private final FareRepository fareRepository;
 
     @Override
-    public BaggagePolicyResponse createBaggagePolicy(final BaggagePolicyRequest baggagePolicyRequest) throws Exception {
+    public BaggagePolicyResponse createBaggagePolicy(final BaggagePolicyRequest baggagePolicyRequest) {
         if (!this.fareRepository.existsById(baggagePolicyRequest.getFareId())) {
-            throw new Exception("Fare not found");
+            throw new ResourceNotFoundException("Fare", "id", baggagePolicyRequest.getFareId());
         }
 
         if (this.baggagePolicyRepository.existsByFareId(baggagePolicyRequest.getFareId())) {
-            throw new Exception("Baggage policy already exists");
+            throw new BusinessException("Baggage policy already exists");
         }
         final BaggagePolicy baggagePolicy =
                 BaggagePolicyMapper.toEntity(baggagePolicyRequest, baggagePolicyRequest.getFareId());
@@ -39,10 +40,9 @@ public class BaggagePolicyServiceImpl implements BaggagePolicyService {
     }
 
     @Override
-    public BaggagePolicyResponse getBaggagePolicyById(final UUID id) throws Exception {
-        final BaggagePolicy baggagePolicy = this.baggagePolicyRepository.findById(id).orElseThrow(
-                () -> new Exception("Policy not found with id")
-        );
+    public BaggagePolicyResponse getBaggagePolicyById(final UUID id) {
+        final BaggagePolicy baggagePolicy = this.baggagePolicyRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("BaggagePolicy", "id", id));
 
         return BaggagePolicyMapper.toResponse(baggagePolicy);
     }
@@ -61,10 +61,10 @@ public class BaggagePolicyServiceImpl implements BaggagePolicyService {
     }
 
     @Override
-    public BaggagePolicyResponse updateBaggagePolicy(final UUID id, final BaggagePolicyRequest baggagePolicyRequest) throws Exception {
-        final BaggagePolicy baggagePolicy = this.baggagePolicyRepository.findById(id).orElseThrow(
-                () -> new Exception("Policy not found with id")
-        );
+    public BaggagePolicyResponse updateBaggagePolicy(final UUID id,
+            final BaggagePolicyRequest baggagePolicyRequest) {
+        final BaggagePolicy baggagePolicy = this.baggagePolicyRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("BaggagePolicy", "id", id));
         BaggagePolicyMapper.updateEntity(baggagePolicyRequest, baggagePolicy);
         final BaggagePolicy saved = this.baggagePolicyRepository.save(baggagePolicy);
         return BaggagePolicyMapper.toResponse(saved);
@@ -72,9 +72,8 @@ public class BaggagePolicyServiceImpl implements BaggagePolicyService {
 
     @Override
     public void deleteBaggagePolicy(final UUID id) {
-        final BaggagePolicy baggagePolicy = this.baggagePolicyRepository.findById(id).orElseThrow(
-                () -> new EntityNotFoundException("Baggage policy not found with id: " + id)
-        );
+        final BaggagePolicy baggagePolicy = this.baggagePolicyRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("BaggagePolicy", "id", id));
         this.baggagePolicyRepository.delete(baggagePolicy);
     }
 }

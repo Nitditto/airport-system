@@ -8,15 +8,15 @@ import java.util.UUID;
 
 public interface BaggagePolicyService {
 
-    BaggagePolicyResponse createBaggagePolicy(BaggagePolicyRequest baggagePolicyRequest) throws Exception;
+    BaggagePolicyResponse createBaggagePolicy(BaggagePolicyRequest baggagePolicyRequest);
 
-    BaggagePolicyResponse getBaggagePolicyById(UUID id) throws Exception;
+    BaggagePolicyResponse getBaggagePolicyById(UUID id);
 
     BaggagePolicyResponse getBaggagePolicyByFareId(UUID fareId);
 
     List<BaggagePolicyResponse> getBaggagePoliciesByAirlineId(UUID airlineId);
 
-    BaggagePolicyResponse updateBaggagePolicy(UUID id, BaggagePolicyRequest baggagePolicyRequest) throws Exception;
+    BaggagePolicyResponse updateBaggagePolicy(UUID id, BaggagePolicyRequest baggagePolicyRequest);
 
     void deleteBaggagePolicy(UUID id);
 }

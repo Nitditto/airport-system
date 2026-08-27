@@ -9,15 +9,15 @@ import java.util.UUID;
 
 public interface FareService {
 
-    FareResponse createFare(FareRequest request) throws Exception;
+    FareResponse createFare(FareRequest request);
 
-    FareResponse getFareById(UUID id) throws Exception;
+    FareResponse getFareById(UUID id);
 
     List<FareResponse> getFaresByFlightIdAndCabinClassId(UUID flightId, UUID cabinClassId);
 
-    FareResponse updateFare(UUID id, FareRequest request) throws Exception;
+    FareResponse updateFare(UUID id, FareRequest request);
 
-    void deleteFareById(UUID id) throws Exception;
+    void deleteFareById(UUID id);
 
     List<FareResponse> getFares();
 

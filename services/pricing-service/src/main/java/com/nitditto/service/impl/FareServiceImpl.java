@@ -1,5 +1,7 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.exception.BusinessException;
+import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.FareMapper;
 import com.nitditto.model.BaggagePolicy;
 import com.nitditto.model.Fare;
@@ -31,11 +33,10 @@ public class FareServiceImpl implements FareService {
     private final BaggagePolicyRepository baggagePolicyRepository;
 
     @Override
-    public FareResponse createFare(final FareRequest request) throws Exception {
-
+    public FareResponse createFare(final FareRequest request) {
         if (this.fareRepository.existsByFlightIdAndCabinClassIdAndName(request.getFlightId(),
                 request.getCabinClassId(), request.getName())) {
-            throw new Exception("Fare already exist with provided name");
+            throw new BusinessException("Fare already exist with provided name");
         }
         final Fare fare = FareMapper.toEntity(request);
         final Fare savedFare = this.fareRepository.save(fare);
@@ -44,9 +45,9 @@ public class FareServiceImpl implements FareService {
     }
 
     @Override
-    public FareResponse getFareById(final UUID id) throws Exception {
-        final Fare fare = this.fareRepository.findById(id).orElseThrow(
-                () -> new Exception("Fare not found with given Id"));
+    public FareResponse getFareById(final UUID id) {
+        final Fare fare = this.fareRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Fare", "id", id));
         return this.toResponses(List.of(fare)).get(0);
     }
 
@@ -56,9 +57,9 @@ public class FareServiceImpl implements FareService {
     }
 
     @Override
-    public FareResponse updateFare(final UUID id, final FareRequest request) throws Exception {
-        final Fare fare = this.fareRepository.findById(id).orElseThrow(
-                () -> new Exception("Fare not found with given Id"));
+    public FareResponse updateFare(final UUID id, final FareRequest request) {
+        final Fare fare = this.fareRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Fare", "id", id));
 
         final UUID flightId = request.getFlightId() != null ? request.getFlightId() : fare.getFlightId();
         final UUID cabinClassId =
@@ -67,7 +68,7 @@ public class FareServiceImpl implements FareService {
 
         if (this.fareRepository.existsByFlightIdAndCabinClassIdAndNameAndIdNot(
                 flightId, cabinClassId, name, fare.getId())) {
-            throw new Exception("Fare already exists with the same flight, cabin class, and name");
+            throw new BusinessException("Fare already exists with the same flight, cabin class, and name");
         }
 
         FareMapper.updateEntity(request, fare);
@@ -77,9 +78,9 @@ public class FareServiceImpl implements FareService {
 
     @Override
     @Transactional
-    public void deleteFareById(final UUID id) throws Exception {
+    public void deleteFareById(final UUID id) {
         if (!this.fareRepository.existsById(id)) {
-            throw new Exception("Fare not found with given Id");
+            throw new ResourceNotFoundException("Fare", "id", id);
         }
         // Không còn cascade/orphanRemoval sau khi gỡ @OneToOne -> tự xoá con trước, cha sau, trong 1 transaction
         this.baggagePolicyRepository.deleteByFareId(id);
