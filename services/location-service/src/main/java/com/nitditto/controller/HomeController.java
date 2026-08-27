@@ -8,9 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class HomeController {
 
   @GetMapping("/")
-  public String HomeController() {
-    ApiResponse apiResponse = new ApiResponse();
-    apiResponse.setMessage("Hello World");
-    return apiResponse.toString();
+  public ApiResponse<String> homeController() {
+    return ApiResponse.success("Hello World");
   }
 }

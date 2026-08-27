@@ -1,18 +1,18 @@
 package com.nitditto.mapper;
 
 import com.nitditto.model.BaggagePolicy;
-import com.nitditto.model.Fare;
 import com.nitditto.payload.request.BaggagePolicyRequest;
 import com.nitditto.payload.response.BaggagePolicyResponse;
+import java.util.UUID;
 
 public class BaggagePolicyMapper {
 
-    public static BaggagePolicy toEntity(BaggagePolicyRequest request, Fare fare) {
+    public static BaggagePolicy toEntity(final BaggagePolicyRequest request, final UUID fareId) {
         if (request == null)
             return null;
 
         return BaggagePolicy.builder()
-                .fare(fare)
+                .fareId(fareId)
                 .name(request.getName())
                 .description(request.getDescription())
                 .cabinBaggageMaxWeight(request.getCabinBaggageMaxWeight())
@@ -28,7 +28,7 @@ public class BaggagePolicyMapper {
                 .build();
     }
 
-    public static BaggagePolicyResponse toResponse(BaggagePolicy baggagePolicy) {
+    public static BaggagePolicyResponse toResponse(final BaggagePolicy baggagePolicy) {
         if (baggagePolicy == null)
             return null;
 
@@ -47,7 +47,7 @@ public class BaggagePolicyMapper {
                 .priorityBaggage(baggagePolicy.getPriorityBaggage())
                 .extraBaggageAllowance(baggagePolicy.getExtraBaggageAllowance())
                 .airlineId(baggagePolicy.getAirlineId())
-                .fareId(baggagePolicy.getFare() != null ? baggagePolicy.getFare().getId() : null)
+                .fareId(baggagePolicy.getFareId())
                 .createdAt(baggagePolicy.getCreatedAt())
                 .updatedAt(baggagePolicy.getUpdatedAt())
                 .build();

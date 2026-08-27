@@ -1,5 +1,7 @@
 package com.nitditto.payload.request;
 
+import java.util.UUID;
+
 import jakarta.validation.constraints.PositiveOrZero;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -14,7 +16,7 @@ public class BaggagePolicyRequest {
 
     private String name;
 
-    private Long fareId;
+    private UUID fareId;
 
     private String description;
 

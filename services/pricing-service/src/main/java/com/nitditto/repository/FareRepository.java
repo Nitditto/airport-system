@@ -5,14 +5,15 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.UUID;
 
 @Repository
-public interface FareRepository extends JpaRepository<Fare, Long> {
+public interface FareRepository extends JpaRepository<Fare, UUID> {
 
-    boolean existsByFlightIdAndCabinClassIdAndName(Long flightId, Long cabinClassId, String name);
-    List<Fare> findByFlightIdAndCabinClassId(Long flightId, Long cabinClassId);
+    boolean existsByFlightIdAndCabinClassIdAndName(UUID flightId, UUID cabinClassId, String name);
+    List<Fare> findByFlightIdAndCabinClassId(UUID flightId, UUID cabinClassId);
 
-    List<Fare> findByFlightIdInAndCabinClassId(List<Long> flightIds, Long cabinClassId);
+    List<Fare> findByFlightIdInAndCabinClassId(List<UUID> flightIds, UUID cabinClassId);
 
-    boolean existsByFlightIdAndCabinClassIdAndNameAndIdNot(Long flightId, Long cabinClassId, String name, Long id);
+    boolean existsByFlightIdAndCabinClassIdAndNameAndIdNot(UUID flightId, UUID cabinClassId, String name, UUID id);
 }

@@ -5,32 +5,26 @@ import com.nitditto.embeddable.FlexibilityBenefits;
 import com.nitditto.embeddable.InFlightBenefits;
 import com.nitditto.embeddable.PremiumServiceBenefits;
 import com.nitditto.embeddable.SeatBenefits;
+import com.nitditto.entity.BaseEntity;
 import com.nitditto.enums.CabinClassType;
 import jakarta.persistence.*;
 
-import java.time.Instant;
+import java.util.UUID;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 @Entity
+@Table(name = "fares")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@EntityListeners(AuditingEntityListener.class)
-public class Fare {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
-    private Long id;
+public class Fare extends BaseEntity {
 
     @Column(nullable = false)
     private String name;
@@ -38,11 +32,11 @@ public class Fare {
     @Column(nullable = false)
     private Character rbdCode;
 
-    @Column(nullable = false)
-    private Long flightId;
+    @Column(name = "flight_id", columnDefinition = "binary(16)", nullable = false)
+    private UUID flightId;
 
-    @Column(nullable = false)
-    private Long cabinClassId;
+    @Column(name = "cabin_class_id", columnDefinition = "binary(16)", nullable = false)
+    private UUID cabinClassId;
 
     @Enumerated(EnumType.STRING)
     private CabinClassType cabinClass;
@@ -57,12 +51,6 @@ public class Fare {
     private Double currentPrice;
 
     private String fareLabel;
-
-    @OneToOne(mappedBy = "fare", cascade = CascadeType.ALL, orphanRemoval = true)
-    private BaggagePolicy baggagePolicy;
-
-    @OneToOne(mappedBy = "fare", cascade = CascadeType.ALL, orphanRemoval = true)
-    private FareRules fareRules;
 
     @Embedded
     private SeatBenefits seatBenefits = new SeatBenefits();
@@ -82,17 +70,11 @@ public class Fare {
     @Builder.Default
     private PremiumServiceBenefits premiumServiceBenefits = new PremiumServiceBenefits();
 
-    @CreationTimestamp
-    private Instant createdAt;
-
-    @UpdateTimestamp
-    private Instant updatedAt;
-
     public Double getTotalPrice() {
-        double base = baseFare != null ? baseFare : 0.0;
-        double taxes = taxedAndFees != null ? taxedAndFees : 0.0;
-        double fees = airlineFees != null ? airlineFees : 0.0;
-        double current = currentPrice != null ? currentPrice : 0.0;
+        final double base = this.baseFare != null ? this.baseFare : 0.0;
+        final double taxes = this.taxedAndFees != null ? this.taxedAndFees : 0.0;
+        final double fees = this.airlineFees != null ? this.airlineFees : 0.0;
+        final double current = this.currentPrice != null ? this.currentPrice : 0.0;
         return base + taxes + fees + current;
     }
 }

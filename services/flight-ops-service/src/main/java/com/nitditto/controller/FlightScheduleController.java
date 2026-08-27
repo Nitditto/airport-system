@@ -53,9 +53,8 @@ public class FlightScheduleController {
   }
 
   @DeleteMapping("/{id}")
-  public ResponseEntity<ApiResponse> deleteFlightSchedule(@PathVariable Long id) throws Exception {
+  public ResponseEntity<ApiResponse<String>> deleteFlightSchedule(@PathVariable Long id) throws Exception {
     flightScheduleService.deleteFlightScheduleById(id);
-    ApiResponse apiResponse = new ApiResponse("Schedule removed successfully");
-    return ResponseEntity.ok(apiResponse);
+    return ResponseEntity.ok(ApiResponse.success("Schedule removed successfully"));
   }
 }

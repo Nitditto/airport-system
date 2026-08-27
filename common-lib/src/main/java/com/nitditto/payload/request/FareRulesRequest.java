@@ -1,5 +1,7 @@
 package com.nitditto.payload.request;
 
+import java.util.UUID;
+
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -18,9 +20,9 @@ public class FareRulesRequest {
     private String ruleName;
 
     @NotNull(message = "Fare ID is required")
-    private Long fareId;
+    private UUID fareId;
 
-    private Long airlineId;
+    private UUID airlineId;
 
     private Boolean isRefundable;
 

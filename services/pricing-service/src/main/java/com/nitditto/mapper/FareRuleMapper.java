@@ -1,20 +1,20 @@
 package com.nitditto.mapper;
 
-import com.nitditto.model.Fare;
 import com.nitditto.model.FareRules;
 import com.nitditto.payload.request.FareRulesRequest;
 import com.nitditto.payload.response.FareRulesResponse;
+import java.util.UUID;
 
 public class FareRuleMapper {
 
-    public static FareRules toEntity(FareRulesRequest fareRulesRequest, Fare fare) {
+    public static FareRules toEntity(final FareRulesRequest fareRulesRequest, final UUID fareId) {
         if (fareRulesRequest == null) {
             return null;
         }
 
         return FareRules.builder()
                 .ruleName(fareRulesRequest.getRuleName())
-                .fare(fare)
+                .fareId(fareId)
                 .airlineId(fareRulesRequest.getAirlineId())
                 .isRefundable(fareRulesRequest.getIsRefundable())
                 .changeFee(fareRulesRequest.getChangeFee())
@@ -25,7 +25,7 @@ public class FareRuleMapper {
                 .build();
     }
 
-    public static FareRulesResponse toResponse(FareRules fareRules) {
+    public static FareRulesResponse toResponse(final FareRules fareRules) {
         if (fareRules == null) {
             return null;
         }
@@ -33,7 +33,7 @@ public class FareRuleMapper {
         return FareRulesResponse.builder()
                 .id(fareRules.getId())
                 .ruleName(fareRules.getRuleName())
-                .fareId(fareRules.getFare() != null ? fareRules.getFare().getId() : null)
+                .fareId(fareRules.getFareId())
                 .airlineId(fareRules.getAirlineId())
                 .isRefundable(fareRules.getIsRefundable())
                 .changeFee(fareRules.getChangeFee())
