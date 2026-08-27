@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/baggage-policies")
@@ -23,27 +24,27 @@ public class BaggagePolicyController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<BaggagePolicyResponse> getBaggagePolicyById(@PathVariable Long id) throws Exception {
+    public ResponseEntity<BaggagePolicyResponse> getBaggagePolicyById(@PathVariable UUID id) throws Exception {
         return ResponseEntity.ok(baggagePolicyService.getBaggagePolicyById(id));
     }
 
     @GetMapping("/fare/{fareId}")
-    public ResponseEntity<BaggagePolicyResponse> getBaggagePolicyByFareId(@PathVariable Long fareId) throws Exception {
+    public ResponseEntity<BaggagePolicyResponse> getBaggagePolicyByFareId(@PathVariable UUID fareId) throws Exception {
         return ResponseEntity.ok(baggagePolicyService.getBaggagePolicyByFareId(fareId));
     }
 
     @GetMapping("/airline/{airlineId}")
-    public ResponseEntity<List<BaggagePolicyResponse>> getBaggagePoliciesByAirlineId(@PathVariable Long airlineId) throws Exception {
+    public ResponseEntity<List<BaggagePolicyResponse>> getBaggagePoliciesByAirlineId(@PathVariable UUID airlineId) throws Exception {
         return ResponseEntity.ok(baggagePolicyService.getBaggagePoliciesByAirlineId(airlineId));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<BaggagePolicyResponse> updateBaggagePolicy(@PathVariable Long id, @Valid @RequestBody BaggagePolicyRequest baggagePolicyRequest) throws Exception {
+    public ResponseEntity<BaggagePolicyResponse> updateBaggagePolicy(@PathVariable UUID id, @Valid @RequestBody BaggagePolicyRequest baggagePolicyRequest) throws Exception {
         return ResponseEntity.ok(baggagePolicyService.updateBaggagePolicy(id, baggagePolicyRequest));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteBaggagePolicy(@PathVariable Long id) throws Exception {
+    public ResponseEntity<Void> deleteBaggagePolicy(@PathVariable UUID id) throws Exception {
         baggagePolicyService.deleteBaggagePolicy(id);
         return ResponseEntity.noContent().build();
     }

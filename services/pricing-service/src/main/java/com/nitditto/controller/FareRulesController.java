@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RequestMapping("/api/fare-rules")
 @RestController
@@ -27,27 +28,27 @@ public class FareRulesController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<FareRulesResponse> getFareRulesById(@PathVariable Long id) throws Exception {
+    public ResponseEntity<FareRulesResponse> getFareRulesById(@PathVariable UUID id) throws Exception {
         return ResponseEntity.status(HttpStatus.OK).body(fareRulesService.getFareRulesById(id));
     }
 
     @GetMapping("/fare/{fareId}")
-    public ResponseEntity<FareRulesResponse> getFareRulesByFareId(@PathVariable Long fareId) throws Exception {
+    public ResponseEntity<FareRulesResponse> getFareRulesByFareId(@PathVariable UUID fareId) throws Exception {
         return ResponseEntity.ok(fareRulesService.getFareRulesByFareId(fareId));
     }
 
     @GetMapping("/airline/{airlineId}")
-    public ResponseEntity<List<FareRulesResponse>> getFareRulesByAirlineId(@PathVariable Long airlineId) throws Exception {
+    public ResponseEntity<List<FareRulesResponse>> getFareRulesByAirlineId(@PathVariable UUID airlineId) throws Exception {
         return ResponseEntity.ok(fareRulesService.getFareRulesByAirlineId(airlineId));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<FareRulesResponse> updateFareRules(@PathVariable Long id, @Valid @RequestBody FareRulesRequest fareRulesRequest) throws Exception {
+    public ResponseEntity<FareRulesResponse> updateFareRules(@PathVariable UUID id, @Valid @RequestBody FareRulesRequest fareRulesRequest) throws Exception {
         return ResponseEntity.ok(fareRulesService.updateFareRules(id, fareRulesRequest));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteFareRules(@PathVariable Long id) throws Exception {
+    public ResponseEntity<Void> deleteFareRules(@PathVariable UUID id) throws Exception {
         fareRulesService.deleteFareRules(id);
         return ResponseEntity.noContent().build();
     }
