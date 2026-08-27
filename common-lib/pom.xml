@@ -15,8 +15,8 @@
   <artifactId>common-lib</artifactId>
   <packaging>jar</packaging>
 
-  <name/>
-  <description/>
+  <name />
+  <description />
 
   <dependencies>
     <dependency>
@@ -33,6 +33,12 @@
     <dependency>
       <groupId>jakarta.persistence</groupId>
       <artifactId>jakarta.persistence-api</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <dependency>
+      <groupId>org.hibernate.orm</groupId>
+      <artifactId>hibernate-core</artifactId>
       <optional>true</optional>
     </dependency>
 
