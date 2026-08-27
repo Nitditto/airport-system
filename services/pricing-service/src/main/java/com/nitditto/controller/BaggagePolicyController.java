@@ -1,6 +1,7 @@
 package com.nitditto.controller;
 
 import com.nitditto.payload.request.BaggagePolicyRequest;
+import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.BaggagePolicyResponse;
 import com.nitditto.service.BaggagePolicyService;
 import jakarta.validation.Valid;
@@ -19,33 +20,40 @@ public class BaggagePolicyController {
     private final BaggagePolicyService baggagePolicyService;
 
     @PostMapping
-    public ResponseEntity<BaggagePolicyResponse> createBaggagePolicy(@Valid @RequestBody BaggagePolicyRequest baggagePolicyRequest) throws Exception {
-        return ResponseEntity.status(HttpStatus.CREATED).body(baggagePolicyService.createBaggagePolicy(baggagePolicyRequest));
+    public ResponseEntity<ApiResponse<BaggagePolicyResponse>> createBaggagePolicy(
+            @Valid @RequestBody final BaggagePolicyRequest baggagePolicyRequest) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(this.baggagePolicyService.createBaggagePolicy(baggagePolicyRequest)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<BaggagePolicyResponse> getBaggagePolicyById(@PathVariable UUID id) throws Exception {
-        return ResponseEntity.ok(baggagePolicyService.getBaggagePolicyById(id));
+    public ResponseEntity<ApiResponse<BaggagePolicyResponse>> getBaggagePolicyById(@PathVariable final UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(this.baggagePolicyService.getBaggagePolicyById(id)));
     }
 
     @GetMapping("/fare/{fareId}")
-    public ResponseEntity<BaggagePolicyResponse> getBaggagePolicyByFareId(@PathVariable UUID fareId) throws Exception {
-        return ResponseEntity.ok(baggagePolicyService.getBaggagePolicyByFareId(fareId));
+    public ResponseEntity<ApiResponse<BaggagePolicyResponse>> getBaggagePolicyByFareId(
+            @PathVariable final UUID fareId) {
+        return ResponseEntity.ok(ApiResponse.success(this.baggagePolicyService.getBaggagePolicyByFareId(fareId)));
     }
 
     @GetMapping("/airline/{airlineId}")
-    public ResponseEntity<List<BaggagePolicyResponse>> getBaggagePoliciesByAirlineId(@PathVariable UUID airlineId) throws Exception {
-        return ResponseEntity.ok(baggagePolicyService.getBaggagePoliciesByAirlineId(airlineId));
+    public ResponseEntity<ApiResponse<List<BaggagePolicyResponse>>> getBaggagePoliciesByAirlineId(
+            @PathVariable final UUID airlineId) {
+        return ResponseEntity.ok(
+                ApiResponse.success(this.baggagePolicyService.getBaggagePoliciesByAirlineId(airlineId)));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<BaggagePolicyResponse> updateBaggagePolicy(@PathVariable UUID id, @Valid @RequestBody BaggagePolicyRequest baggagePolicyRequest) throws Exception {
-        return ResponseEntity.ok(baggagePolicyService.updateBaggagePolicy(id, baggagePolicyRequest));
+    public ResponseEntity<ApiResponse<BaggagePolicyResponse>> updateBaggagePolicy(@PathVariable final UUID id,
+            @Valid @RequestBody final BaggagePolicyRequest baggagePolicyRequest) {
+        return ResponseEntity.ok(
+                ApiResponse.success(this.baggagePolicyService.updateBaggagePolicy(id, baggagePolicyRequest)));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteBaggagePolicy(@PathVariable UUID id) throws Exception {
-        baggagePolicyService.deleteBaggagePolicy(id);
+    public ResponseEntity<Void> deleteBaggagePolicy(@PathVariable final UUID id) {
+        this.baggagePolicyService.deleteBaggagePolicy(id);
         return ResponseEntity.noContent().build();
     }
 }
