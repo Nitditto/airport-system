@@ -14,11 +14,13 @@ import com.nitditto.service.AirlineService;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -32,6 +34,7 @@ public class AirlineServiceImpl implements AirlineService {
   public AirlineResponse createAirline(final AirlineRequest airlineRequest, final UUID ownerId) {
     final Airline airline = AirlineMapper.toEntity(airlineRequest, ownerId);
     final Airline savedAirline = this.airlineRepository.save(airline);
+    log.info("Created airline id={} ownerId={}", savedAirline.getId(), ownerId);
 
     return AirlineMapper.toResponse(savedAirline);
   }
@@ -65,6 +68,7 @@ public class AirlineServiceImpl implements AirlineService {
 
     AirlineMapper.updateEntity(airline, airlineRequest);
     final Airline savedAirline = this.airlineRepository.save(airline);
+    log.info("Updated airline id={}", savedAirline.getId());
     return AirlineMapper.toResponse(savedAirline);
   }
 
@@ -81,6 +85,7 @@ public class AirlineServiceImpl implements AirlineService {
     }
 
     this.airlineRepository.delete(airline);
+    log.info("Deleted airline id={}", id);
   }
 
   @Override
@@ -90,6 +95,7 @@ public class AirlineServiceImpl implements AirlineService {
         .orElseThrow(() -> new ResourceNotFoundException("Airline", "id", airlineId));
     airline.setStatus(status);
     final Airline updatedAirline = this.airlineRepository.save(airline);
+    log.info("Changed airline id={} status={}", airlineId, status);
     return AirlineMapper.toResponse(updatedAirline);
   }
 

@@ -13,9 +13,11 @@ import com.nitditto.service.AircraftService;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -40,6 +42,7 @@ public class AircraftServiceImpl implements AircraftService {
       throw new BusinessException("seating capacity can't exceed to total seating capacity");
     }
     final Aircraft saved = this.aircraftRepository.save(aircraft);
+    log.info("Created aircraft id={} code={} airlineId={}", saved.getId(), saved.getCode(), airline.getId());
     return AircraftMapper.toResponse(saved, airline);
   }
 
@@ -77,6 +80,7 @@ public class AircraftServiceImpl implements AircraftService {
     }
     AircraftMapper.updateEntity(aircraft, aircraftRequest);
     final Aircraft saved = this.aircraftRepository.save(aircraft);
+    log.info("Updated aircraft id={}", id);
     return AircraftMapper.toResponse(saved, airline);
   }
 
@@ -90,5 +94,6 @@ public class AircraftServiceImpl implements AircraftService {
       throw new ResourceNotFoundException("Aircraft", "id", id);
     }
     this.aircraftRepository.delete(aircraft);
+    log.info("Deleted aircraft id={}", id);
   }
 }
