@@ -12,6 +12,7 @@ import com.nitditto.service.AuthService;
 import com.nitditto.service.CustomUserDetailsService;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -19,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -56,6 +58,7 @@ public class AuthServiceImpl implements AuthService {
         .build();
 
     final User savedUser = this.userRepository.save(newUser);
+    log.info("Registered new user id={} email={}", savedUser.getId(), savedUser.getEmail());
 
     final Authentication authentication = new UsernamePasswordAuthenticationToken(savedUser.getEmail(),
         savedUser.getPassword());
@@ -88,6 +91,7 @@ public class AuthServiceImpl implements AuthService {
     final User user = this.userRepository.findByEmail(email);
     user.setLastLogin(LocalDateTime.now());
     this.userRepository.save(user);
+    log.info("User logged in id={} email={}", user.getId(), user.getEmail());
 
     final String jwt = this.jwtProvider.generateToken(authentication, user.getId());
     final AuthResponse authResponse = new AuthResponse();
