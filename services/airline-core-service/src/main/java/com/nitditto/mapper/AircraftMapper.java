@@ -4,10 +4,14 @@ import com.nitditto.model.Aircraft;
 import com.nitditto.model.Airline;
 import com.nitditto.payload.request.AircraftRequest;
 import com.nitditto.payload.response.AircraftResponse;
+import java.util.UUID;
 
 public class AircraftMapper {
 
-  public static Aircraft toEntity(AircraftRequest request, Airline airline) {
+  private AircraftMapper() {
+  }
+
+  public static Aircraft toEntity(final AircraftRequest request, final UUID airlineId) {
     if (request == null) {
       return null;
     }
@@ -28,12 +32,12 @@ public class AircraftMapper {
         .nextMaintenanceDate(request.getNextMaintenanceDate())
         .status(request.getStatus())
         .isAvailable(request.getIsAvailable())
-        .airline(airline)
+        .airlineId(airlineId)
         .currentAirportId(request.getCurrentAirportId())
         .build();
   }
 
-  public static AircraftResponse toResponse(Aircraft aircraft) {
+  public static AircraftResponse toResponse(final Aircraft aircraft, final Airline airline) {
     if (aircraft == null) {
       return null;
     }
@@ -55,11 +59,11 @@ public class AircraftMapper {
         .nextMaintenanceDate(aircraft.getNextMaintenanceDate())
         .status(aircraft.getStatus())
         .isAvailable(aircraft.getIsAvailable())
-        // Airline info (same service - available directly)
-        .airlineId(aircraft.getAirline() != null ? aircraft.getAirline().getId() : null)
-        .airlineName(aircraft.getAirline() != null ? aircraft.getAirline().getName() : null)
-        .airlineIataCode(aircraft.getAirline() != null ? aircraft.getAirline().getIataCode() : null)
-        //Airport is cross-service only ID available here
+        // Airline cùng service nhưng đã gỡ @ManyToOne - nhận qua tham số thay vì aircraft.getAirline()
+        .airlineId(aircraft.getAirlineId())
+        .airlineName(airline != null ? airline.getName() : null)
+        .airlineIataCode(airline != null ? airline.getIataCode() : null)
+        // Airport là cross-service, chỉ có ID
         .currentAirportId(aircraft.getCurrentAirportId())
         // Computed fields
         .totalSeats(aircraft.getTotalSeats())
@@ -71,7 +75,7 @@ public class AircraftMapper {
         .build();
   }
 
-  public static void updateEntity(Aircraft aircraft, AircraftRequest request) {
+  public static void updateEntity(final Aircraft aircraft, final AircraftRequest request) {
     if (aircraft == null || request == null) {
       return;
     }
