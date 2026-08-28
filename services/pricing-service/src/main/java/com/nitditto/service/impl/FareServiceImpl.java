@@ -21,12 +21,14 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -45,6 +47,8 @@ public class FareServiceImpl implements FareService {
         }
         final Fare fare = FareMapper.toEntity(request);
         final Fare savedFare = this.fareRepository.save(fare);
+        log.info("Created fare id={} flightId={} cabinClassId={}", savedFare.getId(), savedFare.getFlightId(),
+                savedFare.getCabinClassId());
         // Fare mới tạo chưa thể có FareRules/BaggagePolicy (2 endpoint riêng tạo sau) -> khỏi query thêm
         return FareMapper.toResponse(savedFare, null, null);
     }
@@ -79,6 +83,7 @@ public class FareServiceImpl implements FareService {
 
         FareMapper.updateEntity(request, fare);
         final Fare updatedFare = this.fareRepository.save(fare);
+        log.info("Updated fare id={}", id);
         return this.toResponses(List.of(updatedFare)).get(0);
     }
 
@@ -92,6 +97,7 @@ public class FareServiceImpl implements FareService {
         this.baggagePolicyRepository.deleteByFareId(id);
         this.fareRuleRepository.deleteByFareId(id);
         this.fareRepository.deleteById(id);
+        log.info("Deleted fare id={}", id);
     }
 
     @Override

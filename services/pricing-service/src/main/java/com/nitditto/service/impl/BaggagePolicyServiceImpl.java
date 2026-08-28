@@ -10,6 +10,7 @@ import com.nitditto.repository.BaggagePolicyRepository;
 import com.nitditto.repository.FareRepository;
 import com.nitditto.service.BaggagePolicyService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -38,6 +40,7 @@ public class BaggagePolicyServiceImpl implements BaggagePolicyService {
         final BaggagePolicy baggagePolicy =
                 BaggagePolicyMapper.toEntity(baggagePolicyRequest, baggagePolicyRequest.getFareId());
         final BaggagePolicy saved = this.baggagePolicyRepository.save(baggagePolicy);
+        log.info("Created baggage policy id={} fareId={}", saved.getId(), saved.getFareId());
 
         return BaggagePolicyMapper.toResponse(saved);
     }
@@ -71,6 +74,7 @@ public class BaggagePolicyServiceImpl implements BaggagePolicyService {
                 .orElseThrow(() -> new ResourceNotFoundException("BaggagePolicy", "id", id));
         BaggagePolicyMapper.updateEntity(baggagePolicyRequest, baggagePolicy);
         final BaggagePolicy saved = this.baggagePolicyRepository.save(baggagePolicy);
+        log.info("Updated baggage policy id={}", id);
         return BaggagePolicyMapper.toResponse(saved);
     }
 
@@ -80,5 +84,6 @@ public class BaggagePolicyServiceImpl implements BaggagePolicyService {
         final BaggagePolicy baggagePolicy = this.baggagePolicyRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BaggagePolicy", "id", id));
         this.baggagePolicyRepository.delete(baggagePolicy);
+        log.info("Deleted baggage policy id={}", id);
     }
 }

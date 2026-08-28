@@ -10,6 +10,7 @@ import com.nitditto.repository.FareRepository;
 import com.nitditto.repository.FareRuleRepository;
 import com.nitditto.service.FareRulesService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -38,6 +40,7 @@ public class FareRulesServiceImpl implements FareRulesService {
 
         final FareRules fareRules = FareRuleMapper.toEntity(fareRulesRequest, fareRulesRequest.getFareId());
         final FareRules savedFareRules = this.fareRuleRepository.save(fareRules);
+        log.info("Created fare rules id={} fareId={}", savedFareRules.getId(), savedFareRules.getFareId());
         return FareRuleMapper.toResponse(savedFareRules);
     }
 
@@ -70,6 +73,7 @@ public class FareRulesServiceImpl implements FareRulesService {
                 .orElseThrow(() -> new ResourceNotFoundException("FareRules", "id", id));
         FareRuleMapper.updateEntity(fareRulesRequest, fareRules);
         final FareRules savedFareRules = this.fareRuleRepository.save(fareRules);
+        log.info("Updated fare rules id={}", id);
 
         return FareRuleMapper.toResponse(savedFareRules);
     }
@@ -80,5 +84,6 @@ public class FareRulesServiceImpl implements FareRulesService {
         final FareRules fareRules = this.fareRuleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("FareRules", "id", id));
         this.fareRuleRepository.delete(fareRules);
+        log.info("Deleted fare rules id={}", id);
     }
 }
