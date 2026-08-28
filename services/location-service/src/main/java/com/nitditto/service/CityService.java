@@ -2,18 +2,19 @@ package com.nitditto.service;
 
 import com.nitditto.payload.request.CityRequest;
 import com.nitditto.payload.response.CityResponse;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 public interface CityService {
 
-  CityResponse createCity(CityRequest cityRequest) throws Exception;
+  CityResponse createCity(CityRequest cityRequest);
 
-  CityResponse getCityById(Long id) throws Exception;
+  CityResponse getCityById(UUID id);
 
-  CityResponse updateCity(Long id, CityRequest cityRequest) throws Exception;
+  CityResponse updateCity(UUID id, CityRequest cityRequest);
 
-  void deleteCityById(Long id) throws Exception;
+  void deleteCityById(UUID id);
 
   Page<CityResponse> getAllCities(Pageable pageable);
 

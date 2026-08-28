@@ -6,6 +6,7 @@ import com.nitditto.payload.response.FlightInstanceResponse;
 import com.nitditto.service.FlightInstanceService;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -30,42 +31,44 @@ public class FlightInstanceController {
   private final FlightInstanceService flightInstanceService;
 
   @PostMapping
-  public ResponseEntity<FlightInstanceResponse> createFlightInstance(
-      @RequestHeader("X-Airline-Id") Long airlineId,
-      @Valid @RequestBody FlightInstanceRequest flightInstanceRequest) throws Exception {
+  public ResponseEntity<ApiResponse<FlightInstanceResponse>> createFlightInstance(
+      @RequestHeader("X-Airline-Id") final UUID airlineId,
+      @Valid @RequestBody final FlightInstanceRequest flightInstanceRequest) {
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(flightInstanceService.createFlightInstance(airlineId, flightInstanceRequest));
+        .body(ApiResponse.success(
+            this.flightInstanceService.createFlightInstance(airlineId, flightInstanceRequest)));
   }
 
   @GetMapping("/{id}")
-  public ResponseEntity<FlightInstanceResponse> getFlightInstance(@PathVariable Long id)
-      throws Exception {
-    return ResponseEntity.ok(flightInstanceService.getFlightInstanceById(id));
+  public ResponseEntity<ApiResponse<FlightInstanceResponse>> getFlightInstance(
+      @PathVariable final UUID id) {
+    return ResponseEntity.ok(ApiResponse.success(this.flightInstanceService.getFlightInstanceById(id)));
   }
 
   @GetMapping
-  public ResponseEntity<Page<FlightInstanceResponse>> getByAirlineId(
-      @RequestHeader("X-Airline-Id") Long airlineId,
-      @RequestParam(required = false) Long departureAirportId,
-      @RequestParam(required = false) Long arrivalAirportId,
-      @RequestParam(required = false) Long flightId,
-      @RequestParam(required = false) LocalDate onDate, Pageable pageable
+  public ResponseEntity<ApiResponse<Page<FlightInstanceResponse>>> getByAirlineId(
+      @RequestHeader("X-Airline-Id") final UUID airlineId,
+      @RequestParam(required = false) final UUID departureAirportId,
+      @RequestParam(required = false) final UUID arrivalAirportId,
+      @RequestParam(required = false) final UUID flightId,
+      @RequestParam(required = false) final LocalDate onDate, final Pageable pageable
   ) {
-    return ResponseEntity.ok(
-        flightInstanceService.getByAirlineId(airlineId, departureAirportId, arrivalAirportId,
-            flightId, onDate, pageable));
+    return ResponseEntity.ok(ApiResponse.success(
+        this.flightInstanceService.getByAirlineId(airlineId, departureAirportId, arrivalAirportId,
+            flightId, onDate, pageable)));
   }
 
   @PutMapping("/{id}")
-  public ResponseEntity<FlightInstanceResponse> updateFlightInstance(@PathVariable Long id,
-      @RequestBody FlightInstanceRequest flightInstanceRequest)
-      throws Exception {
-    return ResponseEntity.ok(flightInstanceService.updateFlightInstance(id, flightInstanceRequest));
+  public ResponseEntity<ApiResponse<FlightInstanceResponse>> updateFlightInstance(
+      @PathVariable final UUID id,
+      @Valid @RequestBody final FlightInstanceRequest flightInstanceRequest) {
+    return ResponseEntity.ok(
+        ApiResponse.success(this.flightInstanceService.updateFlightInstance(id, flightInstanceRequest)));
   }
 
   @DeleteMapping("/{id}")
-  public ResponseEntity<ApiResponse<String>> deleteFlightInstance(@PathVariable Long id) throws Exception {
-    flightInstanceService.deleteFlightInstance(id);
-    return ResponseEntity.ok(ApiResponse.success("flight instance deleted"));
+  public ResponseEntity<Void> deleteFlightInstance(@PathVariable final UUID id) {
+    this.flightInstanceService.deleteFlightInstance(id);
+    return ResponseEntity.noContent().build();
   }
 }

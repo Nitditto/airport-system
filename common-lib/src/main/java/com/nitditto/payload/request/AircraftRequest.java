@@ -1,11 +1,11 @@
 package com.nitditto.payload.request;
 
 import com.nitditto.enums.AircraftStatus;
-import jakarta.persistence.criteria.CriteriaBuilder.In;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import java.time.LocalDate;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -65,5 +65,5 @@ public class AircraftRequest {
   @NotNull(message = "Available status is required")
   private Boolean isAvailable;
 
-  private Long currentAirportId;
+  private UUID currentAirportId;
 }

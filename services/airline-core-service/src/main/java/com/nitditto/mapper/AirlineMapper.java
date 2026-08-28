@@ -3,12 +3,15 @@ package com.nitditto.mapper;
 import com.nitditto.embeddable.Support;
 import com.nitditto.model.Airline;
 import com.nitditto.payload.request.AirlineRequest;
-import com.nitditto.payload.request.AirportRequest;
 import com.nitditto.payload.response.AirlineResponse;
+import java.util.UUID;
 
 public class AirlineMapper {
 
-  public static Airline toEntity(AirlineRequest airlineRequest, Long ownerId) {
+  private AirlineMapper() {
+  }
+
+  public static Airline toEntity(final AirlineRequest airlineRequest, final UUID ownerId) {
     if (airlineRequest == null) {
       return null;
     }

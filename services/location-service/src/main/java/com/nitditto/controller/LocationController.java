@@ -5,6 +5,7 @@ import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.CityResponse;
 import com.nitditto.service.CityService;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -29,70 +30,65 @@ public class LocationController {
 
   private final CityService cityService;
 
-  // /api/cities
   @PostMapping
-  public ResponseEntity<CityResponse> createCity(@Valid @RequestBody CityRequest cityRequest)
-      throws Exception {
-    CityResponse cityResponse = cityService.createCity(cityRequest);
-    return ResponseEntity.status(HttpStatus.CREATED).body(cityResponse);
+  public ResponseEntity<ApiResponse<CityResponse>> createCity(@Valid @RequestBody final CityRequest cityRequest) {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(ApiResponse.success(this.cityService.createCity(cityRequest)));
   }
 
-  // /api/cities/3
   @GetMapping("/{id}")
-  public ResponseEntity<CityResponse> getCityById(@PathVariable Long id) throws Exception {
-    CityResponse cityResponse = cityService.getCityById(id);
-    return ResponseEntity.status(HttpStatus.OK).body(cityResponse);
+  public ResponseEntity<ApiResponse<CityResponse>> getCityById(@PathVariable final UUID id) {
+    return ResponseEntity.ok(ApiResponse.success(this.cityService.getCityById(id)));
   }
 
   // GET /cities?page=0&size=2&sortBy=name&sortDirection=asc
   @GetMapping
-  public ResponseEntity<Page<CityResponse>> getAllCities(
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size,
-      @RequestParam(defaultValue = "name") String sortBy,
-      @RequestParam(defaultValue = "asc") String sortDirection
-  ) throws Exception {
-
-    Sort sort = Sort.by(Sort.Direction.fromString(sortDirection), sortBy);
-    Pageable pageable = PageRequest.of(page, size, sort);
-    return ResponseEntity.ok(cityService.getAllCities(pageable));
+  public ResponseEntity<ApiResponse<Page<CityResponse>>> getAllCities(
+      @RequestParam(defaultValue = "0") final int page,
+      @RequestParam(defaultValue = "20") final int size,
+      @RequestParam(defaultValue = "name") final String sortBy,
+      @RequestParam(defaultValue = "asc") final String sortDirection
+  ) {
+    final Sort sort = Sort.by(Sort.Direction.fromString(sortDirection), sortBy);
+    final Pageable pageable = PageRequest.of(page, size, sort);
+    return ResponseEntity.ok(ApiResponse.success(this.cityService.getAllCities(pageable)));
   }
 
   @PutMapping("/{id}")
-  public ResponseEntity<CityResponse> updateCity(@PathVariable Long id,
-      @Valid @RequestBody CityRequest cityRequest) throws Exception {
-    return ResponseEntity.ok(cityService.updateCity(id, cityRequest));
+  public ResponseEntity<ApiResponse<CityResponse>> updateCity(@PathVariable final UUID id,
+      @Valid @RequestBody final CityRequest cityRequest) {
+    return ResponseEntity.ok(ApiResponse.success(this.cityService.updateCity(id, cityRequest)));
   }
 
   @DeleteMapping("/{id}")
-  public ResponseEntity<ApiResponse<String>> deleteCity(@PathVariable Long id) throws Exception {
-    cityService.deleteCityById(id);
-    return ResponseEntity.ok(ApiResponse.success("City deleted successfully"));
+  public ResponseEntity<Void> deleteCity(@PathVariable final UUID id) {
+    this.cityService.deleteCityById(id);
+    return ResponseEntity.noContent().build();
   }
 
   @GetMapping("/search")
-  public ResponseEntity<Page<CityResponse>> searchCities(
-      @RequestParam String keyword,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "10") int size
+  public ResponseEntity<ApiResponse<Page<CityResponse>>> searchCities(
+      @RequestParam final String keyword,
+      @RequestParam(defaultValue = "0") final int page,
+      @RequestParam(defaultValue = "10") final int size
   ) {
-    Pageable pageable = PageRequest.of(page, size);
-    return ResponseEntity.ok(cityService.searchCities(keyword, pageable));
+    final Pageable pageable = PageRequest.of(page, size);
+    return ResponseEntity.ok(ApiResponse.success(this.cityService.searchCities(keyword, pageable)));
   }
 
   @GetMapping("/country/{countryCode}")
-  public ResponseEntity<Page<CityResponse>> getAllCitiesByCountryCode(
-      @PathVariable String countryCode,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "20") int size
+  public ResponseEntity<ApiResponse<Page<CityResponse>>> getAllCitiesByCountryCode(
+      @PathVariable final String countryCode,
+      @RequestParam(defaultValue = "0") final int page,
+      @RequestParam(defaultValue = "20") final int size
   ) {
-    Pageable pageable = PageRequest.of(page, size);
+    final Pageable pageable = PageRequest.of(page, size);
     return ResponseEntity.ok(
-        cityService.getCitiesByCountryCode(countryCode.toUpperCase(), pageable));
+        ApiResponse.success(this.cityService.getCitiesByCountryCode(countryCode.toUpperCase(), pageable)));
   }
 
   @GetMapping("/exists/{cityCode}")
-  public ResponseEntity<Boolean> checkCityExists(@PathVariable String cityCode) {
-    return ResponseEntity.ok(cityService.cityExists(cityCode.toUpperCase()));
+  public ResponseEntity<ApiResponse<Boolean>> checkCityExists(@PathVariable final String cityCode) {
+    return ResponseEntity.ok(ApiResponse.success(this.cityService.cityExists(cityCode.toUpperCase())));
   }
 }

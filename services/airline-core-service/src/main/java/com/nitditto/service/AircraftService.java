@@ -3,17 +3,18 @@ package com.nitditto.service;
 import com.nitditto.payload.request.AircraftRequest;
 import com.nitditto.payload.response.AircraftResponse;
 import java.util.List;
+import java.util.UUID;
 
 public interface AircraftService {
 
-  AircraftResponse createAircraft(AircraftRequest aircraftRequest, Long ownerId) throws Exception;
+  AircraftResponse createAircraft(AircraftRequest aircraftRequest, UUID ownerId);
 
-  AircraftResponse getAircraftById(Long id) throws Exception;
+  AircraftResponse getAircraftById(UUID id);
 
-  List<AircraftResponse> listAllAircraftByOwner(Long ownerId) throws Exception;
+  List<AircraftResponse> listAllAircraftByOwner(UUID ownerId);
 
-  AircraftResponse updateAircraft(Long id, AircraftRequest aircraftRequest, Long ownerId) throws Exception;
+  AircraftResponse updateAircraft(UUID id, AircraftRequest aircraftRequest, UUID ownerId);
 
-  void deleteAircraft(Long id, Long ownerId) throws Exception;
+  void deleteAircraft(UUID id, UUID ownerId);
 
 }

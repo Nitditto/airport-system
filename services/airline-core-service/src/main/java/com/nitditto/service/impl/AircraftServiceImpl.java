@@ -1,5 +1,7 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.exception.BusinessException;
+import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.AircraftMapper;
 import com.nitditto.model.Aircraft;
 import com.nitditto.model.Airline;
@@ -9,6 +11,7 @@ import com.nitditto.repository.AircraftRepository;
 import com.nitditto.repository.AirlineRepository;
 import com.nitditto.service.AircraftService;
 import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -20,65 +23,67 @@ public class AircraftServiceImpl implements AircraftService {
   private final AirlineRepository airlineRepository;
 
   @Override
-  public AircraftResponse createAircraft(AircraftRequest aircraftRequest, Long ownerId)
-      throws Exception {
-    Airline airline = airlineRepository.findByOwnerId(ownerId).orElseThrow(() ->
-        new Exception("Airline not exist for this ownerId"));
+  public AircraftResponse createAircraft(final AircraftRequest aircraftRequest, final UUID ownerId) {
+    final Airline airline = this.airlineRepository.findByOwnerId(ownerId)
+        .orElseThrow(() -> new ResourceNotFoundException("Airline", "ownerId", ownerId));
 
-    Aircraft aircraft = AircraftMapper.toEntity(aircraftRequest, airline);
-
-    if (aircraftRepository.existsByCode(aircraft.getCode())) {
-      throw new Exception("code already exist with another aircraft");
+    if (this.aircraftRepository.existsByCode(aircraftRequest.getCode())) {
+      throw new BusinessException("code already exist with another aircraft");
     }
+
+    final Aircraft aircraft = AircraftMapper.toEntity(aircraftRequest, airline.getId());
+
     if (aircraft.getSeatingCapacity() < aircraft.getTotalSeats()) {
-      throw new Exception("seating capacity can't exceed to total seating capacity");
+      throw new BusinessException("seating capacity can't exceed to total seating capacity");
     }
-    return AircraftMapper.toResponse(aircraftRepository.save(aircraft));
-  }
-
-
-  @Override
-  public AircraftResponse getAircraftById(Long id) throws Exception {
-    Aircraft aircraft = aircraftRepository.findById(id)
-        .orElseThrow(() -> new Exception("Aircraft not exist with id"));
-    return AircraftMapper.toResponse(aircraft);
+    final Aircraft saved = this.aircraftRepository.save(aircraft);
+    return AircraftMapper.toResponse(saved, airline);
   }
 
   @Override
-  public List<AircraftResponse> listAllAircraftByOwner(Long ownerId) throws Exception {
-    Airline airline = airlineRepository.findByOwnerId(ownerId)
-        .orElseThrow(() -> new Exception("this owner dont have airline"));
-    return aircraftRepository.findByAirlineId(airline.getId())
+  public AircraftResponse getAircraftById(final UUID id) {
+    final Aircraft aircraft = this.aircraftRepository.findById(id)
+        .orElseThrow(() -> new ResourceNotFoundException("Aircraft", "id", id));
+    final Airline airline = this.airlineRepository.findById(aircraft.getAirlineId()).orElse(null);
+    return AircraftMapper.toResponse(aircraft, airline);
+  }
+
+  @Override
+  public List<AircraftResponse> listAllAircraftByOwner(final UUID ownerId) {
+    final Airline airline = this.airlineRepository.findByOwnerId(ownerId)
+        .orElseThrow(() -> new ResourceNotFoundException("Airline", "ownerId", ownerId));
+    return this.aircraftRepository.findByAirlineId(airline.getId())
         .stream()
-        .map(AircraftMapper::toResponse).toList();
+        .map(aircraft -> AircraftMapper.toResponse(aircraft, airline))
+        .toList();
   }
 
   @Override
-  public AircraftResponse updateAircraft(Long id, AircraftRequest aircraftRequest, Long ownerId)
-      throws Exception {
-    Airline airline = airlineRepository.findByOwnerId(ownerId)
-        .orElseThrow(() -> new Exception("this owner dont have airline"));
-    Aircraft aircraft = aircraftRepository.findByIdAndAirlineId(id, airline.getId());
+  public AircraftResponse updateAircraft(final UUID id, final AircraftRequest aircraftRequest,
+      final UUID ownerId) {
+    final Airline airline = this.airlineRepository.findByOwnerId(ownerId)
+        .orElseThrow(() -> new ResourceNotFoundException("Airline", "ownerId", ownerId));
+    final Aircraft aircraft = this.aircraftRepository.findByIdAndAirlineId(id, airline.getId());
     if (aircraft == null) {
-      throw new Exception("aircraft not exist with id");
+      throw new ResourceNotFoundException("Aircraft", "id", id);
     }
     if (aircraftRequest.getCode() != null && !aircraft.getCode().equals(aircraftRequest.getCode())
-        && aircraftRepository.existsByCode(
-        aircraftRequest.getCode())) {
-      throw new Exception("code already exist with another aircraft");
+        && this.aircraftRepository.existsByCode(aircraftRequest.getCode())) {
+      throw new BusinessException("code already exist with another aircraft");
     }
     AircraftMapper.updateEntity(aircraft, aircraftRequest);
-    return AircraftMapper.toResponse(aircraftRepository.save(aircraft));
+    final Aircraft saved = this.aircraftRepository.save(aircraft);
+    return AircraftMapper.toResponse(saved, airline);
   }
 
   @Override
-  public void deleteAircraft(Long id, Long ownerId) throws Exception {
-    Airline airline = airlineRepository.findByOwnerId(ownerId)
-        .orElseThrow(() -> new Exception("this owner dont have airline"));
-    Aircraft aircraft = aircraftRepository.findByIdAndAirlineId(id, airline.getId());
+  public void deleteAircraft(final UUID id, final UUID ownerId) {
+    final Airline airline = this.airlineRepository.findByOwnerId(ownerId)
+        .orElseThrow(() -> new ResourceNotFoundException("Airline", "ownerId", ownerId));
+    final Aircraft aircraft = this.aircraftRepository.findByIdAndAirlineId(id, airline.getId());
     if (aircraft == null) {
-      throw new Exception("aircraft not exist with id");
+      throw new ResourceNotFoundException("Aircraft", "id", id);
     }
-    aircraftRepository.delete(aircraft);
+    this.aircraftRepository.delete(aircraft);
   }
 }

@@ -8,6 +8,7 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -28,7 +29,7 @@ public class JwtProvider {
         .getPayload();
   }
 
-  public String generateToken(Authentication auth, Long userId) {
+  public String generateToken(final Authentication auth, final UUID userId) {
     Collection<? extends GrantedAuthority> authorities = auth.getAuthorities();
     String roles = populateAuthorities(authorities);
     String jwt = Jwts.builder()

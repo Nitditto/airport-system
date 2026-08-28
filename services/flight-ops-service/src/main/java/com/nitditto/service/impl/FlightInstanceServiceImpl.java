@@ -1,6 +1,6 @@
 package com.nitditto.service.impl;
 
-
+import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.FlightInstanceMapper;
 import com.nitditto.model.Flight;
 import com.nitditto.model.FlightInstance;
@@ -14,6 +14,11 @@ import com.nitditto.repository.FlightRepository;
 import com.nitditto.service.FlightInstanceService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,79 +32,90 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
   private final FlightInstanceRepository flightInstanceRepository;
 
   @Override
-  public FlightInstanceResponse createFlightInstance(Long airlineId,
-      FlightInstanceRequest flightInstanceRequest) throws Exception {
+  public FlightInstanceResponse createFlightInstance(final UUID airlineId,
+      final FlightInstanceRequest flightInstanceRequest) {
 
     // todo: watch airlineId
-    Flight flight = flightRepository.findById(flightInstanceRequest.getFlightId())
-        .orElseThrow(() -> new Exception("Flight not found"));
+    final Flight flight = this.flightRepository.findById(flightInstanceRequest.getFlightId())
+        .orElseThrow(() -> new ResourceNotFoundException("Flight", "id",
+            flightInstanceRequest.getFlightId()));
 
-    // todo: service to service communication
-    AircraftResponse aircraftResponse = AircraftResponse.builder()
-        .id(1L)
+    // todo: service to service communication - lấy sức chứa thật từ airline-core-service
+    final AircraftResponse aircraftResponse = AircraftResponse.builder()
         .totalSeats(90)
         .build();
 
-    FlightInstance flightInstance = FlightInstanceMapper.toEntity(flightInstanceRequest, flight);
+    final FlightInstance flightInstance = FlightInstanceMapper.toEntity(flightInstanceRequest, flight);
     flightInstance.setTotalSeats(aircraftResponse.getTotalSeats());
     flightInstance.setAvailableSeats(aircraftResponse.getTotalSeats());
 
-    FlightInstance saved = flightInstanceRepository.save(flightInstance);
+    final FlightInstance saved = this.flightInstanceRepository.save(flightInstance);
 
     // todo: create seat instances
-    return convertToFlightInstanceResponse(saved);
+    return this.convertToFlightInstanceResponse(saved, flight);
   }
 
   @Override
-  public FlightInstanceResponse getFlightInstanceById(Long id) throws Exception {
-    FlightInstance flightInstance = flightInstanceRepository.findById(id)
-        .orElseThrow(() -> new Exception("flight instance not found with id" + id));
-    return convertToFlightInstanceResponse(flightInstance);
+  public FlightInstanceResponse getFlightInstanceById(final UUID id) {
+    final FlightInstance flightInstance = this.flightInstanceRepository.findById(id)
+        .orElseThrow(() -> new ResourceNotFoundException("FlightInstance", "id", id));
+    final Flight flight = this.flightRepository.findById(flightInstance.getFlightId()).orElse(null);
+    return this.convertToFlightInstanceResponse(flightInstance, flight);
   }
 
   @Override
-  public Page<FlightInstanceResponse> getByAirlineId(Long airlineId, Long departureAirportId,
-      Long arrivalAirportId, Long flightId, LocalDate onDate, Pageable pageable) {
+  public Page<FlightInstanceResponse> getByAirlineId(final UUID airlineId, final UUID departureAirportId,
+      final UUID arrivalAirportId, final UUID flightId, final LocalDate onDate, final Pageable pageable) {
 
     // todo: watch airlineId
-    LocalDateTime start = onDate != null ? onDate.atStartOfDay() : null;
-    LocalDateTime end = onDate != null ? onDate.plusDays(1).atStartOfDay() : null;
+    final LocalDateTime start = onDate != null ? onDate.atStartOfDay() : null;
+    final LocalDateTime end = onDate != null ? onDate.plusDays(1).atStartOfDay() : null;
 
-    return flightInstanceRepository.findByAirlineId(airlineId, departureAirportId, arrivalAirportId,
-        flightId, start, end, pageable).map(this::convertToFlightInstanceResponse);
+    final Page<FlightInstance> page = this.flightInstanceRepository.findByAirlineId(airlineId,
+        departureAirportId, arrivalAirportId, flightId, start, end, pageable);
+
+    // Batch-load Flight cho cả trang thay vì fetch từng cái trong Page.map() (N+1)
+    final List<UUID> flightIds = page.getContent().stream()
+        .map(FlightInstance::getFlightId).distinct().toList();
+    final Map<UUID, Flight> flightById = this.flightRepository.findAllById(flightIds)
+        .stream().collect(Collectors.toMap(Flight::getId, Function.identity()));
+
+    return page.map(fi -> this.convertToFlightInstanceResponse(fi, flightById.get(fi.getFlightId())));
   }
 
   @Override
-  public FlightInstanceResponse updateFlightInstance(Long id,
-      FlightInstanceRequest flightInstanceRequest) throws Exception {
-    FlightInstance existing = flightInstanceRepository.findById(id)
-        .orElseThrow(() -> new Exception("flight instance not found"));
+  public FlightInstanceResponse updateFlightInstance(final UUID id,
+      final FlightInstanceRequest flightInstanceRequest) {
+    final FlightInstance existing = this.flightInstanceRepository.findById(id)
+        .orElseThrow(() -> new ResourceNotFoundException("FlightInstance", "id", id));
     FlightInstanceMapper.updateEntity(flightInstanceRequest, existing);
-    return convertToFlightInstanceResponse(flightInstanceRepository.save(existing));
+    final FlightInstance saved = this.flightInstanceRepository.save(existing);
+    final Flight flight = this.flightRepository.findById(saved.getFlightId()).orElse(null);
+    return this.convertToFlightInstanceResponse(saved, flight);
   }
 
   @Override
-  public void deleteFlightInstance(Long id) throws Exception {
-    FlightInstance existing = flightInstanceRepository.findById(id)
-        .orElseThrow(() -> new Exception("flight instance not found"));
-    flightInstanceRepository.delete(existing);
+  public void deleteFlightInstance(final UUID id) {
+    if (!this.flightInstanceRepository.existsById(id)) {
+      throw new ResourceNotFoundException("FlightInstance", "id", id);
+    }
+    this.flightInstanceRepository.deleteById(id);
   }
 
-  private FlightInstanceResponse convertToFlightInstanceResponse(FlightInstance flightInstance) {
+  private FlightInstanceResponse convertToFlightInstanceResponse(final FlightInstance flightInstance,
+      final Flight flight) {
 
     // todo: service to service communication
-    AirlineResponse airlineResponse = AirlineResponse.builder().id(flightInstance.getAirlineId())
-        .build();
-    AirportResponse departureAirport = AirportResponse.builder()
+    final AirlineResponse airlineResponse =
+        AirlineResponse.builder().id(flightInstance.getAirlineId()).build();
+    final AirportResponse departureAirport = AirportResponse.builder()
         .id(flightInstance.getDepartureAirportId()).build();
-    AirportResponse arrivalAirport = AirportResponse.builder()
+    final AirportResponse arrivalAirport = AirportResponse.builder()
         .id(flightInstance.getArrivalAirportId()).build();
+    final AircraftResponse aircraftResponse = AircraftResponse.builder()
+        .id(flight != null ? flight.getAircraftId() : null).build();
 
-    AircraftResponse aircraftResponse = AircraftResponse.builder()
-        .id(flightInstance.getFlight().getAircraftId()).build();
-
-    return FlightInstanceMapper.toResponse(flightInstance, aircraftResponse, airlineResponse,
+    return FlightInstanceMapper.toResponse(flightInstance, flight, aircraftResponse, airlineResponse,
         departureAirport, arrivalAirport);
-
   }
 }

@@ -1,10 +1,12 @@
 package com.nitditto.controller;
 
 import com.nitditto.payload.request.AircraftRequest;
+import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.AircraftResponse;
 import com.nitditto.service.AircraftService;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -26,35 +28,35 @@ public class AircraftController {
   private final AircraftService aircraftService;
 
   @PostMapping
-  public ResponseEntity<AircraftResponse> createAircraft(
-      @RequestBody @Valid AircraftRequest aircraftRequest,
-      @RequestHeader("X-User-Id") Long userId) throws Exception {
-    AircraftResponse aircraftResponse = aircraftService.createAircraft(aircraftRequest, userId);
-    return ResponseEntity.status(HttpStatus.CREATED).body(aircraftResponse);
+  public ResponseEntity<ApiResponse<AircraftResponse>> createAircraft(
+      @RequestBody @Valid final AircraftRequest aircraftRequest,
+      @RequestHeader("X-User-Id") final UUID userId) {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(ApiResponse.success(this.aircraftService.createAircraft(aircraftRequest, userId)));
   }
 
   @GetMapping("/{id}")
-  public ResponseEntity<AircraftResponse> getAircraftById(@PathVariable Long id) throws Exception {
-    return ResponseEntity.ok(aircraftService.getAircraftById(id));
+  public ResponseEntity<ApiResponse<AircraftResponse>> getAircraftById(@PathVariable final UUID id) {
+    return ResponseEntity.ok(ApiResponse.success(this.aircraftService.getAircraftById(id)));
   }
 
   @GetMapping
-  public ResponseEntity<List<AircraftResponse>> listAllAircrafts(
-      @RequestHeader("X-User-Id") Long userId) throws Exception {
-    return ResponseEntity.ok(aircraftService.listAllAircraftByOwner(userId));
+  public ResponseEntity<ApiResponse<List<AircraftResponse>>> listAllAircrafts(
+      @RequestHeader("X-User-Id") final UUID userId) {
+    return ResponseEntity.ok(ApiResponse.success(this.aircraftService.listAllAircraftByOwner(userId)));
   }
 
   @PutMapping("/{id}")
-  public ResponseEntity<AircraftResponse> updateAircraft(@PathVariable Long id,
-      @RequestBody AircraftRequest aircraftRequest,
-      @RequestHeader("X-User-Id") Long userId) throws Exception {
-    return ResponseEntity.ok(aircraftService.updateAircraft(id, aircraftRequest, userId));
+  public ResponseEntity<ApiResponse<AircraftResponse>> updateAircraft(@PathVariable final UUID id,
+      @Valid @RequestBody final AircraftRequest aircraftRequest,
+      @RequestHeader("X-User-Id") final UUID userId) {
+    return ResponseEntity.ok(ApiResponse.success(this.aircraftService.updateAircraft(id, aircraftRequest, userId)));
   }
 
   @DeleteMapping("/{id}")
-  public ResponseEntity<Void> deleteAircraft(@PathVariable Long id,
-      @RequestHeader("X-User-Id") Long userId) throws Exception {
-    aircraftService.deleteAircraft(id, userId);
+  public ResponseEntity<Void> deleteAircraft(@PathVariable final UUID id,
+      @RequestHeader("X-User-Id") final UUID userId) {
+    this.aircraftService.deleteAircraft(id, userId);
     return ResponseEntity.noContent().build();
   }
 }

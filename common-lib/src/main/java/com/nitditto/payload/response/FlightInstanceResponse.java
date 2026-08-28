@@ -3,6 +3,7 @@ package com.nitditto.payload.response;
 
 import com.nitditto.enums.FlightStatus;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,15 +15,15 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class FlightInstanceResponse {
 
-  private Long id;
+  private UUID id;
 
-  private Long flightId;
+  private UUID flightId;
   private String flightNumber;
 
-  private Long airlineId;
+  private UUID airlineId;
   private String airlineName;
   private String airlineLogo;
-  private Long aircraftId;
+  private UUID aircraftId;
   private String aircraftModal;
   private String aircraftCode;
   private AirportResponse departureAirport;

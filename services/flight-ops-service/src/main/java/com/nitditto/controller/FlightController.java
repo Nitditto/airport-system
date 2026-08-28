@@ -2,9 +2,11 @@ package com.nitditto.controller;
 
 import com.nitditto.enums.FlightStatus;
 import com.nitditto.payload.request.FlightRequest;
+import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.FlightResponse;
 import com.nitditto.service.FlightService;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.data.domain.Page;
@@ -31,53 +33,53 @@ public class FlightController {
   private final FlightService flightService;
 
   @PostMapping
-  public ResponseEntity<FlightResponse> createFlight(
-      @Valid @RequestBody FlightRequest flightRequest,
-      @RequestHeader("X-Airline-Id") Long airlineId
-  ) throws Exception {
+  public ResponseEntity<ApiResponse<FlightResponse>> createFlight(
+      @Valid @RequestBody final FlightRequest flightRequest,
+      @RequestHeader("X-Airline-Id") final UUID airlineId
+  ) {
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(flightService.createFlight(airlineId, flightRequest));
+        .body(ApiResponse.success(this.flightService.createFlight(airlineId, flightRequest)));
   }
 
   @GetMapping("/{id}")
-  public ResponseEntity<FlightResponse> getFlightById(@PathVariable Long id) throws Exception {
-    return ResponseEntity.ok(flightService.getFlightById(id));
+  public ResponseEntity<ApiResponse<FlightResponse>> getFlightById(@PathVariable final UUID id) {
+    return ResponseEntity.ok(ApiResponse.success(this.flightService.getFlightById(id)));
   }
 
   @GetMapping("/airline")
-  public ResponseEntity<Page<FlightResponse>> getFlightsByAirline(
-      @RequestHeader("X-Airline-Id") Long airlineId,
-      @RequestParam(required = false) Long departureAirportId,
-      @RequestParam(required = false) Long arrivalAirportId,
-      Pageable pageable) {
-    return ResponseEntity.ok(flightService.getFlightsByAirline(
+  public ResponseEntity<ApiResponse<Page<FlightResponse>>> getFlightsByAirline(
+      @RequestHeader("X-Airline-Id") final UUID airlineId,
+      @RequestParam(required = false) final UUID departureAirportId,
+      @RequestParam(required = false) final UUID arrivalAirportId,
+      final Pageable pageable) {
+    return ResponseEntity.ok(ApiResponse.success(this.flightService.getFlightsByAirline(
         airlineId,
         departureAirportId,
         arrivalAirportId,
         pageable
-    ));
+    )));
   }
 
   @PutMapping("/{id}")
-  public ResponseEntity<FlightResponse> updateFlight(
-      @PathVariable Long id,
-      @RequestBody FlightRequest flightRequest
-  ) throws Exception {
-    return ResponseEntity.ok(flightService.updateFlight(id, flightRequest));
+  public ResponseEntity<ApiResponse<FlightResponse>> updateFlight(
+      @PathVariable final UUID id,
+      @Valid @RequestBody final FlightRequest flightRequest
+  ) {
+    return ResponseEntity.ok(ApiResponse.success(this.flightService.updateFlight(id, flightRequest)));
   }
 
   @PatchMapping("/{id}/status")
-  public ResponseEntity<FlightResponse> changeStatus(
-      @PathVariable Long id,
-      @RequestParam FlightStatus flightStatus
-  ) throws Exception {
-    return ResponseEntity.ok(flightService.changeStatus(id, flightStatus));
+  public ResponseEntity<ApiResponse<FlightResponse>> changeStatus(
+      @PathVariable final UUID id,
+      @RequestParam final FlightStatus flightStatus
+  ) {
+    return ResponseEntity.ok(ApiResponse.success(this.flightService.changeStatus(id, flightStatus)));
   }
 
   @DeleteMapping("/{id}")
-  public ResponseEntity<Void> deleteFlight(@PathVariable Long id,
-      @RequestHeader("X-Airline-Id") Long airlineId) throws Exception {
-    flightService.deleteFlight(airlineId, id);
+  public ResponseEntity<Void> deleteFlight(@PathVariable final UUID id,
+      @RequestHeader("X-Airline-Id") final UUID airlineId) {
+    this.flightService.deleteFlight(airlineId, id);
     return ResponseEntity.noContent().build();
   }
 }
