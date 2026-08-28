@@ -6,6 +6,8 @@ import com.nitditto.payload.response.FareResponse;
 import com.nitditto.service.FareService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -28,8 +30,8 @@ public class FareController {
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<FareResponse>>> getFares() {
-        return ResponseEntity.ok(ApiResponse.success(this.fareService.getFares()));
+    public ResponseEntity<ApiResponse<Page<FareResponse>>> getFares(final Pageable pageable) {
+        return ResponseEntity.ok(ApiResponse.success(this.fareService.getFares(pageable)));
     }
 
     @GetMapping("/{id}")

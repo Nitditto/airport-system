@@ -7,7 +7,10 @@ import com.nitditto.entity.BaseEntity;
 import java.util.UUID;
 
 @Entity
-@Table(name = "fare_rules")
+@Table(
+        name = "fare_rules",
+        indexes = @Index(name = "idx_fare_rules_airline", columnList = "airline_id")
+)
 @Getter
 @Setter
 @Builder
