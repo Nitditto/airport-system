@@ -15,6 +15,7 @@ import com.nitditto.service.FlightService;
 
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import com.nitditto.payload.request.FlightRequest;
 import com.nitditto.payload.response.FlightResponse;
@@ -23,6 +24,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -43,6 +45,8 @@ public class FlightServiceImpl implements FlightService {
     final Flight flight = FlightMapper.toEntity(flightRequest);
     flight.setAirlineId(airlineId);
     final Flight savedFlight = this.flightRepository.save(flight);
+    log.info("Created flight id={} flightNumber={} airlineId={}", savedFlight.getId(),
+        savedFlight.getFlightNumber(), airlineId);
 
     return this.convertToFLightResponse(savedFlight);
   }
@@ -77,6 +81,7 @@ public class FlightServiceImpl implements FlightService {
 
     FlightMapper.updateEntity(flightRequest, existingFlight);
     final Flight savedFlight = this.flightRepository.save(existingFlight);
+    log.info("Updated flight id={}", id);
     return this.convertToFLightResponse(savedFlight);
   }
 
@@ -88,6 +93,7 @@ public class FlightServiceImpl implements FlightService {
         .orElseThrow(() -> new ResourceNotFoundException("Flight", "id", id));
     existingFlight.setStatus(flightStatus);
     final Flight updated = this.flightRepository.save(existingFlight);
+    log.info("Changed flight id={} status={}", id, flightStatus);
     return this.convertToFLightResponse(updated);
   }
 
@@ -107,6 +113,7 @@ public class FlightServiceImpl implements FlightService {
     }
 
     this.flightRepository.delete(existingFlight);
+    log.info("Deleted flight id={}", id);
   }
 
   private FlightResponse convertToFLightResponse(final Flight flight) {

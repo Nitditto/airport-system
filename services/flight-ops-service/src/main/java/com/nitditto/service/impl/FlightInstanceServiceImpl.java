@@ -20,11 +20,13 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -53,6 +55,8 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
     flightInstance.setAvailableSeats(aircraftResponse.getTotalSeats());
 
     final FlightInstance saved = this.flightInstanceRepository.save(flightInstance);
+    log.info("Created flight instance id={} flightId={} departureDateTime={}", saved.getId(),
+        flight.getId(), saved.getDepartureDateTime());
 
     // todo: create seat instances
     return this.convertToFlightInstanceResponse(saved, flight);
@@ -94,6 +98,7 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
         .orElseThrow(() -> new ResourceNotFoundException("FlightInstance", "id", id));
     FlightInstanceMapper.updateEntity(flightInstanceRequest, existing);
     final FlightInstance saved = this.flightInstanceRepository.save(existing);
+    log.info("Updated flight instance id={}", id);
     final Flight flight = this.flightRepository.findById(saved.getFlightId()).orElse(null);
     return this.convertToFlightInstanceResponse(saved, flight);
   }
@@ -105,6 +110,7 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
       throw new ResourceNotFoundException("FlightInstance", "id", id);
     }
     this.flightInstanceRepository.deleteById(id);
+    log.info("Deleted flight instance id={}", id);
   }
 
   private FlightInstanceResponse convertToFlightInstanceResponse(final FlightInstance flightInstance,

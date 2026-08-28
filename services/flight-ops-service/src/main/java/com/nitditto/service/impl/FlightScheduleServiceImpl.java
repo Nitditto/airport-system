@@ -25,9 +25,11 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -57,6 +59,7 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
     }
     final FlightSchedule flightSchedule = FlightScheduleMapper.toEntity(flightScheduleRequest, flight);
     final FlightSchedule savedSchedule = this.flightScheduleRepository.save(flightSchedule);
+    log.info("Created flight schedule id={} flightId={}", savedSchedule.getId(), flight.getId());
 
     // create flight instance for saved scheduled
     // 11/03 to 10/04
@@ -112,6 +115,7 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
         .orElseThrow(() -> new ResourceNotFoundException("FlightSchedule", "id", id));
     FlightScheduleMapper.updateEntity(flightScheduleRequest, flightSchedule);
     final FlightSchedule updatedSchedule = this.flightScheduleRepository.save(flightSchedule);
+    log.info("Updated flight schedule id={}", id);
 
     return this.toResponses(List.of(updatedSchedule)).get(0);
   }
@@ -123,6 +127,7 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
       throw new ResourceNotFoundException("FlightSchedule", "id", id);
     }
     this.flightScheduleRepository.deleteById(id);
+    log.info("Deleted flight schedule id={}", id);
   }
 
   /**
