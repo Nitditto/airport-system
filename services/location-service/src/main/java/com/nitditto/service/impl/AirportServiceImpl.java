@@ -18,15 +18,18 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class AirportServiceImpl implements AirportService {
 
   private final AirportRepository airportRepository;
   private final CityRepository cityRepository;
 
   @Override
+  @Transactional
   public AirportResponse createAirport(final AirportRequest airportRequest) {
     if (this.airportRepository.findByIataCode(airportRequest.getIataCode()).isPresent()) {
       throw new BusinessException("Airport with Iata Code Already Exist");
@@ -55,6 +58,7 @@ public class AirportServiceImpl implements AirportService {
   }
 
   @Override
+  @Transactional
   public AirportResponse updateAirport(final UUID id, final AirportRequest airportRequest) {
     final Airport existingAirport = this.airportRepository.findById(id)
         .orElseThrow(() -> new ResourceNotFoundException("Airport", "id", id));
@@ -69,6 +73,7 @@ public class AirportServiceImpl implements AirportService {
   }
 
   @Override
+  @Transactional
   public void deleteAirportById(final UUID id) {
     if (!this.airportRepository.existsById(id)) {
       throw new ResourceNotFoundException("Airport", "id", id);

@@ -6,6 +6,7 @@ import com.nitditto.entity.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
@@ -20,7 +21,10 @@ import lombok.Setter;
 @AllArgsConstructor
 @Builder
 @Entity
-@Table(name = "airports")
+@Table(
+        name = "airports",
+        indexes = @Index(name = "idx_airport_city", columnList = "city_id")
+)
 public class Airport extends BaseEntity {
 
   @Column(nullable = false, unique = true, length = 3)
