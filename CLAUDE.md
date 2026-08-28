@@ -38,9 +38,9 @@ microservices/
     ├── pom.xml                      # Aggregator của 5 service, là parent thật của từng service
     ├── user-service/        (port 5001)  # Auth, JWT, Spring Security
     ├── airline-core-service/(port 5002)  # Aircraft, Airline
+    ├── flight-ops-service/  (port 5003)  # Flight, FlightInstance, FlightSchedule
     ├── location-service/    (port 5004)  # Airport, City
-    ├── flight-ops-service/  (port 5005)  # Flight, FlightInstance, FlightSchedule
-    └── pricing-service/     (port 5005)  # Fare, FareRules, BaggagePolicy — TRÙNG PORT với flight-ops-service, cần sửa
+    └── pricing-service/     (port 5005)  # Fare, FareRules, BaggagePolicy
 ```
 
 Mỗi service có package layout giống nhau dưới `com.nitditto`:
@@ -51,7 +51,8 @@ service/impl/  # *ServiceImpl — cài đặt, @Service @RequiredArgsConstructor
 repository/    # Spring Data JPA interface
 model/         # @Entity
 mapper/        # static method mapper Entity <-> DTO (viết tay, không dùng MapStruct)
-config/        # (chỉ user-service hiện có: SecurityConfig, JwtProvider, JwtConstant)
+exception/     # GlobalExceptionHandler riêng của từng service (@RestControllerAdvice)
+config/        # (chỉ user-service hiện có: SecurityConfig, JwtProvider, JwtConstant, JwtAuthenticationFilter)
 ```
 
 ## Build Commands
@@ -240,9 +241,9 @@ public static FareResponse toResponse(final FareContext context) { ... }
 
 Đây là phần quan trọng nhất và cũng là chỗ dễ đẻ ra N+1 nhất — xem đầy đủ ở mục "N+1 Query Prevention" bên dưới. Nguyên tắc: **một query cho cha, một query `IN` cho mỗi loại con, rồi ghép trong bộ nhớ bằng `Map`.**
 
-### Các vi phạm hiện có phải gỡ bỏ khi refactor
+### Vi phạm đã gỡ (tham khảo lịch sử refactor — ĐÃ XONG, giữ lại để biết trước đây từng có gì)
 
-| Service | Entity | Annotation hiện tại | Thay bằng |
+| Service | Entity | Annotation trước đây | Đã thay bằng |
 |---|---|---|---|
 | pricing | `Fare.baggagePolicy` | `@OneToOne(mappedBy)` | bỏ hẳn; `BaggagePolicy.fareId` là `UUID` |
 | pricing | `Fare.fareRules` | `@OneToOne(mappedBy)` | bỏ hẳn; `FareRules.fareId` là `UUID` |
@@ -253,7 +254,7 @@ public static FareResponse toResponse(final FareContext context) { ... }
 | flight-ops | `FlightSchedule.operatingDays` | `@ElementCollection` | `@Convert` + `DayOfWeekSetConverter` |
 | location | `Airport.city` | `@ManyToOne` | `private UUID cityId;` |
 
-Lưu ý khi gỡ: `FlightInstanceRepository` đang có `@Query` dùng `fi.flight.id = :flightId` — phải đổi thành `fi.flightId = :flightId`. Rà toàn bộ `@Query` sau khi gỡ quan hệ, vì JPQL sẽ fail lúc khởi động chứ không phải lúc compile.
+Đã sửa cả `FlightInstanceRepository.@Query` (`fi.flight.id` → `fi.flightId`) và `FlightScheduleRepository.findByFlightAirlineId()` (derived query qua nested property không còn tồn tại → 2 bước batch-load). Nếu sau này thêm entity mới, rà lại checklist ở mục "N+1 Query Prevention" bên dưới trước khi thêm bất kỳ annotation quan hệ nào.
 
 ### Cross-Service Communication
 
@@ -558,24 +559,23 @@ public class FareServiceImpl implements FareService {
 
 ### BaseEntity + UUIDv7 (BẮT BUỘC)
 
-Toàn bộ khoá chính dùng **UUID version 7**, sinh ở tầng ứng dụng. Hiện mỗi entity tự khai `id`/`createdAt`/`updatedAt` riêng lẻ với `Long` + generation strategy không đồng nhất (`AUTO` ở location/pricing/user, `IDENTITY` ở airline-core/flight-ops) — chuẩn hoá hết về `BaseEntity` đặt trong `common-lib`:
+Toàn bộ khoá chính dùng **UUID version 7**, sinh ở tầng ứng dụng — **đã chuẩn hoá xong cho cả 5 service**, mọi entity `extends BaseEntity` đặt trong `common-lib` (trước đây mỗi entity tự khai `id`/`createdAt`/`updatedAt` riêng lẻ với `Long` + generation strategy không đồng nhất: `AUTO` ở location/pricing/user, `IDENTITY` ở airline-core/flight-ops):
 
 ```java
-// common-lib/entity/BaseEntity.java
+// common-lib/entity/BaseEntity.java — code thật, không phải mẫu
 @Getter
 @Setter
 @MappedSuperclass
 public abstract class BaseEntity {
 
     @Id
-    @GeneratedValue
     @UuidGenerator(algorithm = UuidVersion7Strategy.class)
     @JdbcTypeCode(SqlTypes.BINARY)
     @Column(name = "id", columnDefinition = "binary(16)", updatable = false, nullable = false)
     private UUID id;
 
     @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
+    @Column(name = "created_at", updatable = false, nullable = false)
     private Instant createdAt;
 
     @UpdateTimestamp
@@ -810,13 +810,19 @@ public class FareServiceImpl implements FareService {
 
 Đây là các vấn đề cụ thể phát hiện được trong codebase hiện tại — không phải style nit, mà là bug/thiếu sót cần xử lý.
 
-### Nhóm A — Refactor nền tảng (phải làm cùng một đợt, drop DB dev)
+### Nhóm A — Refactor nền tảng — ĐÃ XỬ LÝ XONG CHO CẢ 5 SERVICE
 
-Ba việc dưới đây đụng vào cùng những file entity/mapper/service, và đều đòi drop database vì `ddl-auto: update` không alter được kiểu cột. Làm riêng lẻ sẽ phải sửa đi sửa lại — gom một đợt:
+~~Ba việc dưới đây đụng vào cùng những file entity/mapper/service, và đều đòi drop database vì `ddl-auto: update` không alter được kiểu cột.~~ Đã hoàn thành theo đúng thứ tự: pilot trên `pricing-service` (PR #9) trước để chốt công thức, sau đó nhân rộng ra `location-service`, `airline-core-service`, `flight-ops-service`, `user-service` cùng một đợt (PR #11).
 
-1. **Chuyển toàn bộ ID sang UUIDv7** — hiện là `Long` với strategy không đồng nhất (`AUTO` ở location/pricing/user, `IDENTITY` ở airline-core/flight-ops). Chuẩn hoá về `BaseEntity` trong `common-lib`. Kéo theo: mọi FK cross-service, mọi `*Request`/`*Response` trong `common-lib`, mọi `@PathVariable`, mọi signature service/repository. Xem "Entity Design Rules".
-2. **Gỡ toàn bộ relationship annotation** — 8 chỗ vi phạm (bảng chi tiết ở mục "NO JPA Relationship Annotations"). Kéo theo: mất `cascade`/`orphanRemoval` nên phải viết tay luồng xoá cha-con, và mapper phải đổi signature để nhận dữ liệu liên quan qua tham số.
-3. **Sửa `@Query` sau khi gỡ quan hệ** — `FlightInstanceRepository` đang dùng `fi.flight.id = :flightId`, phải đổi thành `fi.flightId = :flightId`. JPQL sai chỉ fail lúc khởi động chứ không phải lúc compile, nên phải rà hết.
+1. ~~**Chuyển toàn bộ ID sang UUIDv7**~~ — **đã xong**: mọi entity ở cả 5 service giờ `extends BaseEntity` (`common-lib/entity/BaseEntity.java`), PK là UUIDv7 lưu `binary(16)`. Đã drop và tạo lại cả 5 database dev (`airline_pricing`, `airline_location`, `airline`, `airline_flight`, `airline_user`).
+2. ~~**Gỡ toàn bộ relationship annotation**~~ — **đã xong**: cả 8 chỗ vi phạm liệt kê ở mục "NO JPA Relationship Annotations" đã gỡ `@ManyToOne`/`@OneToOne`/`@ElementCollection`, thay bằng cột `UUID` thô + (riêng `FlightSchedule.operatingDays`) `DayOfWeekSetConverter`. Vì mất `cascade`, đã thêm chặn tường minh (`BusinessException`) ở tầng service cho mọi cặp cha-con từng dựa vào FK constraint thật của MySQL: `City`↔`Airport`, `Airline`↔`Aircraft`, `Flight`↔`FlightSchedule`/`FlightInstance`, và xoá cha-con thủ công có `@Transactional` cho `Fare`↔`FareRules`/`BaggagePolicy`.
+3. ~~**Sửa `@Query` sau khi gỡ quan hệ**~~ — **đã xong**: `FlightInstanceRepository` đổi `fi.flight.id = :flightId` → `fi.flightId = :flightId`; `FlightScheduleRepository.findByFlightAirlineId(Long)` (derived query đi qua nested property không còn tồn tại) đổi thành 2 bước `FlightRepository.findIdsByAirlineId()` + `findByFlightIdIn()`. Đã verify chạy thật, không chỉ compile.
+
+**Kèm theo trong cùng đợt** (không phải yêu cầu ban đầu của Nhóm A, nhưng bắt buộc phải làm chung vì cùng đụng entity/DTO): toàn bộ Nhóm D (exception handling + `ApiResponse` generic wrapper) cũng đã áp dụng cho cả 5 service — xem Nhóm D bên dưới.
+
+**Bug có sẵn phát hiện trong lúc test end-to-end** (không phải do migration gây ra, chỉ lộ ra vì `GlobalExceptionHandler` giờ bắt được thay vì crash 500 thô) — đã tách task riêng, chưa sửa:
+- `FareMapper.toEntity()` (pricing) — NPE khi thiếu `taxesAndFees`/`airlineFees` trong request, cộng trực tiếp `Double` có thể null.
+- `Aircraft.getTotalSeats()` (airline-core) — NPE khi thiếu bất kỳ field seat nào (`economySeats`/`premiumEconomySeats`/`businessSeats`/`firstClassSeats`), cùng lý do.
 
 ### Nhóm B — Bug cấu hình (sửa độc lập, nhanh) — ĐÃ XỬ LÝ XONG
 
@@ -837,10 +843,10 @@ Ba việc dưới đây đụng vào cùng những file entity/mapper/service, v
 
 ### Nhóm D — Chuẩn hoá tầng API
 
-13. **Không có exception handling**: toàn repo dùng `throw new Exception(...)` + `throws Exception` ở controller — xem mục "Exception Handling".
-14. **`ApiResponse` chưa phải generic wrapper thật** — chỉ dùng cho `HomeController`, các endpoint thật trả DTO trần.
-15. **Thiếu `@Valid`** ở một số `@RequestBody` (vd. `FareController.updateFare`).
-16. **Không có SLF4J logging** ở bất kỳ service nào.
+13. ~~**Không có exception handling**~~ — **đã xong cho cả 5 service**: `ResourceNotFoundException`/`BusinessException` trong `common-lib/exception/`, mỗi service có `GlobalExceptionHandler` riêng (`@RestControllerAdvice`) xử lý cả 2 exception này + `MethodArgumentNotValidException` (gom field error) + catch-all `Exception.class` (log đầy đủ ở server bằng `@Slf4j`, trả `ApiResponse.error("Internal server error")` chung chung ra client — không bao giờ lộ stack trace).
+14. ~~**`ApiResponse` chưa phải generic wrapper thật**~~ — **đã xong**: `ApiResponse<T>` giờ có `success`/`message`/`data` + static factory `success()`/`error()`, áp dụng cho MỌI endpoint có trả dữ liệu ở cả 5 service. Riêng `DELETE` giữ nguyên `204 No Content` không body (không bọc `ApiResponse`, vì 204 theo spec không nên có body).
+15. ~~**Thiếu `@Valid`**~~ — **đã xong các chỗ phát hiện được**: `FareController.updateFare`, `AircraftController.updateAircraft`, `FlightController.updateFlight`, `FlightScheduleController.updateFlightSchedule` đã thêm `@Valid`.
+16. **Không có SLF4J logging** ở tầng service — **vẫn còn thiếu**. `@Slf4j` mới chỉ có ở `GlobalExceptionHandler` (log lỗi không lường trước) của mỗi service; chưa có log `info` cho hành động ghi (create/update/delete) như mục "Logging" yêu cầu.
 
 ### Nhóm E — Ngoài phạm vi doc này
 
