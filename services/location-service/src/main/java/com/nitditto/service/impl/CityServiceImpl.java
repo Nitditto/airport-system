@@ -11,11 +11,13 @@ import com.nitditto.repository.CityRepository;
 import com.nitditto.service.CityService;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -33,6 +35,7 @@ public class CityServiceImpl implements CityService {
     }
     final City city = CityMapper.toEntity(cityRequest);
     final City result = this.cityRepository.save(city);
+    log.info("Created city id={} cityCode={}", result.getId(), result.getCityCode());
     return CityMapper.toResponse(result);
   }
 
@@ -52,6 +55,7 @@ public class CityServiceImpl implements CityService {
       throw new BusinessException("City with given code already exist");
     }
     final City updatedCity = this.cityRepository.save(CityMapper.updateEntity(city, cityRequest));
+    log.info("Updated city id={}", id);
     return CityMapper.toResponse(updatedCity);
   }
 
@@ -67,6 +71,7 @@ public class CityServiceImpl implements CityService {
       throw new BusinessException("Cannot delete city that still has airports");
     }
     this.cityRepository.deleteById(id);
+    log.info("Deleted city id={}", id);
   }
 
   @Override

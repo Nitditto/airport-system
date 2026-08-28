@@ -17,9 +17,11 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -40,6 +42,8 @@ public class AirportServiceImpl implements AirportService {
 
     final Airport airport = AirportMapper.toEntity(airportRequest);
     final Airport savedAirport = this.airportRepository.save(airport);
+    log.info("Created airport id={} iataCode={} cityId={}", savedAirport.getId(), savedAirport.getIataCode(),
+        savedAirport.getCityId());
 
     return AirportMapper.toResponse(savedAirport, city);
   }
@@ -69,6 +73,7 @@ public class AirportServiceImpl implements AirportService {
     }
     AirportMapper.updateEntity(airportRequest, existingAirport);
     final Airport updatedAirport = this.airportRepository.save(existingAirport);
+    log.info("Updated airport id={}", id);
     return this.toResponses(List.of(updatedAirport)).get(0);
   }
 
@@ -79,6 +84,7 @@ public class AirportServiceImpl implements AirportService {
       throw new ResourceNotFoundException("Airport", "id", id);
     }
     this.airportRepository.deleteById(id);
+    log.info("Deleted airport id={}", id);
   }
 
   @Override
