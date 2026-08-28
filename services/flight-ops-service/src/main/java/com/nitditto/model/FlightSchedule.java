@@ -5,6 +5,7 @@ import com.nitditto.entity.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -19,7 +20,10 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "flight_schedules")
+@Table(
+        name = "flight_schedules",
+        indexes = @Index(name = "idx_flight_schedule_flight", columnList = "flight_id")
+)
 @Getter
 @Setter
 @Builder

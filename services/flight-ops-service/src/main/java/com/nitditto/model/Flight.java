@@ -4,6 +4,7 @@ import com.nitditto.entity.BaseEntity;
 import com.nitditto.enums.FlightStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
@@ -13,7 +14,11 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "flights")
+@Table(
+        name = "flights",
+        indexes = @Index(name = "idx_flight_airline_airports",
+                columnList = "airline_id, departure_airport_id, arrival_airport_id")
+)
 @Setter
 @Getter
 @Builder

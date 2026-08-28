@@ -6,6 +6,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import java.time.Duration;
@@ -18,7 +19,14 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "flight_instances")
+@Table(
+        name = "flight_instances",
+        indexes = {
+                @Index(name = "idx_flight_instance_airline_departure",
+                        columnList = "airline_id, departure_date_time"),
+                @Index(name = "idx_flight_instance_flight", columnList = "flight_id")
+        }
+)
 @Getter
 @Setter
 @Builder
