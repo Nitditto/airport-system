@@ -2,8 +2,8 @@ package com.nitditto.controller;
 
 import com.nitditto.payload.dto.UserDTO;
 import com.nitditto.payload.request.LoginRequest;
+import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.AuthResponse;
-import com.nitditto.repository.UserRepository;
 import com.nitditto.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,16 +21,14 @@ public class AuthController {
   private final AuthService authService;
 
   @PostMapping("/signup")
-  public ResponseEntity<AuthResponse> signup(@RequestBody @Valid UserDTO userDTO) throws Exception {
-    AuthResponse authResponse = authService.signup(userDTO);
-    return ResponseEntity.ok(authResponse);
+  public ResponseEntity<ApiResponse<AuthResponse>> signup(@RequestBody @Valid final UserDTO userDTO) {
+    return ResponseEntity.ok(ApiResponse.success(this.authService.signup(userDTO)));
   }
 
   @PostMapping("/login")
-  public ResponseEntity<AuthResponse> login(@RequestBody @Valid LoginRequest request)
-      throws Exception {
-    AuthResponse authResponse = authService.login(request.getEmail(), request.getPassword());
-    return ResponseEntity.ok(authResponse);
+  public ResponseEntity<ApiResponse<AuthResponse>> login(@RequestBody @Valid final LoginRequest request) {
+    return ResponseEntity.ok(
+        ApiResponse.success(this.authService.login(request.getEmail(), request.getPassword())));
   }
 
 }

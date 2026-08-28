@@ -1,8 +1,10 @@
 package com.nitditto.controller;
 
 import com.nitditto.payload.dto.UserDTO;
+import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.service.UserService;
 import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,22 +21,19 @@ public class UserController {
   private final UserService userService;
 
   @GetMapping("/profile")
-  public ResponseEntity<UserDTO> getUserProfile(@RequestHeader("X-User-Email") String email)
-      throws Exception {
-    UserDTO user = userService.getUserByEmail(email);
-    return ResponseEntity.ok(user);
+  public ResponseEntity<ApiResponse<UserDTO>> getUserProfile(
+      @RequestHeader("X-User-Email") final String email) {
+    return ResponseEntity.ok(ApiResponse.success(this.userService.getUserByEmail(email)));
   }
 
   @GetMapping("/{id}")
-  public ResponseEntity<UserDTO> getUserById(@PathVariable("id") Long id) throws Exception {
-    UserDTO user = userService.getUserById(id);
-    return ResponseEntity.ok(user);
+  public ResponseEntity<ApiResponse<UserDTO>> getUserById(@PathVariable("id") final UUID id) {
+    return ResponseEntity.ok(ApiResponse.success(this.userService.getUserById(id)));
   }
 
   @GetMapping
-  public ResponseEntity<List<UserDTO>> getAllUsers(@RequestHeader("X-User-Email") String email)
-      throws Exception {
-    List<UserDTO> users = userService.getAllUsers();
-    return ResponseEntity.ok(users);
+  public ResponseEntity<ApiResponse<List<UserDTO>>> getAllUsers(
+      @RequestHeader("X-User-Email") final String email) {
+    return ResponseEntity.ok(ApiResponse.success(this.userService.getAllUsers()));
   }
 }
