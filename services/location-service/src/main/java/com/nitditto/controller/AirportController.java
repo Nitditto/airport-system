@@ -1,12 +1,12 @@
 package com.nitditto.controller;
 
 import com.nitditto.payload.request.AirportRequest;
-import com.nitditto.payload.response.AirportResponse;
 import com.nitditto.payload.response.ApiResponse;
-import com.nitditto.repository.AirportRepository;
+import com.nitditto.payload.response.AirportResponse;
 import com.nitditto.service.AirportService;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,35 +27,37 @@ public class AirportController {
   private final AirportService airportService;
 
   @PostMapping
-  public ResponseEntity<AirportResponse> createAirport(
-      @Valid @RequestBody AirportRequest airportRequest) throws Exception {
+  public ResponseEntity<ApiResponse<AirportResponse>> createAirport(
+      @Valid @RequestBody final AirportRequest airportRequest) {
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(airportService.createAirport(airportRequest));
+        .body(ApiResponse.success(this.airportService.createAirport(airportRequest)));
   }
 
   @GetMapping("/{id}")
-  public ResponseEntity<AirportResponse> getAirportById(@PathVariable Long id) throws Exception {
-    return ResponseEntity.ok(airportService.getAirportById(id));
+  public ResponseEntity<ApiResponse<AirportResponse>> getAirportById(@PathVariable final UUID id) {
+    return ResponseEntity.ok(ApiResponse.success(this.airportService.getAirportById(id)));
   }
 
   @GetMapping
-  public ResponseEntity<List<AirportResponse>> getAllAirports() {
-    return ResponseEntity.ok(airportService.getAllAirports());
+  public ResponseEntity<ApiResponse<List<AirportResponse>>> getAllAirports() {
+    return ResponseEntity.ok(ApiResponse.success(this.airportService.getAllAirports()));
   }
 
   @GetMapping("/city/{cityId}")
-  public ResponseEntity<List<AirportResponse>> getAirportsByCityId(@PathVariable Long cityId) {
-    return ResponseEntity.ok(airportService.getAirportsByCityId(cityId));
+  public ResponseEntity<ApiResponse<List<AirportResponse>>> getAirportsByCityId(
+      @PathVariable final UUID cityId) {
+    return ResponseEntity.ok(ApiResponse.success(this.airportService.getAirportsByCityId(cityId)));
   }
 
   @PutMapping("/{id}")
-  public ResponseEntity<AirportResponse> updateAirport(@PathVariable Long id,
-      @Valid @RequestBody AirportRequest airportRequest) throws Exception {
-    return ResponseEntity.ok(airportService.updateAirport(id, airportRequest));
+  public ResponseEntity<ApiResponse<AirportResponse>> updateAirport(@PathVariable final UUID id,
+      @Valid @RequestBody final AirportRequest airportRequest) {
+    return ResponseEntity.ok(ApiResponse.success(this.airportService.updateAirport(id, airportRequest)));
   }
 
   @DeleteMapping("/{id}")
-  public ResponseEntity<ApiResponse> deleteAirport(@PathVariable Long id) throws Exception {
-    return ResponseEntity.ok(new ApiResponse("Airport deleted successfully"));
+  public ResponseEntity<Void> deleteAirport(@PathVariable final UUID id) {
+    this.airportService.deleteAirportById(id);
+    return ResponseEntity.noContent().build();
   }
 }

@@ -6,6 +6,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,7 +19,7 @@ import lombok.NoArgsConstructor;
 public class FlightScheduleRequest {
 
   @NotNull(message = "Flight ID is required")
-  private Long flightId;
+  private UUID flightId;
 
   @NotNull(message = "Departure time is required")
   private LocalTime departureTime;

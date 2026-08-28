@@ -1,6 +1,8 @@
 package com.nitditto.service.impl;
 
 import com.nitditto.enums.FlightStatus;
+import com.nitditto.exception.BusinessException;
+import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.FlightScheduleMapper;
 import com.nitditto.model.Flight;
 import com.nitditto.model.FlightSchedule;
@@ -15,15 +17,21 @@ import com.nitditto.service.FlightScheduleService;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class FlightScheduleServiceImpl implements FlightScheduleService {
-
 
   private final FlightRepository flightRepository;
   private final FlightScheduleRepository flightScheduleRepository;
@@ -31,30 +39,32 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
 
   @Transactional(rollbackFor = Exception.class)
   @Override
-  public FlightScheduleResponse createFlightSchedule(Long airlineId,
-      FlightScheduleRequest flightScheduleRequest) throws Exception {
+  public FlightScheduleResponse createFlightSchedule(final UUID airlineId,
+      final FlightScheduleRequest flightScheduleRequest) {
 
     // todo watch for airlineId
-    if (flightScheduleRequest.getOperatingDays() == null || flightScheduleRequest.getOperatingDays().isEmpty()) {
-      throw new Exception("Operating days cannot be empty");
+    if (flightScheduleRequest.getOperatingDays() == null
+        || flightScheduleRequest.getOperatingDays().isEmpty()) {
+      throw new BusinessException("Operating days cannot be empty");
     }
 
-    Flight flight = flightRepository.findById(flightScheduleRequest.getFlightId())
-        .orElseThrow(() -> new Exception("Flight not found with given id"));
+    final Flight flight = this.flightRepository.findById(flightScheduleRequest.getFlightId())
+        .orElseThrow(() -> new ResourceNotFoundException("Flight", "id",
+            flightScheduleRequest.getFlightId()));
 
     if (flightScheduleRequest.getEndDate().isBefore(flightScheduleRequest.getStartDate())) {
-      throw new Exception("End date cannot be before start date");
+      throw new BusinessException("End date cannot be before start date");
     }
-    FlightSchedule flightSchedule = FlightScheduleMapper.toEntity(flightScheduleRequest, flight);
-    FlightSchedule savedSchedule = flightScheduleRepository.save(flightSchedule);
+    final FlightSchedule flightSchedule = FlightScheduleMapper.toEntity(flightScheduleRequest, flight);
+    final FlightSchedule savedSchedule = this.flightScheduleRepository.save(flightSchedule);
 
     // create flight instance for saved scheduled
     // 11/03 to 10/04
-    List<DayOfWeek> operatingDays = savedSchedule.getOperatingDays();
-    LocalDate startDate = savedSchedule.getStartDate();
-    LocalDate endDate = savedSchedule.getEndDate();
+    final Set<DayOfWeek> operatingDays = savedSchedule.getOperatingDays();
+    final LocalDate startDate = savedSchedule.getStartDate();
+    final LocalDate endDate = savedSchedule.getEndDate();
 
-    FlightInstanceRequest flightInstanceRequest = FlightInstanceRequest.builder()
+    final FlightInstanceRequest flightInstanceRequest = FlightInstanceRequest.builder()
         .scheduleId(savedSchedule.getId())
         .flightId(flight.getId())
         .arrivalAirportId(flight.getArrivalAirportId())
@@ -71,56 +81,73 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
         }
         flightInstanceRequest.setDepartureDateTime(departureDateTime);
         flightInstanceRequest.setArrivalDateTime(arrivalDateTime);
-        flightInstanceService.createFlightInstance(airlineId, flightInstanceRequest);
+        this.flightInstanceService.createFlightInstance(airlineId, flightInstanceRequest);
       }
     }
-    return convertToFlightScheduleResponse(savedSchedule);
+    return FlightScheduleMapper.toResponse(savedSchedule, flight,
+        AirportResponse.builder().id(flight.getArrivalAirportId()).build(),
+        AirportResponse.builder().id(flight.getDepartureAirportId()).build());
   }
 
   @Override
-  public FlightScheduleResponse getFlightScheduleById(Long id) throws Exception {
-    FlightSchedule flightSchedule = flightScheduleRepository.findById(id)
-        .orElseThrow(() -> new Exception("Flight schedule not found with id"));
-    return convertToFlightScheduleResponse(flightSchedule);
+  public FlightScheduleResponse getFlightScheduleById(final UUID id) {
+    final FlightSchedule flightSchedule = this.flightScheduleRepository.findById(id)
+        .orElseThrow(() -> new ResourceNotFoundException("FlightSchedule", "id", id));
+    return this.toResponses(List.of(flightSchedule)).get(0);
   }
 
   @Override
-  public List<FlightScheduleResponse> getFlightScheduleByAirline(Long airlineId) {
+  public List<FlightScheduleResponse> getFlightScheduleByAirline(final UUID airlineId) {
     // todo: watch airlineId
-    List<FlightSchedule> schedules = flightScheduleRepository.findByFlightAirlineId(airlineId);
-    return schedules.stream().map(this::convertToFlightScheduleResponse).toList();
+    final List<UUID> flightIds = this.flightRepository.findIdsByAirlineId(airlineId);
+    final List<FlightSchedule> schedules = this.flightScheduleRepository.findByFlightIdIn(flightIds);
+    return this.toResponses(schedules);
   }
 
   @Override
-  public FlightScheduleResponse updateFlightSchedule(Long id,
-      FlightScheduleRequest flightScheduleRequest) throws Exception {
-    FlightSchedule flightSchedule = flightScheduleRepository.findById(id)
-        .orElseThrow(() -> new Exception("Flight schedule not found with id"));
+  @Transactional
+  public FlightScheduleResponse updateFlightSchedule(final UUID id,
+      final FlightScheduleRequest flightScheduleRequest) {
+    final FlightSchedule flightSchedule = this.flightScheduleRepository.findById(id)
+        .orElseThrow(() -> new ResourceNotFoundException("FlightSchedule", "id", id));
     FlightScheduleMapper.updateEntity(flightScheduleRequest, flightSchedule);
-    FlightSchedule updatedSchedule = flightScheduleRepository.save(flightSchedule);
+    final FlightSchedule updatedSchedule = this.flightScheduleRepository.save(flightSchedule);
 
-    return convertToFlightScheduleResponse(updatedSchedule);
+    return this.toResponses(List.of(updatedSchedule)).get(0);
   }
 
   @Override
-  public void deleteFlightScheduleById(Long id) throws Exception {
-    FlightSchedule flightSchedule = flightScheduleRepository.findById(id)
-        .orElseThrow(() -> new Exception("Flight schedule not found with id"));
-
-    flightScheduleRepository.delete(flightSchedule);
+  @Transactional
+  public void deleteFlightScheduleById(final UUID id) {
+    if (!this.flightScheduleRepository.existsById(id)) {
+      throw new ResourceNotFoundException("FlightSchedule", "id", id);
+    }
+    this.flightScheduleRepository.deleteById(id);
   }
 
-  private FlightScheduleResponse convertToFlightScheduleResponse(FlightSchedule flightSchedule) {
-    // todo: service to service communication
-    AirportResponse departureAirport = AirportResponse.builder()
-        .id(flightSchedule.getDepartureAirportId())
-        .build();
-    AirportResponse arrivalAirport = AirportResponse.builder()
-        .id(flightSchedule.getArrivalAirportId())
-        .build();
+  /**
+   * 1 query cha (đã có) + 1 query {@code IN} để batch-load Flight cho cả danh sách,
+   * thay vì fetch từng cái trong loop (N+1).
+   */
+  private List<FlightScheduleResponse> toResponses(final List<FlightSchedule> schedules) {
+    if (schedules.isEmpty()) {
+      return List.of();
+    }
 
-    return FlightScheduleMapper.toResponse(
-        flightSchedule, arrivalAirport, departureAirport
-    );
+    final List<UUID> flightIds = schedules.stream().map(FlightSchedule::getFlightId).distinct().toList();
+    final Map<UUID, Flight> flightById = this.flightRepository.findAllById(flightIds)
+        .stream().collect(Collectors.toMap(Flight::getId, Function.identity()));
+
+    final List<FlightScheduleResponse> responses = new ArrayList<>(schedules.size());
+    for (final FlightSchedule schedule : schedules) {
+      // todo: service to service communication - Airport thật cần gọi location-service
+      final AirportResponse departure =
+          AirportResponse.builder().id(schedule.getDepartureAirportId()).build();
+      final AirportResponse arrival =
+          AirportResponse.builder().id(schedule.getArrivalAirportId()).build();
+      responses.add(FlightScheduleMapper.toResponse(
+          schedule, flightById.get(schedule.getFlightId()), arrival, departure));
+    }
+    return responses;
   }
 }

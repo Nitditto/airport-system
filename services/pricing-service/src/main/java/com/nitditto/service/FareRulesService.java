@@ -4,17 +4,18 @@ import com.nitditto.payload.request.FareRulesRequest;
 import com.nitditto.payload.response.FareRulesResponse;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface FareRulesService {
-    FareRulesResponse createFareRules(FareRulesRequest fareRulesRequest) throws Exception;
+    FareRulesResponse createFareRules(FareRulesRequest fareRulesRequest);
 
-    FareRulesResponse getFareRulesById(Long id) throws Exception;
+    FareRulesResponse getFareRulesById(UUID id);
 
-    FareRulesResponse getFareRulesByFareId(Long fareId);
+    FareRulesResponse getFareRulesByFareId(UUID fareId);
 
-    List<FareRulesResponse> getFareRulesByAirlineId(Long airlineId);
+    List<FareRulesResponse> getFareRulesByAirlineId(UUID airlineId);
 
-    FareRulesResponse updateFareRules(Long id, FareRulesRequest fareRulesRequest) throws Exception;
+    FareRulesResponse updateFareRules(UUID id, FareRulesRequest fareRulesRequest);
 
-    void deleteFareRules(Long id);
+    void deleteFareRules(UUID id);
 }

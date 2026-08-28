@@ -11,13 +11,16 @@ import com.nitditto.payload.response.FlightInstanceResponse;
 
 public class FlightInstanceMapper {
 
-  public static FlightInstance toEntity(FlightInstanceRequest flightInstanceRequest,
-      Flight flight) {
+  private FlightInstanceMapper() {
+  }
+
+  public static FlightInstance toEntity(final FlightInstanceRequest flightInstanceRequest,
+      final Flight flight) {
     if (flight == null) {
       return null;
     }
     return FlightInstance.builder()
-        .flight(flight)
+        .flightId(flight.getId())
         .airlineId(flight.getAirlineId())
         .scheduleId(flightInstanceRequest.getScheduleId())
         .departureAirportId(flightInstanceRequest.getDepartureAirportId())
@@ -32,24 +35,25 @@ public class FlightInstanceMapper {
         .build();
   }
 
-  public static FlightInstanceResponse toResponse(FlightInstance flightInstance,
-      AircraftResponse aircraftResponse,
-      AirlineResponse airlineResponse,
-      AirportResponse departureAirport,
-      AirportResponse arrivalAirport) {
+  public static FlightInstanceResponse toResponse(final FlightInstance flightInstance,
+      final Flight flight,
+      final AircraftResponse aircraftResponse,
+      final AirlineResponse airlineResponse,
+      final AirportResponse departureAirport,
+      final AirportResponse arrivalAirport) {
 
     if (flightInstance == null) {
       return null;
     }
     return FlightInstanceResponse.builder()
         .id(flightInstance.getId())
-        .flightId(flightInstance.getFlight() != null ? flightInstance.getFlight().getId() : null)
-        .flightNumber(flightInstance.getFlight() != null ?  flightInstance.getFlight().getFlightNumber() : null)
-        .aircraftModal(aircraftResponse.getModel())
-        .aircraftCode(aircraftResponse.getCode())
+        .flightId(flightInstance.getFlightId())
+        .flightNumber(flight != null ? flight.getFlightNumber() : null)
+        .aircraftModal(aircraftResponse != null ? aircraftResponse.getModel() : null)
+        .aircraftCode(aircraftResponse != null ? aircraftResponse.getCode() : null)
         .airlineId(flightInstance.getAirlineId())
-        .airlineName(airlineResponse.getName())
-        .airlineLogo(airlineResponse.getLogoUrl())
+        .airlineName(airlineResponse != null ? airlineResponse.getName() : null)
+        .airlineLogo(airlineResponse != null ? airlineResponse.getLogoUrl() : null)
         .departureAirport(departureAirport)
         .arrivalAirport(arrivalAirport)
         .departureDateTime(flightInstance.getDepartureDateTime())
@@ -64,38 +68,39 @@ public class FlightInstanceMapper {
         .build();
   }
 
-  public static void updateEntity(FlightInstanceRequest flightInstanceRequest, FlightInstance existing) {
-    if (flightInstanceRequest == null ||  existing == null) {
+  public static void updateEntity(final FlightInstanceRequest flightInstanceRequest,
+      final FlightInstance existing) {
+    if (flightInstanceRequest == null || existing == null) {
       return;
     }
-    if(flightInstanceRequest.getDepartureAirportId() != null){
+    if (flightInstanceRequest.getDepartureAirportId() != null) {
       existing.setDepartureAirportId(flightInstanceRequest.getDepartureAirportId());
     }
-    if(flightInstanceRequest.getArrivalAirportId() != null){
+    if (flightInstanceRequest.getArrivalAirportId() != null) {
       existing.setArrivalAirportId(flightInstanceRequest.getArrivalAirportId());
     }
-    if(flightInstanceRequest.getDepartureDateTime() != null){
+    if (flightInstanceRequest.getDepartureDateTime() != null) {
       existing.setDepartureDateTime(flightInstanceRequest.getDepartureDateTime());
     }
-    if(flightInstanceRequest.getArrivalDateTime() != null){
+    if (flightInstanceRequest.getArrivalDateTime() != null) {
       existing.setArrivalDateTime(flightInstanceRequest.getArrivalDateTime());
     }
-    if(flightInstanceRequest.getTotalSeats() != null){
+    if (flightInstanceRequest.getTotalSeats() != null) {
       existing.setTotalSeats(flightInstanceRequest.getTotalSeats());
     }
-    if(flightInstanceRequest.getAvailableSeats() != null){
+    if (flightInstanceRequest.getAvailableSeats() != null) {
       existing.setAvailableSeats(flightInstanceRequest.getAvailableSeats());
     }
-    if(flightInstanceRequest.getStatus() != null){
+    if (flightInstanceRequest.getStatus() != null) {
       existing.setStatus(flightInstanceRequest.getStatus());
     }
-    if(flightInstanceRequest.getMinAdvanceBookingDays() != null){
+    if (flightInstanceRequest.getMinAdvanceBookingDays() != null) {
       existing.setMinAdvanceBookingDays(flightInstanceRequest.getMinAdvanceBookingDays());
     }
-    if(flightInstanceRequest.getMaxAdvanceBookingDays() != null){
+    if (flightInstanceRequest.getMaxAdvanceBookingDays() != null) {
       existing.setMaxAdvanceBookingDays(flightInstanceRequest.getMaxAdvanceBookingDays());
     }
-    if(flightInstanceRequest.getIsActive() != null){
+    if (flightInstanceRequest.getIsActive() != null) {
       existing.setIsActive(flightInstanceRequest.getIsActive());
     }
   }

@@ -3,6 +3,7 @@ package com.nitditto.service.impl;
 import com.nitditto.Mapper.UserMapper;
 import com.nitditto.config.JwtProvider;
 import com.nitditto.enums.UserRole;
+import com.nitditto.exception.BusinessException;
 import com.nitditto.model.User;
 import com.nitditto.payload.dto.UserDTO;
 import com.nitditto.payload.response.AuthResponse;
@@ -10,15 +11,20 @@ import com.nitditto.repository.UserRepository;
 import com.nitditto.service.AuthService;
 import com.nitditto.service.CustomUserDetailsService;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class AuthServiceImpl implements AuthService {
 
   private final UserRepository userRepository;
@@ -34,35 +40,35 @@ public class AuthServiceImpl implements AuthService {
    */
 
   @Override
-  public AuthResponse signup(UserDTO request) throws Exception {
-    User existingUser = userRepository.findByEmail(request.getEmail());
+  @Transactional
+  public AuthResponse signup(final UserDTO request) {
+    final User existingUser = this.userRepository.findByEmail(request.getEmail());
     if (existingUser != null) {
-      throw new Exception("Email already registered");
+      throw new BusinessException("Email already registered");
     }
     if (request.getRole() == UserRole.ROLE_SYSTEM_ADMIN) {
-      throw new Exception("You cannot sign up system admin");
+      throw new BusinessException("You cannot sign up system admin");
     }
-    User newUser = User.builder()
+    final User newUser = User.builder()
         .email(request.getEmail())
-        .password(passwordEncoder.encode(request.getPassword()))
+        .password(this.passwordEncoder.encode(request.getPassword()))
         .phone(request.getPhone())
         .role(request.getRole())
         .fullName(request.getFullName())
         .lastLogin(LocalDateTime.now())
-        .createdAt(LocalDateTime.now())
-        .updatedAt(LocalDateTime.now())
         .build();
 
-    User savedUser = userRepository.save(newUser);
+    final User savedUser = this.userRepository.save(newUser);
 
-    Authentication authentication = new UsernamePasswordAuthenticationToken(savedUser.getEmail(),
-        savedUser.getPassword());
+    final GrantedAuthority authority = new SimpleGrantedAuthority(savedUser.getRole().toString());
+    final Authentication authentication = new UsernamePasswordAuthenticationToken(
+        savedUser.getEmail(), savedUser.getPassword(), List.of(authority));
 
-    String jwt = jwtProvider.generateToken(
+    final String jwt = this.jwtProvider.generateToken(
         authentication, savedUser.getId()
     );
 
-    AuthResponse authResponse = new AuthResponse();
+    final AuthResponse authResponse = new AuthResponse();
     authResponse.setJwt(jwt);
     authResponse.setUser(UserMapper.toDTO(savedUser));
     authResponse.setTitle("Welcome " + savedUser.getFullName());
@@ -79,15 +85,16 @@ public class AuthServiceImpl implements AuthService {
     5. Return token and user information
   */
   @Override
-  public AuthResponse login(String email, String password) throws Exception {
-    Authentication authentication = authenticate(email, password);
+  @Transactional
+  public AuthResponse login(final String email, final String password) {
+    final Authentication authentication = this.authenticate(email, password);
 
-    User user = userRepository.findByEmail(email);
+    final User user = this.userRepository.findByEmail(email);
     user.setLastLogin(LocalDateTime.now());
-    userRepository.save(user);
+    this.userRepository.save(user);
 
-    String jwt = jwtProvider.generateToken(authentication, user.getId());
-    AuthResponse authResponse = new AuthResponse();
+    final String jwt = this.jwtProvider.generateToken(authentication, user.getId());
+    final AuthResponse authResponse = new AuthResponse();
     authResponse.setJwt(jwt);
     authResponse.setUser(UserMapper.toDTO(user));
     authResponse.setTitle("Welcome back" + user.getFullName());
@@ -96,12 +103,12 @@ public class AuthServiceImpl implements AuthService {
 
   }
 
-  private Authentication authenticate(String email, String password) throws Exception {
+  private Authentication authenticate(final String email, final String password) {
 
-    UserDetails userDetails = customUserDetailsService.loadUserByUsername(email);
+    final UserDetails userDetails = this.customUserDetailsService.loadUserByUsername(email);
 
-    if (!passwordEncoder.matches(password, userDetails.getPassword())) {
-      throw new Exception("Invalid password");
+    if (!this.passwordEncoder.matches(password, userDetails.getPassword())) {
+      throw new BusinessException("Invalid password");
     }
     return new UsernamePasswordAuthenticationToken(
         userDetails, null, userDetails.getAuthorities()

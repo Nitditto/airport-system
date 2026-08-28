@@ -2,29 +2,29 @@ package com.nitditto.model;
 
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
-import java.time.Instant;
+import com.nitditto.entity.BaseEntity;
+import java.util.UUID;
 
 @Entity
+@Table(
+        name = "fare_rules",
+        indexes = @Index(name = "idx_fare_rules_airline", columnList = "airline_id")
+)
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class FareRules {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
-    private Long id;
+public class FareRules extends BaseEntity{
 
     private String ruleName;
 
-    private Long airlineId;
+    @Column(name = "airline_id", columnDefinition = "binary(16)")
+    private UUID airlineId;
 
-    @OneToOne
-    private Fare fare;
+    @Column(name = "fare_id", columnDefinition = "binary(16)", nullable = false, unique = true)
+    private UUID fareId;
 
     private Boolean isRefundable;
 
@@ -37,11 +37,4 @@ public class FareRules {
     private Integer changeDeadlineHours;
 
     private Boolean isChangeable;
-
-    @CreationTimestamp
-    private Instant createdAt;
-
-    @UpdateTimestamp
-    private Instant updatedAt;
-
 }

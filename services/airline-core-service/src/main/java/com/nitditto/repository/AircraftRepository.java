@@ -1,15 +1,15 @@
 package com.nitditto.repository;
 
 import com.nitditto.model.Aircraft;
-import com.nitditto.payload.response.AircraftResponse;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface AircraftRepository extends JpaRepository<Aircraft, Long> {
+public interface AircraftRepository extends JpaRepository<Aircraft, UUID> {
 
-  List<Aircraft> findByAirlineId(Long airlineId);
+  List<Aircraft> findByAirlineId(UUID airlineId);
 
   boolean existsByCode(String code);
 
-  Aircraft findByIdAndAirlineId(Long id, Long airlineId);
+  Aircraft findByIdAndAirlineId(UUID id, UUID airlineId);
 }

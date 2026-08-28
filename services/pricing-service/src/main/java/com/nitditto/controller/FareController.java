@@ -1,16 +1,20 @@
 package com.nitditto.controller;
 
 import com.nitditto.payload.request.FareRequest;
+import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.FareResponse;
 import com.nitditto.service.FareService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/fares")
@@ -20,46 +24,50 @@ public class FareController {
     private final FareService fareService;
 
     @PostMapping
-    public ResponseEntity<FareResponse> createFare(@Valid @RequestBody FareRequest fareRequest) throws Exception {
-        return ResponseEntity.status(HttpStatus.CREATED).body(
-                fareService.createFare(fareRequest)
-        );
+    public ResponseEntity<ApiResponse<FareResponse>> createFare(@Valid @RequestBody final FareRequest fareRequest) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(this.fareService.createFare(fareRequest)));
     }
 
     @GetMapping
-    public ResponseEntity<?> getFares() throws Exception {
-        return ResponseEntity.status(HttpStatus.OK).body(fareService.getFares());
+    public ResponseEntity<ApiResponse<Page<FareResponse>>> getFares(final Pageable pageable) {
+        return ResponseEntity.ok(ApiResponse.success(this.fareService.getFares(pageable)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<FareResponse> getFareById(@PathVariable("id") Long fareId) throws Exception {
-        return ResponseEntity.ok(fareService.getFareById(fareId));
+    public ResponseEntity<ApiResponse<FareResponse>> getFareById(@PathVariable("id") final UUID fareId) {
+        return ResponseEntity.ok(ApiResponse.success(this.fareService.getFareById(fareId)));
     }
 
     @GetMapping("/flight/{flightId}/cabin-class/{cabinClassId}")
-    public ResponseEntity<List<FareResponse>> getFaresByFlightAndCabinClass(@PathVariable Long flightId, @PathVariable Long cabinClassId) throws Exception {
-        return ResponseEntity.ok(fareService.getFaresByFlightIdAndCabinClassId(flightId, cabinClassId));
+    public ResponseEntity<ApiResponse<List<FareResponse>>> getFaresByFlightAndCabinClass(
+            @PathVariable final UUID flightId, @PathVariable final UUID cabinClassId) {
+        return ResponseEntity.ok(
+                ApiResponse.success(this.fareService.getFaresByFlightIdAndCabinClassId(flightId, cabinClassId)));
     }
 
     @PostMapping("/batch-by-ids")
-    public ResponseEntity<Map<Long, FareResponse>> getFaresByIds(@RequestBody List<Long> fareIds) throws Exception {
-        return ResponseEntity.ok(fareService.getFareByIds(fareIds));
+    public ResponseEntity<ApiResponse<Map<UUID, FareResponse>>> getFaresByIds(
+            @RequestBody final List<UUID> fareIds) {
+        return ResponseEntity.ok(ApiResponse.success(this.fareService.getFareByIds(fareIds)));
     }
 
     @PostMapping("/search")
-    public ResponseEntity<Map<Long, FareResponse>> getLowestFarePerFlight(@RequestBody List<Long> flightIds, @RequestParam Long cabinClassId) {
-        Map<Long, FareResponse> result = fareService.getLowestFarePerFlight(flightIds, cabinClassId);
-        return ResponseEntity.ok(result);
+    public ResponseEntity<ApiResponse<Map<UUID, FareResponse>>> getLowestFarePerFlight(
+            @RequestBody final List<UUID> flightIds, @RequestParam final UUID cabinClassId) {
+        return ResponseEntity.ok(
+                ApiResponse.success(this.fareService.getLowestFarePerFlight(flightIds, cabinClassId)));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<FareResponse> updateFare(@PathVariable("id") Long fareId, @RequestBody FareRequest fareRequest) throws Exception {
-        return ResponseEntity.ok(fareService.updateFare(fareId, fareRequest));
+    public ResponseEntity<ApiResponse<FareResponse>> updateFare(@PathVariable("id") final UUID fareId,
+            @Valid @RequestBody final FareRequest fareRequest) {
+        return ResponseEntity.ok(ApiResponse.success(this.fareService.updateFare(fareId, fareRequest)));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteFare(@PathVariable("id") Long fareId) throws Exception {
-        fareService.deleteFareById(fareId);
+    public ResponseEntity<Void> deleteFare(@PathVariable("id") final UUID fareId) {
+        this.fareService.deleteFareById(fareId);
         return ResponseEntity.noContent().build();
     }
 

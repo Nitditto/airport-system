@@ -2,6 +2,8 @@ package com.nitditto.payload.response;
 
 import com.nitditto.enums.CabinClassType;
 import java.time.Instant;
+import java.util.UUID;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,11 +15,11 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class FareResponse {
 
-  private Long id;
+  private UUID id;
   private String name;
   private Character rbdCode;
-  private Long flightId;
-  private Long cabinClassId;
+  private UUID flightId;
+  private UUID cabinClassId;
   private CabinClassType cabinClassType;
 
   // Pricing
@@ -56,7 +58,7 @@ public class FareResponse {
   private Boolean airportTransfer;
 
   // Relationships
-  private Long fareRulesId;
+  private UUID fareRulesId;
   private FareRulesResponse fareRules;
   private  BaggagePolicyResponse baggagePolicy;
 

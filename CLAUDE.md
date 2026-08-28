@@ -38,9 +38,9 @@ microservices/
     ├── pom.xml                      # Aggregator của 5 service, là parent thật của từng service
     ├── user-service/        (port 5001)  # Auth, JWT, Spring Security
     ├── airline-core-service/(port 5002)  # Aircraft, Airline
+    ├── flight-ops-service/  (port 5003)  # Flight, FlightInstance, FlightSchedule
     ├── location-service/    (port 5004)  # Airport, City
-    ├── flight-ops-service/  (port 5005)  # Flight, FlightInstance, FlightSchedule
-    └── pricing-service/     (port 5005)  # Fare, FareRules, BaggagePolicy — TRÙNG PORT với flight-ops-service, cần sửa
+    └── pricing-service/     (port 5005)  # Fare, FareRules, BaggagePolicy
 ```
 
 Mỗi service có package layout giống nhau dưới `com.nitditto`:
@@ -51,30 +51,33 @@ service/impl/  # *ServiceImpl — cài đặt, @Service @RequiredArgsConstructor
 repository/    # Spring Data JPA interface
 model/         # @Entity
 mapper/        # static method mapper Entity <-> DTO (viết tay, không dùng MapStruct)
-config/        # (chỉ user-service hiện có: SecurityConfig, JwtProvider, JwtConstant)
+exception/     # GlobalExceptionHandler riêng của từng service (@RestControllerAdvice)
+config/        # (chỉ user-service hiện có: SecurityConfig, JwtProvider, JwtConstant, JwtAuthenticationFilter)
 ```
 
 ## Build Commands
 
+**Không có Maven Wrapper ở thư mục gốc** — dùng `mvn` cài trên máy. Mỗi service con có `mvnw`/`mvnw.cmd`/`.mvn/` riêng (rác còn lại từ lúc mỗi service được khởi tạo độc lập bằng Spring Initializr trước khi gộp vào reactor) — **đừng dùng** các wrapper lẻ đó, luôn chạy `mvn` từ thư mục gốc để giữ đúng version do parent POM quản lý.
+
 ```bash
 # Build toàn bộ reactor (common-lib -> cloud -> services)
-./mvnw clean install
+mvn clean install
 
 # Build/run một service cụ thể (chạy từ thư mục gốc, dùng -pl với path module)
-./mvnw -pl services/pricing-service -am clean install
-./mvnw -pl services/pricing-service spring-boot:run
+mvn -pl services/pricing-service -am clean install
+mvn -pl services/pricing-service spring-boot:run
 
 # Run tests toàn repo / một service / một class / một method
-./mvnw test
-./mvnw -pl services/pricing-service test
-./mvnw -pl services/pricing-service test -Dtest=ClassName
-./mvnw -pl services/pricing-service test -Dtest=ClassName#methodName
+mvn test
+mvn -pl services/pricing-service test
+mvn -pl services/pricing-service test -Dtest=ClassName
+mvn -pl services/pricing-service test -Dtest=ClassName#methodName
 
 # Package không chạy test
-./mvnw clean package -DskipTests
+mvn clean package -DskipTests
 ```
 
-**Lưu ý khi thêm dependency/version:** chỉ khai báo `<version>` ở root `pom.xml` (`dependencyManagement`) hoặc dùng version do `spring-boot-dependencies`/`spring-cloud-dependencies` BOM quản lý. Service con KHÔNG tự ghim version riêng — tránh lệch version giữa các service.
+**Lưu ý khi thêm dependency/version:** chỉ khai báo `<version>` ở root `pom.xml` (`dependencyManagement`) hoặc dùng version do `spring-boot-dependencies`/`spring-cloud-dependencies` BOM quản lý. Service con KHÔNG tự ghim version riêng — tránh lệch version giữa các service. Vi phạm hiện có cần dọn: `user-service/pom.xml` đang tự ghim `<version>0.13.0</version>` cho 3 dependency `jjwt-*` thay vì khai ở `dependencyManagement` gốc.
 
 ## Architecture
 
@@ -238,9 +241,9 @@ public static FareResponse toResponse(final FareContext context) { ... }
 
 Đây là phần quan trọng nhất và cũng là chỗ dễ đẻ ra N+1 nhất — xem đầy đủ ở mục "N+1 Query Prevention" bên dưới. Nguyên tắc: **một query cho cha, một query `IN` cho mỗi loại con, rồi ghép trong bộ nhớ bằng `Map`.**
 
-### Các vi phạm hiện có phải gỡ bỏ khi refactor
+### Vi phạm đã gỡ (tham khảo lịch sử refactor — ĐÃ XONG, giữ lại để biết trước đây từng có gì)
 
-| Service | Entity | Annotation hiện tại | Thay bằng |
+| Service | Entity | Annotation trước đây | Đã thay bằng |
 |---|---|---|---|
 | pricing | `Fare.baggagePolicy` | `@OneToOne(mappedBy)` | bỏ hẳn; `BaggagePolicy.fareId` là `UUID` |
 | pricing | `Fare.fareRules` | `@OneToOne(mappedBy)` | bỏ hẳn; `FareRules.fareId` là `UUID` |
@@ -251,7 +254,7 @@ public static FareResponse toResponse(final FareContext context) { ... }
 | flight-ops | `FlightSchedule.operatingDays` | `@ElementCollection` | `@Convert` + `DayOfWeekSetConverter` |
 | location | `Airport.city` | `@ManyToOne` | `private UUID cityId;` |
 
-Lưu ý khi gỡ: `FlightInstanceRepository` đang có `@Query` dùng `fi.flight.id = :flightId` — phải đổi thành `fi.flightId = :flightId`. Rà toàn bộ `@Query` sau khi gỡ quan hệ, vì JPQL sẽ fail lúc khởi động chứ không phải lúc compile.
+Đã sửa cả `FlightInstanceRepository.@Query` (`fi.flight.id` → `fi.flightId`) và `FlightScheduleRepository.findByFlightAirlineId()` (derived query qua nested property không còn tồn tại → 2 bước batch-load). Nếu sau này thêm entity mới, rà lại checklist ở mục "N+1 Query Prevention" bên dưới trước khi thêm bất kỳ annotation quan hệ nào.
 
 ### Cross-Service Communication
 
@@ -556,24 +559,23 @@ public class FareServiceImpl implements FareService {
 
 ### BaseEntity + UUIDv7 (BẮT BUỘC)
 
-Toàn bộ khoá chính dùng **UUID version 7**, sinh ở tầng ứng dụng. Hiện mỗi entity tự khai `id`/`createdAt`/`updatedAt` riêng lẻ với `Long` + generation strategy không đồng nhất (`AUTO` ở location/pricing/user, `IDENTITY` ở airline-core/flight-ops) — chuẩn hoá hết về `BaseEntity` đặt trong `common-lib`:
+Toàn bộ khoá chính dùng **UUID version 7**, sinh ở tầng ứng dụng — **đã chuẩn hoá xong cho cả 5 service**, mọi entity `extends BaseEntity` đặt trong `common-lib` (trước đây mỗi entity tự khai `id`/`createdAt`/`updatedAt` riêng lẻ với `Long` + generation strategy không đồng nhất: `AUTO` ở location/pricing/user, `IDENTITY` ở airline-core/flight-ops):
 
 ```java
-// common-lib/entity/BaseEntity.java
+// common-lib/entity/BaseEntity.java — code thật, không phải mẫu
 @Getter
 @Setter
 @MappedSuperclass
 public abstract class BaseEntity {
 
     @Id
-    @GeneratedValue
     @UuidGenerator(algorithm = UuidVersion7Strategy.class)
     @JdbcTypeCode(SqlTypes.BINARY)
     @Column(name = "id", columnDefinition = "binary(16)", updatable = false, nullable = false)
     private UUID id;
 
     @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
+    @Column(name = "created_at", updatable = false, nullable = false)
     private Instant createdAt;
 
     @UpdateTimestamp
@@ -808,19 +810,27 @@ public class FareServiceImpl implements FareService {
 
 Đây là các vấn đề cụ thể phát hiện được trong codebase hiện tại — không phải style nit, mà là bug/thiếu sót cần xử lý.
 
-### Nhóm A — Refactor nền tảng (phải làm cùng một đợt, drop DB dev)
+### Nhóm A — Refactor nền tảng — ĐÃ XỬ LÝ XONG CHO CẢ 5 SERVICE
 
-Ba việc dưới đây đụng vào cùng những file entity/mapper/service, và đều đòi drop database vì `ddl-auto: update` không alter được kiểu cột. Làm riêng lẻ sẽ phải sửa đi sửa lại — gom một đợt:
+~~Ba việc dưới đây đụng vào cùng những file entity/mapper/service, và đều đòi drop database vì `ddl-auto: update` không alter được kiểu cột.~~ Đã hoàn thành theo đúng thứ tự: pilot trên `pricing-service` (PR #9) trước để chốt công thức, sau đó nhân rộng ra `location-service`, `airline-core-service`, `flight-ops-service`, `user-service` cùng một đợt (PR #11).
 
-1. **Chuyển toàn bộ ID sang UUIDv7** — hiện là `Long` với strategy không đồng nhất (`AUTO` ở location/pricing/user, `IDENTITY` ở airline-core/flight-ops). Chuẩn hoá về `BaseEntity` trong `common-lib`. Kéo theo: mọi FK cross-service, mọi `*Request`/`*Response` trong `common-lib`, mọi `@PathVariable`, mọi signature service/repository. Xem "Entity Design Rules".
-2. **Gỡ toàn bộ relationship annotation** — 8 chỗ vi phạm (bảng chi tiết ở mục "NO JPA Relationship Annotations"). Kéo theo: mất `cascade`/`orphanRemoval` nên phải viết tay luồng xoá cha-con, và mapper phải đổi signature để nhận dữ liệu liên quan qua tham số.
-3. **Sửa `@Query` sau khi gỡ quan hệ** — `FlightInstanceRepository` đang dùng `fi.flight.id = :flightId`, phải đổi thành `fi.flightId = :flightId`. JPQL sai chỉ fail lúc khởi động chứ không phải lúc compile, nên phải rà hết.
+1. ~~**Chuyển toàn bộ ID sang UUIDv7**~~ — **đã xong**: mọi entity ở cả 5 service giờ `extends BaseEntity` (`common-lib/entity/BaseEntity.java`), PK là UUIDv7 lưu `binary(16)`. Đã drop và tạo lại cả 5 database dev (`airline_pricing`, `airline_location`, `airline`, `airline_flight`, `airline_user`).
+2. ~~**Gỡ toàn bộ relationship annotation**~~ — **đã xong**: cả 8 chỗ vi phạm liệt kê ở mục "NO JPA Relationship Annotations" đã gỡ `@ManyToOne`/`@OneToOne`/`@ElementCollection`, thay bằng cột `UUID` thô + (riêng `FlightSchedule.operatingDays`) `DayOfWeekSetConverter`. Vì mất `cascade`, đã thêm chặn tường minh (`BusinessException`) ở tầng service cho mọi cặp cha-con từng dựa vào FK constraint thật của MySQL: `City`↔`Airport`, `Airline`↔`Aircraft`, `Flight`↔`FlightSchedule`/`FlightInstance`, và xoá cha-con thủ công có `@Transactional` cho `Fare`↔`FareRules`/`BaggagePolicy`.
+3. ~~**Sửa `@Query` sau khi gỡ quan hệ**~~ — **đã xong**: `FlightInstanceRepository` đổi `fi.flight.id = :flightId` → `fi.flightId = :flightId`; `FlightScheduleRepository.findByFlightAirlineId(Long)` (derived query đi qua nested property không còn tồn tại) đổi thành 2 bước `FlightRepository.findIdsByAirlineId()` + `findByFlightIdIn()`. Đã verify chạy thật, không chỉ compile.
 
-### Nhóm B — Bug cấu hình (sửa độc lập, nhanh)
+**Kèm theo trong cùng đợt** (không phải yêu cầu ban đầu của Nhóm A, nhưng bắt buộc phải làm chung vì cùng đụng entity/DTO): toàn bộ Nhóm D (exception handling + `ApiResponse` generic wrapper) cũng đã áp dụng cho cả 5 service — xem Nhóm D bên dưới.
 
-4. **Port collision**: `flight-ops-service` và `pricing-service` cùng khai `server.port: 5005` — không thể chạy đồng thời. Đổi pricing-service → `5003` (5001/5002/5004/5005 đã dùng).
-5. **`user-service` sai datasource**: trỏ `jdbc:mysql://localhost:3306/airline_location` (copy từ location-service) thay vì DB riêng, ví dụ `airline_user`.
-6. **`SecurityConfig` của user-service đang `permitAll()` toàn bộ request** — JWT được sinh ra nhưng chưa enforce ở filter chain.
+**Bug có sẵn phát hiện trong lúc test end-to-end** (không phải do migration gây ra, chỉ lộ ra vì `GlobalExceptionHandler` giờ bắt được thay vì crash 500 thô) — đã tách task riêng, chưa sửa:
+- `FareMapper.toEntity()` (pricing) — NPE khi thiếu `taxesAndFees`/`airlineFees` trong request, cộng trực tiếp `Double` có thể null.
+- `Aircraft.getTotalSeats()` (airline-core) — NPE khi thiếu bất kỳ field seat nào (`economySeats`/`premiumEconomySeats`/`businessSeats`/`firstClassSeats`), cùng lý do.
+
+### Nhóm B — Bug cấu hình (sửa độc lập, nhanh) — ĐÃ XỬ LÝ XONG
+
+4. ~~**Port collision**~~ — **đã tự fix trước đó**: `flight-ops-service` đã đổi sang `server.port: 5003` (commit "chore: change port to 5003", PR #6). Port thật hiện tại: `user=5001, airline-core=5002, flight-ops=5003, location=5004, pricing=5005` — không còn trùng. Bảng ở mục "Repository & Module Structure" phía trên phản ánh số port cũ đã lỗi thời, cần soát lại nếu thấy sai lệch với `application.yaml` thực tế của từng service.
+5. ~~**`user-service` sai datasource`**~~ — **đã fix**: đổi từ `jdbc:mysql://localhost:3306/airline_location` (copy nhầm từ location-service) sang `jdbc:mysql://localhost:3306/airline_user`. Cần tự tạo database mới trước khi chạy: `CREATE DATABASE airline_user;` (Hibernate `ddl-auto: update` sẽ tự tạo bảng).
+6. ~~**`SecurityConfig` của user-service đang `permitAll()` toàn bộ request`~~ — **đã fix**: thêm [`JwtAuthenticationFilter`](services/user-service/src/main/java/com/nitditto/config/JwtAuthenticationFilter.java) (`OncePerRequestFilter`) đọc header `Authorization: Bearer <token>`, validate bằng `JwtProvider.parseClaims()`, dựng `Authentication` từ claim `email`/`authorities` rồi nạp vào `SecurityContextHolder`. `SecurityConfig` giờ chỉ `permitAll()` cho `/` và `/auth/**`, còn lại bắt buộc `authenticated()`. Filter gắn trước `UsernamePasswordAuthenticationFilter` bằng `addFilterBefore`.
+   - **Nợ kỹ thuật phát sinh, chưa xử lý** (ngoài phạm vi fix này, cân nhắc làm riêng): `UserController.getUserProfile()`/`getAllUsers()` đang tin tưởng header `X-User-Email` do client tự gửi để xác định danh tính — giờ endpoint đã yêu cầu đăng nhập nhưng **chưa** kiểm tra danh tính đó khớp với người dùng trong JWT, nên một user bất kỳ đã đăng nhập vẫn có thể đọc profile của người khác bằng cách tự đổi header. Cần sửa để lấy email từ `SecurityContextHolder` thay vì tin header client.
+   - **Nợ kỹ thuật phát sinh khác**: `AuthServiceImpl.signup()` tạo `Authentication` bằng constructor 2 tham số (`new UsernamePasswordAuthenticationToken(email, password)`), constructor này luôn trả `getAuthorities()` rỗng — nghĩa là JWT sinh ra lúc đăng ký mới **không có claim `authorities`**, user vừa signup chưa có role nào cho tới lần login kế tiếp (`login()` dùng path tạo `Authentication` khác, có authorities đúng). Cần dùng cùng cách tạo `Authentication` như `login()`.
 
 ### Nhóm C — Chất lượng tầng dữ liệu
 
@@ -833,15 +843,277 @@ Ba việc dưới đây đụng vào cùng những file entity/mapper/service, v
 
 ### Nhóm D — Chuẩn hoá tầng API
 
-13. **Không có exception handling**: toàn repo dùng `throw new Exception(...)` + `throws Exception` ở controller — xem mục "Exception Handling".
-14. **`ApiResponse` chưa phải generic wrapper thật** — chỉ dùng cho `HomeController`, các endpoint thật trả DTO trần.
-15. **Thiếu `@Valid`** ở một số `@RequestBody` (vd. `FareController.updateFare`).
-16. **Không có SLF4J logging** ở bất kỳ service nào.
+13. ~~**Không có exception handling**~~ — **đã xong cho cả 5 service**: `ResourceNotFoundException`/`BusinessException` trong `common-lib/exception/`, mỗi service có `GlobalExceptionHandler` riêng (`@RestControllerAdvice`) xử lý cả 2 exception này + `MethodArgumentNotValidException` (gom field error) + catch-all `Exception.class` (log đầy đủ ở server bằng `@Slf4j`, trả `ApiResponse.error("Internal server error")` chung chung ra client — không bao giờ lộ stack trace).
+14. ~~**`ApiResponse` chưa phải generic wrapper thật**~~ — **đã xong**: `ApiResponse<T>` giờ có `success`/`message`/`data` + static factory `success()`/`error()`, áp dụng cho MỌI endpoint có trả dữ liệu ở cả 5 service. Riêng `DELETE` giữ nguyên `204 No Content` không body (không bọc `ApiResponse`, vì 204 theo spec không nên có body).
+15. ~~**Thiếu `@Valid`**~~ — **đã xong các chỗ phát hiện được**: `FareController.updateFare`, `AircraftController.updateAircraft`, `FlightController.updateFlight`, `FlightScheduleController.updateFlightSchedule` đã thêm `@Valid`.
+16. **Không có SLF4J logging** ở tầng service — **vẫn còn thiếu**. `@Slf4j` mới chỉ có ở `GlobalExceptionHandler` (log lỗi không lường trước) của mỗi service; chưa có log `info` cho hành động ghi (create/update/delete) như mục "Logging" yêu cầu.
 
 ### Nhóm E — Ngoài phạm vi doc này
 
 17. **`cloud/` module rỗng** — service registry / config server / API gateway mới là comment trong `pom.xml`. Cho tới khi dựng xong, service gọi nhau phải hardcode `localhost:<port>`.
 18. **Không có test, không có CI/CD, không có Docker/docker-compose** — cần lưu ý khi ước lượng công sức refactor.
+
+## Git Convention (BẮT BUỘC)
+
+Phần này chuẩn hoá lại đúng cách repo `Nitditto/airport-system` đang làm, và vá các chỗ đang lệch.
+
+### Branch Model
+
+Repo dùng mô hình **develop-centric**: `develop` là base branch mặc định (`origin/HEAD -> origin/develop`). **Chưa có `main`/`master`** — khi nào có release thật mới tạo `main`, còn hiện tại mọi PR đều nhắm vào `develop`.
+
+```
+develop                 ← base branch, luôn ở trạng thái build được
+   ├── feature/xxx      ← nhánh làm việc, tách ra từ develop
+   ├── fix/xxx
+   └── docs/xxx
+```
+
+**Quy tắc:**
+- **KHÔNG commit trực tiếp lên `develop`.** Mọi thay đổi đi qua nhánh riêng + Pull Request, kể cả sửa một dòng config (`chore: change port to 5003` đã làm đúng — đi qua nhánh `fix/flight-ops` và PR #6).
+- Luôn tách nhánh mới từ `develop` đã cập nhật, không tách từ nhánh feature khác (trừ khi thật sự phụ thuộc, và phải ghi rõ trong PR).
+- Một nhánh = một mục đích. Không gộp "thêm pricing-service" và "sửa port flight-ops" vào cùng nhánh.
+
+### Branch Naming
+
+```
+<type>/<scope-hoặc-mô-tả-ngắn>
+```
+
+| Prefix | Dùng khi | Ví dụ thật trong repo |
+|---|---|---|
+| `feature/` | Thêm tính năng / module mới | `feature/pricing-service`, `feature/user-service` |
+| `fix/` | Sửa bug, sửa cấu hình sai | `fix/flight-ops` |
+| `docs/` | Chỉ đụng tài liệu | `docs/build-base` |
+| `refactor/` | Đổi cấu trúc, không đổi hành vi | `refactor/uuid-migration` |
+| `chore/` | Build, dependency, config vặt | `chore/bump-spring-boot` |
+| `test/` | Chỉ thêm/sửa test | `test/fare-service` |
+
+**Quy tắc đặt tên:**
+- Toàn bộ **lowercase, kebab-case**. Không dấu tiếng Việt, không space, không camelCase.
+- Ngắn gọn nhưng đủ nghĩa: `feature/pricing-service` tốt hơn `feature/new-stuff`.
+- Nếu có issue tracker, thêm số vào cuối: `feature/pricing-service-42`.
+
+> ⚠️ **Lệch đang tồn tại cần thống nhất:** repo có 5 nhánh dùng `feature/` nhưng nhánh `feat/seat-service` lại dùng `feat/`. **Chốt dùng `feature/`** cho branch (còn `feat` chỉ dùng làm *type của commit*, xem mục dưới) — hai khái niệm khác nhau, đừng trộn. Nhánh `feat/seat-service` hiện **chưa merge** vào develop, nên đổi tên trước khi mở PR:
+> ```bash
+> git branch -m feat/seat-service feature/seat-service
+> git push origin :feat/seat-service
+> git push -u origin feature/seat-service
+> ```
+
+### Commit Message — Conventional Commits
+
+Repo đang theo Conventional Commits (conventionalcommits.org) — giữ nguyên và áp dụng nhất quán.
+
+```
+<type>(<scope>): <subject>
+
+<body — tuỳ chọn, giải thích WHY>
+
+<footer — tuỳ chọn: BREAKING CHANGE, Refs #issue>
+```
+
+**Bảng `type`:**
+
+| Type | Ý nghĩa |
+|---|---|
+| `feat` | Thêm tính năng mới cho người dùng/API |
+| `fix` | Sửa bug |
+| `refactor` | Đổi code nhưng **không** đổi hành vi bên ngoài |
+| `perf` | Tối ưu hiệu năng (vd. thêm index, gỡ N+1) |
+| `docs` | Chỉ tài liệu (`CLAUDE.md`, `docs/ROADMAP.md`) |
+| `test` | Thêm/sửa test |
+| `chore` | Build, dependency, cấu hình, việc vặt không đụng logic |
+| `style` | Format, khoảng trắng, import — không đổi logic |
+| `build` | Maven POM, version, reactor structure |
+
+**Bảng `scope`** — bám theo module trong reactor, dùng tên rút gọn (bỏ đuôi `-service`):
+
+| Scope | Module |
+|---|---|
+| `common` | `common-lib/` |
+| `cloud` | `cloud/` |
+| `user` | `services/user-service/` |
+| `airline-core` | `services/airline-core-service/` |
+| `location` | `services/location-service/` |
+| `flight-ops` | `services/flight-ops-service/` |
+| `pricing` | `services/pricing-service/` |
+| `build` | `pom.xml` gốc, `services/pom.xml`, cấu hình reactor |
+
+- Đụng **một** module → bắt buộc có scope: `feat(pricing): ...`
+- Đụng **nhiều** module cùng lúc (vd. refactor UUID toàn repo) → **bỏ scope**: `refactor: migrate all entity ids to uuidv7`
+- Không bịa scope ngoài bảng trên.
+
+**Quy tắc viết `subject`:**
+- **Tiếng Anh**, thể mệnh lệnh (imperative): `add`, `implement`, `fix`, `remove` — không phải `added`/`adding`/`adds`.
+- Chữ đầu **thường**, **không** có dấu chấm cuối câu.
+- Tối đa **72 ký tự**.
+- Mô tả *cái gì thay đổi*, không phải *đã làm bao nhiêu file*.
+
+```
+✅ ĐÚNG (lấy từ chính repo)
+feat(pricing): implement baggage policy management feature
+feat(user): add user-service with authentication and jwt configuration
+feat(common): add shared models and request/response payloads for pricing
+chore: change port to 5003
+docs: add project roadmap and CLAUDE documentation files
+
+❌ SAI
+Feature/pricing service              # tên nhánh, không phải commit message
+feat(pricing): Implemented Fares.    # hoa đầu + quá khứ + dấu chấm cuối
+update code                          # thiếu type, không rõ nghĩa
+fix bug                              # không biết bug gì, ở đâu
+feat(pricing): add fare + fix port + update docs   # gộp 3 việc vào 1 commit
+```
+
+> ⚠️ Repo hiện có vài commit thiếu scope dù chỉ đụng đúng một module — `feat: add location-service with airport and city controllers` lẽ ra là `feat(location): ...`. Từ giờ áp dụng đủ scope.
+
+**Body — khi nào cần:**
+
+Bỏ qua được với commit hiển nhiên. **Bắt buộc có** khi thay đổi cần giải thích lý do hoặc có đánh đổi:
+
+```
+perf(pricing): add composite index on fares(flight_id, cabin_class_id)
+
+FareRepository lọc theo đúng cặp cột này ở 3 method, trước đó full table
+scan vì ddl-auto: update chỉ tự tạo index cho PK và unique constraint.
+
+Refs #12
+```
+
+- Body cách subject đúng **một dòng trống**.
+- Wrap ở **72 ký tự**.
+- Viết **WHY**, không viết WHAT — WHAT đã nằm trong diff rồi.
+
+**Footer — breaking change:**
+
+Bắt buộc khai báo khi thay đổi phá vỡ client đang gọi API hoặc phá schema DB:
+
+```
+refactor: migrate all entity ids from Long to UUIDv7
+
+BREAKING CHANGE: mọi @PathVariable, *Request/*Response trong common-lib
+và mọi FK cross-service đổi từ Long sang UUID. ddl-auto: update không
+alter được kiểu cột — bắt buộc drop và tạo lại database dev.
+```
+
+Các thay đổi trong "Known Gaps / Nhóm A" và mục "API Response Wrapper" đều là breaking change — phải ghi footer này.
+
+**Kích thước commit:**
+- Một commit = một thay đổi logic hoàn chỉnh, build được. Không commit code không compile.
+- Nhánh `feature/pricing-service` đang là mẫu tốt: tách thành 5 commit theo từng bước (`initialize module` → `add shared payloads` → `Fare` → `Fare Rules` → `Baggage Policy`) thay vì một commit khổng lồ.
+- Không commit file build (`target/`), file IDE (`.idea/`, `.vscode/`) — `.gitignore` đã chặn sẵn, đừng dùng `git add -f` để lách.
+
+### Pull Request Convention
+
+**Title:** viết đúng như một commit message conventional — **không** để tên nhánh tự sinh.
+
+```
+✅ feat(pricing): add fare, fare rules and baggage policy management
+❌ Feature/pricing service        # PR #5 đang bị thế này, GitHub tự sinh ra
+```
+
+**Description — template tối thiểu:**
+
+```markdown
+## Mục đích
+<Giải quyết vấn đề gì, tại sao cần>
+
+## Thay đổi chính
+- <thay đổi 1>
+- <thay đổi 2>
+
+## Cách kiểm thử
+./mvnw -pl services/pricing-service -am clean install
+./mvnw -pl services/pricing-service spring-boot:run
+<endpoint đã gọi thử, kết quả mong đợi>
+
+## Breaking change
+<Có/Không — nếu có, ghi rõ client nào phải sửa, có phải drop DB không>
+
+## Checklist
+- [ ] Không có annotation quan hệ mới (`@ManyToOne`/`@OneToMany`/`@OneToOne`/`@ManyToMany`/`@JoinColumn`/`@ElementCollection`)
+- [ ] Không có `repository.*` hay HTTP client nằm trong `for`/`stream().map()`/`forEach`
+- [ ] Endpoint trả list đã phân trang (`Page<T>` + `Pageable`)
+- [ ] Method ghi đụng ≥2 bảng đã có `@Transactional`
+- [ ] `@RequestBody` đã có `@Valid`
+- [ ] Cột mới dùng để lọc đã có `@Index`
+- [ ] Controller inject qua interface, không phải `*ServiceImpl`
+- [ ] Đã bật SQL log và đếm query cho endpoint trả list
+```
+
+**Quy tắc:**
+- PR luôn nhắm vào `develop`.
+- PR nhỏ, tập trung. Trên khoảng 400 dòng thay đổi thì cân nhắc tách — trừ các đợt refactor nền tảng (Nhóm A) vốn buộc phải làm một lần.
+- Tự review diff của mình trước khi mở PR: `git diff develop...HEAD`.
+- Không merge PR đang đỏ build.
+
+### Merge Strategy
+
+Repo đang dùng **merge commit** (`Merge pull request #7 from Nitditto/docs/build-base`) — giữ nguyên, vì nó bảo toàn từng commit nhỏ trong nhánh feature (đúng với cách nhánh `feature/pricing-service` chia 5 commit theo bước).
+
+- **Merge commit** — mặc định cho `feature/*`: giữ lại lịch sử từng bước.
+- **Squash** — dùng cho nhánh lặt vặt nhiều commit rác kiểu `fix typo`, `fix again`, gộp thành một commit sạch.
+- **KHÔNG force-push lên `develop`.** Force-push chỉ được phép trên nhánh feature cá nhân **chưa có ai khác cùng làm**, và dùng `--force-with-lease` chứ không phải `--force`.
+
+**Cập nhật nhánh feature khi develop đã chạy trước:**
+
+```bash
+# Ưu tiên rebase khi nhánh CHƯA push hoặc chỉ mình bạn làm — giữ lịch sử thẳng
+git fetch origin
+git rebase origin/develop
+
+# Nếu nhánh đã push và có người khác cùng làm thì merge, đừng rebase
+git merge origin/develop
+```
+
+### Dọn nhánh sau khi merge
+
+**Xoá nhánh ngay sau khi PR được merge**, cả local lẫn remote:
+
+```bash
+git branch -d feature/pricing-service
+git push origin --delete feature/pricing-service
+```
+
+> ⚠️ **Đang tồn đọng:** 7 nhánh đã merge vào `develop` nhưng vẫn còn cả local lẫn `origin` — `docs/build-base`, `fix/flight-ops`, và 5 nhánh `feature/*-service`. Cần dọn:
+> ```bash
+> git branch --merged develop | grep -v develop | xargs -r git branch -d
+> git remote prune origin
+> ```
+> Giữ lại `feat/seat-service` — nhánh này **chưa merge**, còn đang làm dở (và cần đổi tên theo mục Branch Naming ở trên).
+
+### Lệnh Git hay dùng cho repo này
+
+```bash
+# Bắt đầu một task mới
+git checkout develop && git pull origin develop
+git checkout -b feature/seat-service
+
+# Xem mình đã thay đổi gì so với base trước khi mở PR
+git diff develop...HEAD --stat
+git diff develop...HEAD
+
+# Kiểm tra không lỡ commit file build/IDE
+git status --short
+
+# Đẩy nhánh lần đầu
+git push -u origin feature/seat-service
+
+# Sửa lại commit message vừa tạo (CHỈ khi chưa push)
+git commit --amend
+
+# Xem lịch sử gọn
+git log --oneline --graph --decorate -20
+```
+
+### Những điều TUYỆT ĐỐI không làm
+
+- Commit trực tiếp lên `develop`.
+- Force-push lên `develop`.
+- Commit credential, mật khẩu DB thật, JWT secret. `application.yaml` hiện đang hardcode user/password MySQL — khi lên môi trường thật phải chuyển sang biến môi trường hoặc config server, và **không bao giờ** commit giá trị thật.
+- Commit `target/`, `.idea/`, `.vscode/`, `*.iml` (đã có trong `.gitignore` — đừng `git add -f`).
+- Commit code không compile được, hoặc "commit tạm để mai sửa" lên nhánh chung.
+- Gộp refactor lớn chung với feature mới trong một PR — reviewer không tách được đâu là thay đổi hành vi.
 
 ## Reference
 

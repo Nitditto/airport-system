@@ -1,14 +1,19 @@
 package com.nitditto.service.impl;
 
 import com.nitditto.enums.FlightStatus;
+import com.nitditto.exception.BusinessException;
+import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.FlightMapper;
 import com.nitditto.model.Flight;
 import com.nitditto.payload.response.AircraftResponse;
 import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.AirportResponse;
+import com.nitditto.repository.FlightInstanceRepository;
 import com.nitditto.repository.FlightRepository;
+import com.nitditto.repository.FlightScheduleRepository;
 import com.nitditto.service.FlightService;
 
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 
 import com.nitditto.payload.request.FlightRequest;
@@ -20,94 +25,101 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class FlightServiceImpl implements FlightService {
 
   private final FlightRepository flightRepository;
+  private final FlightScheduleRepository flightScheduleRepository;
+  private final FlightInstanceRepository flightInstanceRepository;
 
   @Transactional
   @Override
-  public FlightResponse createFlight(Long airlineId, FlightRequest flightRequest) throws Exception {
+  public FlightResponse createFlight(final UUID airlineId, final FlightRequest flightRequest) {
 
     // todo: watch airlineId
-    if (flightRepository.existsByFlightNumber(flightRequest.getFlightNumber())) {
-      throw new Exception("flight with already exist");
+    if (this.flightRepository.existsByFlightNumber(flightRequest.getFlightNumber())) {
+      throw new BusinessException("flight with already exist");
     }
-    Flight flight = FlightMapper.toEntity(flightRequest);
+    final Flight flight = FlightMapper.toEntity(flightRequest);
     flight.setAirlineId(airlineId);
-    Flight savedFlight = flightRepository.save(flight);
+    final Flight savedFlight = this.flightRepository.save(flight);
 
-    return convertToFLightResponse(savedFlight);
+    return this.convertToFLightResponse(savedFlight);
   }
 
   @Override
-  public Page<FlightResponse> getFlightsByAirline(Long airlineId, Long departureAirportId,
-      Long arrivalAirportId, Pageable pageable) {
+  public Page<FlightResponse> getFlightsByAirline(final UUID airlineId, final UUID departureAirportId,
+      final UUID arrivalAirportId, final Pageable pageable) {
     // todo: watch airlineId
-    return flightRepository.findByAirlineId(airlineId,
+    return this.flightRepository.findByAirlineId(airlineId,
         departureAirportId,
         arrivalAirportId,
         pageable).map(this::convertToFLightResponse);
   }
 
   @Override
-  public FlightResponse getFlightById(Long id) throws Exception {
-    Flight flight = flightRepository.findById(id).orElseThrow(
-        () -> new Exception("flight not found with id")
-    );
+  public FlightResponse getFlightById(final UUID id) {
+    final Flight flight = this.flightRepository.findById(id)
+        .orElseThrow(() -> new ResourceNotFoundException("Flight", "id", id));
 
-    return convertToFLightResponse(flight);
+    return this.convertToFLightResponse(flight);
   }
 
   @Transactional
   @Override
-  public FlightResponse updateFlight(Long id, FlightRequest flightRequest) throws Exception {
-    Flight existingFlight = flightRepository.findById(id).orElseThrow(
-        () -> new Exception("flight not found with id")
-    );
-    if (flightRequest.getFlightNumber() != null && flightRepository.existsByFlightNumberAndIdNot(
-        flightRequest.getFlightNumber(), id)) {
-      throw new Exception("flight with already exist");
+  public FlightResponse updateFlight(final UUID id, final FlightRequest flightRequest) {
+    final Flight existingFlight = this.flightRepository.findById(id)
+        .orElseThrow(() -> new ResourceNotFoundException("Flight", "id", id));
+    if (flightRequest.getFlightNumber() != null
+        && this.flightRepository.existsByFlightNumberAndIdNot(flightRequest.getFlightNumber(), id)) {
+      throw new BusinessException("flight with already exist");
     }
 
     FlightMapper.updateEntity(flightRequest, existingFlight);
-    Flight savedFlight = flightRepository.save(existingFlight);
-    return convertToFLightResponse(savedFlight);
+    final Flight savedFlight = this.flightRepository.save(existingFlight);
+    return this.convertToFLightResponse(savedFlight);
   }
 
   @Transactional
   @Override
-  public FlightResponse changeStatus(Long id, FlightStatus flightStatus) throws Exception {
+  public FlightResponse changeStatus(final UUID id, final FlightStatus flightStatus) {
 
-    Flight existingFlight = flightRepository.findById(id).orElseThrow(
-        () -> new Exception("flight not found with id")
-    );
+    final Flight existingFlight = this.flightRepository.findById(id)
+        .orElseThrow(() -> new ResourceNotFoundException("Flight", "id", id));
     existingFlight.setStatus(flightStatus);
-    Flight updated = flightRepository.save(existingFlight);
-    return convertToFLightResponse(updated);
+    final Flight updated = this.flightRepository.save(existingFlight);
+    return this.convertToFLightResponse(updated);
   }
 
   @Transactional
   @Override
-  public void deleteFlight(Long airlineId, Long id) throws Exception {
+  public void deleteFlight(final UUID airlineId, final UUID id) {
 
     // todo: watch airlineId
-    Flight existingFlight = flightRepository.findByAirlineIdAndId(airlineId, id).orElseThrow(
-        () -> new Exception("flight not found with id")
-    );
+    final Flight existingFlight = this.flightRepository.findByAirlineIdAndId(airlineId, id)
+        .orElseThrow(() -> new ResourceNotFoundException("Flight", "id", id));
 
-    flightRepository.delete(existingFlight);
+    // Gỡ @ManyToOne khỏi FlightSchedule/FlightInstance đồng nghĩa mất luôn FK constraint thật
+    // ở MySQL từng chặn việc này - phải tự kiểm tra để tránh dữ liệu mồ côi.
+    if (this.flightScheduleRepository.existsByFlightId(id)
+        || this.flightInstanceRepository.existsByFlightId(id)) {
+      throw new BusinessException("Cannot delete flight that still has schedules or instances");
+    }
+
+    this.flightRepository.delete(existingFlight);
   }
 
-  public FlightResponse convertToFLightResponse(Flight flight) {
+  private FlightResponse convertToFLightResponse(final Flight flight) {
 
     // todo: service to service communication
-    AircraftResponse aircraftResponse = AircraftResponse.builder().id(flight.getAircraftId())
+    final AircraftResponse aircraftResponse = AircraftResponse.builder().id(flight.getAircraftId())
         .build();
-    AirlineResponse airlineResponse = AirlineResponse.builder().id(flight.getAirlineId()).build();
-    AirportResponse departureAirport = AirportResponse.builder().id(flight.getDepartureAirportId())
-        .build();
-    AirportResponse arrivalAirport = AirportResponse.builder().id(flight.getArrivalAirportId())
-        .build();
+    final AirlineResponse airlineResponse =
+        AirlineResponse.builder().id(flight.getAirlineId()).build();
+    final AirportResponse departureAirport =
+        AirportResponse.builder().id(flight.getDepartureAirportId()).build();
+    final AirportResponse arrivalAirport =
+        AirportResponse.builder().id(flight.getArrivalAirportId()).build();
     return FlightMapper.toResponse(flight, aircraftResponse, airlineResponse, departureAirport,
         arrivalAirport);
   }

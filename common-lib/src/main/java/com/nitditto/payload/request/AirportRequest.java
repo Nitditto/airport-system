@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.ZoneId;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -30,7 +31,7 @@ public class AirportRequest {
   private Address address;
 
   @NotNull(message = "City ID is mandatory")
-  private Long cityId;
+  private UUID cityId;
 
   @Valid
   private GeoCode geoCode;

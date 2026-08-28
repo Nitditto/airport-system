@@ -3,18 +3,19 @@ package com.nitditto.service;
 import com.nitditto.payload.request.FlightScheduleRequest;
 import com.nitditto.payload.response.FlightScheduleResponse;
 import java.util.List;
+import java.util.UUID;
 
 public interface FlightScheduleService {
 
-  FlightScheduleResponse createFlightSchedule(Long airlineId,
-      FlightScheduleRequest flightScheduleRequest) throws Exception;
+  FlightScheduleResponse createFlightSchedule(UUID airlineId,
+      FlightScheduleRequest flightScheduleRequest);
 
-  FlightScheduleResponse getFlightScheduleById(Long id) throws Exception;
+  FlightScheduleResponse getFlightScheduleById(UUID id);
 
-  List<FlightScheduleResponse> getFlightScheduleByAirline(Long airlineId);
+  List<FlightScheduleResponse> getFlightScheduleByAirline(UUID airlineId);
 
-  FlightScheduleResponse updateFlightSchedule(Long id,
-      FlightScheduleRequest flightScheduleRequest) throws Exception;
+  FlightScheduleResponse updateFlightSchedule(UUID id,
+      FlightScheduleRequest flightScheduleRequest);
 
-  void deleteFlightScheduleById(Long id) throws Exception;
+  void deleteFlightScheduleById(UUID id);
 }

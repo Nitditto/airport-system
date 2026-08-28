@@ -1,59 +1,46 @@
 package com.nitditto.model;
 
+import com.nitditto.entity.BaseEntity;
 import com.nitditto.enums.FlightStatus;
-import com.nitditto.FlightOpsServiceApplication;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EntityListeners;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import java.time.Instant;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 @Entity
+@Table(
+        name = "flights",
+        indexes = @Index(name = "idx_flight_airline_airports",
+                columnList = "airline_id, departure_airport_id, arrival_airport_id")
+)
 @Setter
 @Getter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@EntityListeners(AuditingEntityListener.class)
-public class Flight {
-
-  @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Long id;
+public class Flight extends BaseEntity {
 
   @Column(nullable = false, unique = true)
   private String flightNumber;
 
-  @Column(nullable = false)
-  private Long airlineId;
+  @Column(name = "airline_id", columnDefinition = "binary(16)", nullable = false)
+  private UUID airlineId;
 
-  @Column(nullable = false)
-  private Long aircraftId;
+  @Column(name = "aircraft_id", columnDefinition = "binary(16)", nullable = false)
+  private UUID aircraftId;
 
-  @Column(nullable = false)
-  private Long departureAirportId;
+  @Column(name = "departure_airport_id", columnDefinition = "binary(16)", nullable = false)
+  private UUID departureAirportId;
 
-  @Column(nullable = false)
-  private Long arrivalAirportId;
+  @Column(name = "arrival_airport_id", columnDefinition = "binary(16)", nullable = false)
+  private UUID arrivalAirportId;
 
   @Builder.Default
   private FlightStatus status = FlightStatus.SCHEDULED;
-
-  @CreatedDate
-  @Column(updatable = false, nullable = false)
-  private Instant createdAt;
-
-  @LastModifiedDate
-  @Column(nullable = false)
-  private Instant updatedAt;
 }

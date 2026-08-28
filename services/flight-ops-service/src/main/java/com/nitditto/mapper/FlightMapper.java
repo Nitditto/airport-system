@@ -10,7 +10,10 @@ import com.nitditto.payload.response.FlightResponse;
 
 public class FlightMapper {
 
-  public static Flight toEntity(FlightRequest flightRequest) {
+  private FlightMapper() {
+  }
+
+  public static Flight toEntity(final FlightRequest flightRequest) {
     if (flightRequest == null) {
       return null;
     }

@@ -4,6 +4,7 @@ import com.nitditto.enums.AircraftStatus;
 import jakarta.validation.constraints.NotNull;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -16,7 +17,7 @@ import lombok.Setter;
 @NotNull
 public class AircraftResponse {
 
-  private Long id;
+  private UUID id;
   private String code;
   private String model;
   private String manufacturer;
@@ -34,12 +35,12 @@ public class AircraftResponse {
   private AircraftStatus status;
   private Boolean isAvailable;
 
-  private Long airlineId;
+  private UUID airlineId;
   private String airlineName;
   private String airlineIataCode;
 
-  private Long currentAirportId;
-  private Long currentAirportCity;
+  private UUID currentAirportId;
+  private UUID currentAirportCity;
   private String currentAirportCode;
   private String currentAirportName;
 

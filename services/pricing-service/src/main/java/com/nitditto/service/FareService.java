@@ -1,28 +1,29 @@
 package com.nitditto.service;
 
-import com.nitditto.model.Fare;
 import com.nitditto.payload.request.FareRequest;
 import com.nitditto.payload.response.FareResponse;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface FareService {
 
-    FareResponse createFare(FareRequest request) throws Exception;
+    FareResponse createFare(FareRequest request);
 
-    FareResponse getFareById(Long id) throws Exception;
+    FareResponse getFareById(UUID id);
 
-    List<FareResponse> getFaresByFlightIdAndCabinClassId(Long flightId, Long cabinClassId);
+    List<FareResponse> getFaresByFlightIdAndCabinClassId(UUID flightId, UUID cabinClassId);
 
-    FareResponse updateFare(Long id, FareRequest
-            request) throws Exception;
+    FareResponse updateFare(UUID id, FareRequest request);
 
-    void deleteFareById(Long id) throws Exception;
+    void deleteFareById(UUID id);
 
-    List<Fare> getFares();
+    Page<FareResponse> getFares(Pageable pageable);
 
-    Map<Long, FareResponse> getLowestFarePerFlight(List<Long> flightIds, Long cabinClassId);
+    Map<UUID, FareResponse> getLowestFarePerFlight(List<UUID> flightIds, UUID cabinClassId);
 
-    Map<Long, FareResponse> getFareByIds(List<Long> ids);
+    Map<UUID, FareResponse> getFareByIds(List<UUID> ids);
 }
