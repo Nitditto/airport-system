@@ -14,15 +14,18 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class AircraftServiceImpl implements AircraftService {
 
   private final AircraftRepository aircraftRepository;
   private final AirlineRepository airlineRepository;
 
   @Override
+  @Transactional
   public AircraftResponse createAircraft(final AircraftRequest aircraftRequest, final UUID ownerId) {
     final Airline airline = this.airlineRepository.findByOwnerId(ownerId)
         .orElseThrow(() -> new ResourceNotFoundException("Airline", "ownerId", ownerId));
@@ -59,6 +62,7 @@ public class AircraftServiceImpl implements AircraftService {
   }
 
   @Override
+  @Transactional
   public AircraftResponse updateAircraft(final UUID id, final AircraftRequest aircraftRequest,
       final UUID ownerId) {
     final Airline airline = this.airlineRepository.findByOwnerId(ownerId)
@@ -77,6 +81,7 @@ public class AircraftServiceImpl implements AircraftService {
   }
 
   @Override
+  @Transactional
   public void deleteAircraft(final UUID id, final UUID ownerId) {
     final Airline airline = this.airlineRepository.findByOwnerId(ownerId)
         .orElseThrow(() -> new ResourceNotFoundException("Airline", "ownerId", ownerId));

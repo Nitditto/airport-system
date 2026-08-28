@@ -30,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class FlightScheduleServiceImpl implements FlightScheduleService {
 
   private final FlightRepository flightRepository;
@@ -104,6 +105,7 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
   }
 
   @Override
+  @Transactional
   public FlightScheduleResponse updateFlightSchedule(final UUID id,
       final FlightScheduleRequest flightScheduleRequest) {
     final FlightSchedule flightSchedule = this.flightScheduleRepository.findById(id)
@@ -115,6 +117,7 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
   }
 
   @Override
+  @Transactional
   public void deleteFlightScheduleById(final UUID id) {
     if (!this.flightScheduleRepository.existsById(id)) {
       throw new ResourceNotFoundException("FlightSchedule", "id", id);

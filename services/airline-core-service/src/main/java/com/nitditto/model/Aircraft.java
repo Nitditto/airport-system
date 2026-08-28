@@ -6,6 +6,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -16,7 +17,10 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "aircrafts")
+@Table(
+        name = "aircrafts",
+        indexes = @Index(name = "idx_aircraft_airline", columnList = "airline_id")
+)
 @Getter
 @Setter
 @Builder

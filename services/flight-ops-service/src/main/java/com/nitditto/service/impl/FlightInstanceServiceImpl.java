@@ -23,15 +23,18 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class FlightInstanceServiceImpl implements FlightInstanceService {
 
   private final FlightRepository flightRepository;
   private final FlightInstanceRepository flightInstanceRepository;
 
   @Override
+  @Transactional
   public FlightInstanceResponse createFlightInstance(final UUID airlineId,
       final FlightInstanceRequest flightInstanceRequest) {
 
@@ -84,6 +87,7 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
   }
 
   @Override
+  @Transactional
   public FlightInstanceResponse updateFlightInstance(final UUID id,
       final FlightInstanceRequest flightInstanceRequest) {
     final FlightInstance existing = this.flightInstanceRepository.findById(id)
@@ -95,6 +99,7 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
   }
 
   @Override
+  @Transactional
   public void deleteFlightInstance(final UUID id) {
     if (!this.flightInstanceRepository.existsById(id)) {
       throw new ResourceNotFoundException("FlightInstance", "id", id);

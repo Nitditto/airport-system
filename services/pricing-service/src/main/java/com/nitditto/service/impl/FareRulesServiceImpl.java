@@ -11,6 +11,7 @@ import com.nitditto.repository.FareRuleRepository;
 import com.nitditto.service.FareRulesService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
@@ -18,12 +19,14 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class FareRulesServiceImpl implements FareRulesService {
 
     private final FareRuleRepository fareRuleRepository;
     private final FareRepository fareRepository;
 
     @Override
+    @Transactional
     public FareRulesResponse createFareRules(final FareRulesRequest fareRulesRequest) {
         if (!this.fareRepository.existsById(fareRulesRequest.getFareId())) {
             throw new ResourceNotFoundException("Fare", "id", fareRulesRequest.getFareId());
@@ -61,6 +64,7 @@ public class FareRulesServiceImpl implements FareRulesService {
     }
 
     @Override
+    @Transactional
     public FareRulesResponse updateFareRules(final UUID id, final FareRulesRequest fareRulesRequest) {
         final FareRules fareRules = this.fareRuleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("FareRules", "id", id));
@@ -71,6 +75,7 @@ public class FareRulesServiceImpl implements FareRulesService {
     }
 
     @Override
+    @Transactional
     public void deleteFareRules(final UUID id) {
         final FareRules fareRules = this.fareRuleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("FareRules", "id", id));

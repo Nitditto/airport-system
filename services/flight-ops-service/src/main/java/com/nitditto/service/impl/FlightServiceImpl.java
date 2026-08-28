@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class FlightServiceImpl implements FlightService {
 
   private final FlightRepository flightRepository;

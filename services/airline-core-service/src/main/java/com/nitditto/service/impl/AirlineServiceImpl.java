@@ -17,15 +17,18 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class AirlineServiceImpl implements AirlineService {
 
   private final AirlineRepository airlineRepository;
   private final AircraftRepository aircraftRepository;
 
   @Override
+  @Transactional
   public AirlineResponse createAirline(final AirlineRequest airlineRequest, final UUID ownerId) {
     final Airline airline = AirlineMapper.toEntity(airlineRequest, ownerId);
     final Airline savedAirline = this.airlineRepository.save(airline);
@@ -55,6 +58,7 @@ public class AirlineServiceImpl implements AirlineService {
   }
 
   @Override
+  @Transactional
   public AirlineResponse updateAirline(final AirlineRequest airlineRequest, final UUID ownerId) {
     final Airline airline = this.airlineRepository.findByOwnerId(ownerId)
         .orElseThrow(() -> new ResourceNotFoundException("Airline", "ownerId", ownerId));
@@ -65,6 +69,7 @@ public class AirlineServiceImpl implements AirlineService {
   }
 
   @Override
+  @Transactional
   public void deleteAirline(final UUID id, final UUID ownerId) {
     final Airline airline = this.airlineRepository.findByOwnerId(ownerId)
         .orElseThrow(() -> new ResourceNotFoundException("Airline", "ownerId", ownerId));
@@ -79,6 +84,7 @@ public class AirlineServiceImpl implements AirlineService {
   }
 
   @Override
+  @Transactional
   public AirlineResponse changeStatusByAdmin(final UUID airlineId, final AirlineStatus status) {
     final Airline airline = this.airlineRepository.findById(airlineId)
         .orElseThrow(() -> new ResourceNotFoundException("Airline", "id", airlineId));

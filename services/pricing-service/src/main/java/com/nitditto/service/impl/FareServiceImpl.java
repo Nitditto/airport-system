@@ -21,11 +21,15 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class FareServiceImpl implements FareService {
 
     private final FareRepository fareRepository;
@@ -33,6 +37,7 @@ public class FareServiceImpl implements FareService {
     private final BaggagePolicyRepository baggagePolicyRepository;
 
     @Override
+    @Transactional
     public FareResponse createFare(final FareRequest request) {
         if (this.fareRepository.existsByFlightIdAndCabinClassIdAndName(request.getFlightId(),
                 request.getCabinClassId(), request.getName())) {
@@ -57,6 +62,7 @@ public class FareServiceImpl implements FareService {
     }
 
     @Override
+    @Transactional
     public FareResponse updateFare(final UUID id, final FareRequest request) {
         final Fare fare = this.fareRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Fare", "id", id));
@@ -89,9 +95,10 @@ public class FareServiceImpl implements FareService {
     }
 
     @Override
-    public List<FareResponse> getFares() {
-        // TODO(Nhóm C): chưa phân trang - findAll() không giới hạn số dòng, xem CLAUDE.md "Repository & Query Rules"
-        return this.toResponses(this.fareRepository.findAll());
+    public Page<FareResponse> getFares(final Pageable pageable) {
+        final Page<Fare> page = this.fareRepository.findAll(pageable);
+        final List<FareResponse> responses = this.toResponses(page.getContent());
+        return new PageImpl<>(responses, pageable, page.getTotalElements());
     }
 
     @Override

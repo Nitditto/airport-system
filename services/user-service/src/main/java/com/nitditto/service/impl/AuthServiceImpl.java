@@ -17,9 +17,11 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class AuthServiceImpl implements AuthService {
 
   private final UserRepository userRepository;
@@ -35,6 +37,7 @@ public class AuthServiceImpl implements AuthService {
    */
 
   @Override
+  @Transactional
   public AuthResponse signup(final UserDTO request) {
     final User existingUser = this.userRepository.findByEmail(request.getEmail());
     if (existingUser != null) {
@@ -78,6 +81,7 @@ public class AuthServiceImpl implements AuthService {
     5. Return token and user information
   */
   @Override
+  @Transactional
   public AuthResponse login(final String email, final String password) {
     final Authentication authentication = this.authenticate(email, password);
 

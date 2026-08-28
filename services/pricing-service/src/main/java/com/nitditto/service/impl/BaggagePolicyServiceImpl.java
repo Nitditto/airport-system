@@ -11,6 +11,7 @@ import com.nitditto.repository.FareRepository;
 import com.nitditto.service.BaggagePolicyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
@@ -18,12 +19,14 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class BaggagePolicyServiceImpl implements BaggagePolicyService {
 
     private final BaggagePolicyRepository baggagePolicyRepository;
     private final FareRepository fareRepository;
 
     @Override
+    @Transactional
     public BaggagePolicyResponse createBaggagePolicy(final BaggagePolicyRequest baggagePolicyRequest) {
         if (!this.fareRepository.existsById(baggagePolicyRequest.getFareId())) {
             throw new ResourceNotFoundException("Fare", "id", baggagePolicyRequest.getFareId());
@@ -61,6 +64,7 @@ public class BaggagePolicyServiceImpl implements BaggagePolicyService {
     }
 
     @Override
+    @Transactional
     public BaggagePolicyResponse updateBaggagePolicy(final UUID id,
             final BaggagePolicyRequest baggagePolicyRequest) {
         final BaggagePolicy baggagePolicy = this.baggagePolicyRepository.findById(id)
@@ -71,6 +75,7 @@ public class BaggagePolicyServiceImpl implements BaggagePolicyService {
     }
 
     @Override
+    @Transactional
     public void deleteBaggagePolicy(final UUID id) {
         final BaggagePolicy baggagePolicy = this.baggagePolicyRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BaggagePolicy", "id", id));

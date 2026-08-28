@@ -6,6 +6,8 @@ import com.nitditto.payload.response.FareResponse;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface FareService {
 
@@ -19,7 +21,7 @@ public interface FareService {
 
     void deleteFareById(UUID id);
 
-    List<FareResponse> getFares();
+    Page<FareResponse> getFares(Pageable pageable);
 
     Map<UUID, FareResponse> getLowestFarePerFlight(List<UUID> flightIds, UUID cabinClassId);
 

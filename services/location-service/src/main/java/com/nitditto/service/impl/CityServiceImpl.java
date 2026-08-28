@@ -14,15 +14,18 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class CityServiceImpl implements CityService {
 
   private final CityRepository cityRepository;
   private final AirportRepository airportRepository;
 
   @Override
+  @Transactional
   public CityResponse createCity(final CityRequest cityRequest) {
 
     if (this.cityRepository.existsByCityCode(cityRequest.getCityCode())) {
@@ -41,6 +44,7 @@ public class CityServiceImpl implements CityService {
   }
 
   @Override
+  @Transactional
   public CityResponse updateCity(final UUID id, final CityRequest cityRequest) {
     final City city = this.cityRepository.findById(id)
         .orElseThrow(() -> new ResourceNotFoundException("City", "id", id));
@@ -52,6 +56,7 @@ public class CityServiceImpl implements CityService {
   }
 
   @Override
+  @Transactional
   public void deleteCityById(final UUID id) {
     if (!this.cityRepository.existsById(id)) {
       throw new ResourceNotFoundException("City", "id", id);

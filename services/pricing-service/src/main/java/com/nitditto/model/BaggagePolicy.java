@@ -7,7 +7,10 @@ import lombok.*;
 import java.util.UUID;
 
 @Entity
-@Table(name = "baggage_policies")
+@Table(
+        name = "baggage_policies",
+        indexes = @Index(name = "idx_baggage_policies_airline", columnList = "airline_id")
+)
 @Getter
 @Setter
 @Builder
