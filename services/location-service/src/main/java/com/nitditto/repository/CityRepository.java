@@ -1,16 +1,17 @@
 package com.nitditto.repository;
 
 import com.nitditto.model.City;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
-public interface CityRepository extends JpaRepository<City, Long> {
+public interface CityRepository extends JpaRepository<City, UUID> {
 
   boolean existsByCityCode(String cityCode);
 
-  boolean existsByCityCodeAndIdNot(String cityCode, Long id);
+  boolean existsByCityCodeAndIdNot(String cityCode, UUID id);
 
   Page<City> findByCityCodeIgnoreCase(String cityCode, Pageable pageable);
 
