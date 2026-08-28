@@ -11,9 +11,12 @@ import com.nitditto.repository.UserRepository;
 import com.nitditto.service.AuthService;
 import com.nitditto.service.CustomUserDetailsService;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -57,8 +60,9 @@ public class AuthServiceImpl implements AuthService {
 
     final User savedUser = this.userRepository.save(newUser);
 
-    final Authentication authentication = new UsernamePasswordAuthenticationToken(savedUser.getEmail(),
-        savedUser.getPassword());
+    final GrantedAuthority authority = new SimpleGrantedAuthority(savedUser.getRole().toString());
+    final Authentication authentication = new UsernamePasswordAuthenticationToken(
+        savedUser.getEmail(), savedUser.getPassword(), List.of(authority));
 
     final String jwt = this.jwtProvider.generateToken(
         authentication, savedUser.getId()

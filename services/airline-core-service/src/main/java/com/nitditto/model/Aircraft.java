@@ -78,7 +78,11 @@ public class Aircraft extends BaseEntity {
   private UUID currentAirportId;
 
   public Integer getTotalSeats() {
-    return this.economySeats + this.premiumEconomySeats + this.businessSeats + this.firstClassSeats;
+    final int economy = this.economySeats != null ? this.economySeats : 0;
+    final int premiumEconomy = this.premiumEconomySeats != null ? this.premiumEconomySeats : 0;
+    final int business = this.businessSeats != null ? this.businessSeats : 0;
+    final int firstClass = this.firstClassSeats != null ? this.firstClassSeats : 0;
+    return economy + premiumEconomy + business + firstClass;
   }
 
   public boolean isOperational() {

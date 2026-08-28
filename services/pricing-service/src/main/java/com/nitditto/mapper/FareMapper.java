@@ -20,8 +20,9 @@ public class FareMapper {
 
         Double calculatedPrice = request.getCurrentPrice();
         if (calculatedPrice == null) {
-            calculatedPrice =
-                    request.getBaseFare() + request.getTaxesAndFees() + request.getAirlineFees();
+            final double taxes = request.getTaxesAndFees() != null ? request.getTaxesAndFees() : 0.0;
+            final double fees = request.getAirlineFees() != null ? request.getAirlineFees() : 0.0;
+            calculatedPrice = request.getBaseFare() + taxes + fees;
         }
 
         SeatBenefits seatBenefits = SeatBenefits.builder()
