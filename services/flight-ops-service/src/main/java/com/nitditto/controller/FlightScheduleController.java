@@ -5,6 +5,8 @@ import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.FlightScheduleResponse;
 import com.nitditto.service.FlightScheduleService;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -26,35 +28,39 @@ public class FlightScheduleController {
   private final FlightScheduleService flightScheduleService;
 
   @PostMapping
-  public ResponseEntity<FlightScheduleResponse> createFlightSchedule(
-      @RequestHeader("X-Airline-Id") Long airlineId,
-      @Valid @RequestBody FlightScheduleRequest flightScheduleRequest) throws Exception {
+  public ResponseEntity<ApiResponse<FlightScheduleResponse>> createFlightSchedule(
+      @RequestHeader("X-Airline-Id") final UUID airlineId,
+      @Valid @RequestBody final FlightScheduleRequest flightScheduleRequest) {
     // todo: watch for airline id
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(flightScheduleService.createFlightSchedule(airlineId, flightScheduleRequest));
+        .body(ApiResponse.success(
+            this.flightScheduleService.createFlightSchedule(airlineId, flightScheduleRequest)));
   }
 
   @GetMapping("/{id}")
-  public ResponseEntity<FlightScheduleResponse> getFlightScheduleById(@PathVariable Long id)
-      throws Exception {
-    return ResponseEntity.ok(flightScheduleService.getFlightScheduleById(id));
+  public ResponseEntity<ApiResponse<FlightScheduleResponse>> getFlightScheduleById(
+      @PathVariable final UUID id) {
+    return ResponseEntity.ok(ApiResponse.success(this.flightScheduleService.getFlightScheduleById(id)));
   }
 
   @GetMapping
-  public ResponseEntity<?> getFlightSchedules(@RequestHeader("X-Airline-Id") Long airlineId) {
-    return ResponseEntity.ok(flightScheduleService.getFlightScheduleByAirline(airlineId));
+  public ResponseEntity<ApiResponse<List<FlightScheduleResponse>>> getFlightSchedules(
+      @RequestHeader("X-Airline-Id") final UUID airlineId) {
+    return ResponseEntity.ok(
+        ApiResponse.success(this.flightScheduleService.getFlightScheduleByAirline(airlineId)));
   }
 
   @PutMapping("/{id}")
-  public ResponseEntity<FlightScheduleResponse> updateFlightSchedule(
-      @PathVariable Long id, @RequestBody FlightScheduleRequest flightScheduleRequest
-  ) throws Exception {
-    return ResponseEntity.ok(flightScheduleService.updateFlightSchedule(id, flightScheduleRequest));
+  public ResponseEntity<ApiResponse<FlightScheduleResponse>> updateFlightSchedule(
+      @PathVariable final UUID id, @Valid @RequestBody final FlightScheduleRequest flightScheduleRequest
+  ) {
+    return ResponseEntity.ok(
+        ApiResponse.success(this.flightScheduleService.updateFlightSchedule(id, flightScheduleRequest)));
   }
 
   @DeleteMapping("/{id}")
-  public ResponseEntity<ApiResponse<String>> deleteFlightSchedule(@PathVariable Long id) throws Exception {
-    flightScheduleService.deleteFlightScheduleById(id);
-    return ResponseEntity.ok(ApiResponse.success("Schedule removed successfully"));
+  public ResponseEntity<Void> deleteFlightSchedule(@PathVariable final UUID id) {
+    this.flightScheduleService.deleteFlightScheduleById(id);
+    return ResponseEntity.noContent().build();
   }
 }

@@ -1,51 +1,45 @@
 package com.nitditto.model;
 
+import com.nitditto.entity.BaseEntity;
 import com.nitditto.enums.FlightStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 @Entity
+@Table(name = "flight_instances")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@EntityListeners(AuditingEntityListener.class)
-public class FlightInstance {
+public class FlightInstance extends BaseEntity {
 
-  @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Long id;
+  @Column(name = "airline_id", columnDefinition = "binary(16)")
+  private UUID airlineId;
 
-  private Long airlineId;
+  @Column(name = "flight_id", columnDefinition = "binary(16)", nullable = false)
+  private UUID flightId;
 
-  @ManyToOne
-  private Flight flight;
+  @Column(name = "departure_airport_id", columnDefinition = "binary(16)", nullable = false)
+  private UUID departureAirportId;
 
-  @Column(nullable = false)
-  private Long departureAirportId;
+  @Column(name = "arrival_airport_id", columnDefinition = "binary(16)", nullable = false)
+  private UUID arrivalAirportId;
 
-  @Column(nullable = false)
-  private Long arrivalAirportId;
-
-  @Column(nullable = false)
-  private Long scheduleId;
+  @Column(name = "schedule_id", columnDefinition = "binary(16)", nullable = false)
+  private UUID scheduleId;
 
   private LocalDateTime departureDateTime;
 
@@ -68,14 +62,14 @@ public class FlightInstance {
 
   @Transient
   public String getFormatedDuration() {
-    if (departureDateTime == null || arrivalDateTime == null) {
+    if (this.departureDateTime == null || this.arrivalDateTime == null) {
       return null;
     }
-    Duration duration = Duration.between(departureDateTime, arrivalDateTime);
-    long hours = duration.toHours();
-    long minutes = duration.toMinutes() % 60;
+    final Duration duration = Duration.between(this.departureDateTime, this.arrivalDateTime);
+    final long hours = duration.toHours();
+    final long minutes = duration.toMinutes() % 60;
 
-    StringBuilder sb = new StringBuilder();
+    final StringBuilder sb = new StringBuilder();
     if (hours > 0) {
       sb.append(hours).append("h ");
     }
