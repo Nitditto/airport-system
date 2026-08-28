@@ -4,6 +4,7 @@ import com.nitditto.embeddable.Support;
 import com.nitditto.enums.AirlineStatus;
 import com.nitditto.payload.dto.UserDTO;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,7 +16,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class AirlineResponse {
 
-  private Long id;
+  private UUID id;
 
   private String iataCode;
   private String icaoCode;
@@ -30,9 +31,9 @@ public class AirlineResponse {
   private Instant createdAt;
   private Instant updatedAt;
 
-  private Long ownerId;
+  private UUID ownerId;
   private UserDTO owner;
-  private Long updatedById;
+  private UUID updatedById;
 
   private CityResponse headquartersCity;
   private Support support;

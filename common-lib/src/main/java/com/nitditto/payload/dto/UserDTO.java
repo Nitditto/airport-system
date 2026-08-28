@@ -2,6 +2,7 @@ package com.nitditto.payload.dto;
 
 import com.nitditto.enums.UserRole;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,7 +14,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class UserDTO {
 
-  private Long id;
+  private UUID id;
   private String email;
   private String password;
   private String fullName;

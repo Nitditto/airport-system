@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,14 +18,14 @@ import lombok.NoArgsConstructor;
 public class FlightInstanceRequest {
 
   @NotNull(message = "Flight ID is required")
-  private Long flightId;
+  private UUID flightId;
 
-  private Long airlineId;
+  private UUID airlineId;
 
-  private Long scheduleId;
+  private UUID scheduleId;
 
-  private Long departureAirportId;
-  private Long arrivalAirportId;
+  private UUID departureAirportId;
+  private UUID arrivalAirportId;
 
   @NotNull(message = "Departure date time is required")
   private LocalDateTime departureDateTime;

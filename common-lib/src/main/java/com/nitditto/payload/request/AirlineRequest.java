@@ -3,6 +3,7 @@ package com.nitditto.payload.request;
 import com.nitditto.enums.AirlineStatus;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -35,7 +36,7 @@ public class AirlineRequest {
 
   private String alliance;
 
-  private Long headquartersCityId;
+  private UUID headquartersCityId;
 
   private String supportEmail;
   private String supportPhone;
