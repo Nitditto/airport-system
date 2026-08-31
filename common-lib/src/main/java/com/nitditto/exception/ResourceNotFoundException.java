@@ -1,8 +1,18 @@
 package com.nitditto.exception;
 
+import lombok.Getter;
+
+@Getter
 public class ResourceNotFoundException extends RuntimeException {
 
-  public ResourceNotFoundException(final String resource, final String field, final Object value) {
-    super("%s not found with %s: %s".formatted(resource, field, value));
+  private final String resourceName;
+  private final String fieldName;
+  private final Object fieldValue;
+
+  public ResourceNotFoundException(String resourceName, String fieldName, Object fieldValue) {
+    super(String.format("%s not found with %s: '%s'", resourceName, fieldName, fieldValue));
+    this.resourceName = resourceName;
+    this.fieldName = fieldName;
+    this.fieldValue = fieldValue;
   }
 }
