@@ -1,34 +1,58 @@
 package com.nitditto.model;
 
+import java.util.UUID;
+
+import com.nitditto.entity.BaseEntity;
 import com.nitditto.enums.CabinClassType;
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
+import lombok.Builder;
 
-public class CabinClass {
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Entity
+@Table(name = "cabin_classes", uniqueConstraints = {
+        // Một tàu bay chỉ có tối đa 1 hạng ghế mỗi loại, và mỗi code chỉ dùng 1 lần trên tàu bay đó.
+        // Cả 2 constraint đều bắt đầu bằng aircraft_id nên đã phục vụ luôn findByAircraftId
+        // (leftmost prefix) -> không cần khai thêm index riêng cho aircraft_id.
+        @UniqueConstraint(name = "uk_cabin_aircraft_name", columnNames = {"aircraft_id", "name"}),
+        @UniqueConstraint(name = "uk_cabin_aircraft_code", columnNames = {"aircraft_id", "code"})
+})
 
-    @Id
-    @GeneratedValue(strategy= GenerationType.AUTO)
-    private Long id;
+public class CabinClass extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable=false)
+    @Column(nullable = false)
     private CabinClassType name;
 
-    @Column(nullable=false)
+    @Column(nullable = false)
     private String code;
 
     private String description;
 
-    @Column(nullable=false)
-    private Long aircraftId;
+    @Column(name = "aircraft_id", nullable = false, columnDefinition = "binary(16)")
+    private UUID aircraftId;
 
-    @Column(nullable=false)
+    @Builder.Default
+    @Column(nullable = false)
     private Integer displayOrder = 0;
 
-    @Column(nullable=false)
+    @Builder.Default
+    @Column(nullable = false)
     private Boolean isActive = true;
 
-    @Column(nullable=false)
-    private Boolean isBookable=true;
+    @Builder.Default
+    @Column(nullable = false)
+    private Boolean isBookable = true;
 
+    private Integer typicalSeatPitch;
+    private Integer typicalSeatWidth;
+    private String seatType;
 
 }
