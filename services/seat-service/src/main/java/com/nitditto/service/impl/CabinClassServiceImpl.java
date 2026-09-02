@@ -5,6 +5,7 @@ import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.CabinClassMapper;
 import com.nitditto.model.CabinClass;
+import com.nitditto.model.SeatMap;
 import com.nitditto.payload.request.CabinClassRequest;
 import com.nitditto.payload.response.CabinClassResponse;
 import com.nitditto.repository.CabinClassRepository;
@@ -15,7 +16,9 @@ import com.nitditto.service.CabinClassService;
 import lombok.RequiredArgsConstructor;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -31,6 +34,7 @@ public class CabinClassServiceImpl implements CabinClassService {
     private final SeatRepository seatRepository;
 
     @Override
+    @Transactional
     public CabinClassResponse createCabinClass(CabinClassRequest cabinClassRequest) {
         // code luôn được CabinClassMapper lưu dạng viết hoa -> phải so trùng cùng dạng
         if (cabinClassRepository.existsByCodeAndAircraftId(cabinClassRequest.getCode().toUpperCase(),
@@ -45,21 +49,31 @@ public class CabinClassServiceImpl implements CabinClassService {
         }
         CabinClass cabinClass = CabinClassMapper.toEntity(cabinClassRequest);
         CabinClass savedCabin = cabinClassRepository.save(cabinClass);
-        return CabinClassMapper.toResponse(savedCabin);
+        return CabinClassMapper.toResponse(savedCabin, null);
     }
 
     @Override
     public CabinClassResponse getCabinClassById(UUID id) {
         CabinClass cabinClass = cabinClassRepository.findById(id).orElseThrow(
                 () -> new ResourceNotFoundException("CabinClass", "id", id));
-        return CabinClassMapper.toResponse(cabinClass);
+        SeatMap seatMap = seatMapRepository.findByCabinClassId(cabinClass.getId()).orElse(null);
+        return CabinClassMapper.toResponse(cabinClass, seatMap);
     }
 
     @Override
     public List<CabinClassResponse> getCabinClassesByAircraftId(UUID aircraftId) {
-        return cabinClassRepository.findByAircraftId(aircraftId)
-                .stream()
-                .map(CabinClassMapper::toResponse)
+        List<CabinClass> cabinClasses = cabinClassRepository.findByAircraftId(aircraftId);
+        if (cabinClasses.isEmpty()) {
+            return List.of();
+        }
+
+        // Batch: 1 query IN thay vì gọi repository trong .map() (N+1)
+        List<UUID> cabinClassIds = cabinClasses.stream().map(CabinClass::getId).distinct().toList();
+        Map<UUID, SeatMap> seatMapByCabinClassId = seatMapRepository.findByCabinClassIdIn(cabinClassIds)
+                .stream().collect(Collectors.toMap(SeatMap::getCabinClassId, Function.identity()));
+
+        return cabinClasses.stream()
+                .map(cc -> CabinClassMapper.toResponse(cc, seatMapByCabinClassId.get(cc.getId())))
                 .collect(Collectors.toList());
     }
 
@@ -68,10 +82,12 @@ public class CabinClassServiceImpl implements CabinClassService {
         CabinClass cabinClass = cabinClassRepository.findByAircraftIdAndName(aircraftId, name)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "CabinClass", "aircraftId+name", aircraftId + "/" + name));
-        return CabinClassMapper.toResponse(cabinClass);
+        SeatMap seatMap = seatMapRepository.findByCabinClassId(cabinClass.getId()).orElse(null);
+        return CabinClassMapper.toResponse(cabinClass, seatMap);
     }
 
     @Override
+    @Transactional
     public CabinClassResponse updateCabinClass(UUID id, CabinClassRequest cabinClassRequest) {
         CabinClass cabinClass = cabinClassRepository.findById(id).orElseThrow(
                 () -> new ResourceNotFoundException("CabinClass", "id", id));
@@ -94,7 +110,8 @@ public class CabinClassServiceImpl implements CabinClassService {
         }
         CabinClassMapper.updateEntity(cabinClassRequest, cabinClass);
         CabinClass savedCabin = cabinClassRepository.save(cabinClass);
-        return CabinClassMapper.toResponse(savedCabin);
+        SeatMap seatMap = seatMapRepository.findByCabinClassId(savedCabin.getId()).orElse(null);
+        return CabinClassMapper.toResponse(savedCabin, seatMap);
     }
 
     @Override

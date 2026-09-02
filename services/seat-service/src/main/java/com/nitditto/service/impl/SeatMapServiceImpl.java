@@ -4,6 +4,7 @@ import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.SeatMapMapper;
 import com.nitditto.model.CabinClass;
+import com.nitditto.model.Seat;
 import com.nitditto.model.SeatMap;
 import com.nitditto.payload.request.SeatMapRequest;
 import com.nitditto.payload.response.SeatMapResponse;
@@ -17,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -46,7 +48,8 @@ public class SeatMapServiceImpl implements SeatMapService {
 
         // generate seats for seat map
         seatService.generateSeats(savedSeatMap.getId());
-        return SeatMapMapper.toResponse(savedSeatMap, cabinClass);
+        final List<Seat> seats = this.seatRepository.findBySeatMapId(savedSeatMap.getId());
+        return SeatMapMapper.toResponse(savedSeatMap, cabinClass, seats);
     }
 
     @Override
@@ -55,7 +58,8 @@ public class SeatMapServiceImpl implements SeatMapService {
                 .orElseThrow(() -> new ResourceNotFoundException("SeatMap", "id", seatMapId));
         final CabinClass cabinClass = this.cabinClassRepository.findById(seatMap.getCabinClassId())
                 .orElseThrow(() -> new ResourceNotFoundException("CabinClass", "id", seatMap.getCabinClassId()));
-        return SeatMapMapper.toResponse(seatMap, cabinClass);
+        final List<Seat> seats = this.seatRepository.findBySeatMapId(seatMap.getId());
+        return SeatMapMapper.toResponse(seatMap, cabinClass, seats);
     }
 
     @Override
@@ -64,7 +68,8 @@ public class SeatMapServiceImpl implements SeatMapService {
                 .orElseThrow(() -> new ResourceNotFoundException("SeatMap", "cabinClassId", cabinClassId));
         final CabinClass cabinClass = this.cabinClassRepository.findById(seatMap.getCabinClassId())
                 .orElseThrow(() -> new ResourceNotFoundException("CabinClass", "id", seatMap.getCabinClassId()));
-        return SeatMapMapper.toResponse(seatMap, cabinClass);
+        final List<Seat> seats = this.seatRepository.findBySeatMapId(seatMap.getId());
+        return SeatMapMapper.toResponse(seatMap, cabinClass, seats);
     }
 
     @Override
@@ -103,7 +108,8 @@ public class SeatMapServiceImpl implements SeatMapService {
             this.seatService.generateSeats(updatedSeatMap.getId());
         }
 
-        return SeatMapMapper.toResponse(updatedSeatMap, cabinClass);
+        final List<Seat> seats = this.seatRepository.findBySeatMapId(updatedSeatMap.getId());
+        return SeatMapMapper.toResponse(updatedSeatMap, cabinClass, seats);
     }
 
     @Override

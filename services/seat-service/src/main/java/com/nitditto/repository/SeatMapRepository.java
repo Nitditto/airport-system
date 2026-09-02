@@ -1,5 +1,6 @@
 package com.nitditto.repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -9,6 +10,8 @@ import com.nitditto.model.SeatMap;
 
 public interface SeatMapRepository extends JpaRepository<SeatMap, UUID> {
     Optional<SeatMap> findByCabinClassId(UUID cabinClassId);
+
+    List<SeatMap> findByCabinClassIdIn(List<UUID> cabinClassIds);
 
     boolean existsByCabinClassId(UUID cabinClassId);
 
