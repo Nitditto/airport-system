@@ -1,3 +1,21 @@
+server:
+  port: 5008
+
 spring:
   application:
     name: ancillary-service
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/airline_ancillary
+    username: root
+    password: 123456
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
