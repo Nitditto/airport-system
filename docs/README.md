@@ -1,29 +1,91 @@
-# Tài liệu dự án Airline Microservices
+# Airline Microservices
 
-## Đọc gì, khi nào
+Hệ thống quản lý hàng không dạng multi-module Maven (`com.nitditto:airline-microservice`,
+repo `Nitditto/airport-system`), tách theo domain thành các microservice độc lập:
+airline core, flight operations, location, pricing, seat, ancillary và user/auth.
+
+Mỗi service có **database riêng** (database-per-service), giao tiếp với nhau bằng
+tham chiếu `UUID` thô + endpoint batch-fetch — chưa có service discovery, config server,
+API gateway hay message broker.
+
+## Tech stack
+
+- Java 17 + Spring Boot 4.0.7 + Spring Cloud 2025.1.0
+- MySQL + Spring Data JPA (Hibernate, `ddl-auto: update`)
+- Khóa chính UUIDv7 sinh ở tầng ứng dụng (`BaseEntity` trong `common-lib`)
+- Spring Security + JWT tự viết — chỉ ở `user-service`
+- Lombok, Maven multi-module reactor build
+
+## Các service
+
+Reactor 3 cấp: `root pom` → (`common-lib`, `cloud`, `services`) → `services/pom.xml` → 7 service.
+
+| Service | Port | Domain (entity chính) |
+|---|---|---|
+| `user-service` | 5001 | `User` — đăng ký/đăng nhập, JWT, Spring Security |
+| `airline-core-service` | 5002 | `Airline`, `Aircraft` |
+| `flight-ops-service` | 5003 | `Flight`, `FlightInstance`, `FlightSchedule` |
+| `location-service` | 5004 | `Airport`, `City` |
+| `pricing-service` | 5005 | `Fare`, `FareRules`, `BaggagePolicy` |
+| `seat-service` | 5006 | `CabinClass`, `SeatMap`, `Seat`, `SeatInstance`, `FlightInstanceCabin` |
+| `ancillary-service` | 5008 | `Ancillary`, `InsuranceCoverage`, `Meal`, `FlightMeal`, `FlightCabinAncillary` |
+
+`common-lib` là jar dùng chung: DTO (`payload/request`, `payload/response`), enum nghiệp vụ,
+`@Embeddable` value object, `BaseEntity`, exception dùng chung. **Không** chứa `@Entity`,
+business logic hay Service/Repository.
+
+`cloud/` hiện là aggregator rỗng — service-registry / config-server / api-gateway mới là
+comment, chưa implement.
+
+## Cấu trúc một service
+
+```
+com.nitditto
+├── controller/    @RestController
+├── service/       interface nghiệp vụ
+│   └── impl/       *ServiceImpl
+├── repository/    Spring Data JPA interface
+├── model/         @Entity (extends BaseEntity)
+├── mapper/        static mapper Entity <-> DTO (viết tay)
+├── exception/     GlobalExceptionHandler riêng (@RestControllerAdvice)
+└── config/        (hiện chỉ user-service: SecurityConfig, Jwt*)
+```
+
+Luồng xử lý: `Request → Controller → Service → ServiceImpl → Repository → MySQL`,
+mapper lo phần Entity ↔ DTO.
+
+## Build & run
+
+Không có Maven Wrapper ở thư mục gốc — dùng `mvn` cài trên máy, luôn chạy từ thư mục gốc.
+
+```bash
+# Build toàn bộ reactor
+mvn clean install
+
+# Build / run một service
+mvn -pl services/pricing-service -am clean install
+mvn -pl services/pricing-service spring-boot:run
+
+# Test
+mvn test
+mvn -pl services/pricing-service test -Dtest=ClassName#methodName
+
+# Package bỏ qua test
+mvn clean package -DskipTests
+```
+
+## Tài liệu
 
 | Bạn đang định làm gì | Đọc file nào |
 |---|---|
 | Hiểu luật của dự án (nguồn quy tắc gốc) | [`../CLAUDE.md`](../CLAUDE.md) |
 | Biết dự án đi tới đâu, còn những gì | [`ROADMAP.md`](ROADMAP.md) |
+| Việc refactor còn tồn đọng | [`REFACTOR-BACKLOG.md`](REFACTOR-BACKLOG.md) |
 | **Bắt đầu code một service mới** | [`development/02-new-service-checklist.md`](development/02-new-service-checklist.md) |
 | Viết entity / repository / service / controller | `development/03` → `development/06` |
 | Trước khi mở Pull Request | [`development/08-definition-of-done.md`](development/08-definition-of-done.md) |
 
-## Quan hệ giữa `CLAUDE.md` và `docs/development/`
-
-Hai tài liệu này **không trùng vai trò**, đừng copy nội dung qua lại:
-
-- **`CLAUDE.md` = LUẬT.** Nói *cái gì bị cấm, cái gì bắt buộc, và tại sao*. Đây là nguồn
-  quy tắc duy nhất. Khi có mâu thuẫn giữa hai bên, **`CLAUDE.md` thắng**.
-- **`docs/development/` = HƯỚNG DẪN THỰC HÀNH.** Nói *làm thế nào cho đúng luật đó*,
-  bằng code mẫu ĐÚNG/SAI lấy từ chính repo này, cộng checklist thao tác.
-
-Mỗi trang trong `development/` đều ghi rõ nó hiện thực mục nào của `CLAUDE.md`.
-Nếu bạn sửa luật trong `CLAUDE.md`, phải rà lại trang tương ứng ở đây — ngược lại
-tài liệu sẽ trôi khỏi thực tế và trở thành thứ gây hại hơn là không có.
-
-## Mục lục `development/`
+### `development/`
 
 | File | Nội dung |
 |---|---|
@@ -36,11 +98,3 @@ tài liệu sẽ trôi khỏi thực tế và trở thành thứ gây hại hơn
 | [07-security.md](development/07-security.md) | JWT, phân quyền, không tin dữ liệu client gửi — ĐÚNG/SAI |
 | [08-definition-of-done.md](development/08-definition-of-done.md) | Checklist tự soát trước khi mở PR |
 | [09-bug-co-that-trong-repo.md](development/09-bug-co-that-trong-repo.md) | Bảo tàng bug thật đã gặp — học từ lỗi của chính dự án |
-
-## Cảnh báo về `ROADMAP.md`
-
-`ROADMAP.md` được viết **trước** đợt refactor Nhóm A/B/C/D nên một số chỗ đã lỗi thời và
-**mâu thuẫn với luật hiện tại** — cụ thể nó còn nói `GenerationType.IDENTITY`, còn nói
-"JPA relationship trong cùng service thì OK", và còn ghi port collision đã fix xong.
-Đừng dùng `ROADMAP.md` làm căn cứ kỹ thuật; nó chỉ còn giá trị về **phạm vi và thứ tự
-công việc**. Cần một đợt sync riêng cho nó (xem `08-definition-of-done.md`, mục "Nợ tài liệu").
