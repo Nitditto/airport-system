@@ -47,7 +47,7 @@ public class MealServiceImpl implements MealService {
                 .airlineId(airlineId)
                 .build();
 
-        final Meal saved = this.mealRepository.save(meal);
+        final Meal saved = this.mealRepository.saveAndFlush(meal);
         return MealMapper.toResponse(saved);
     }
 
@@ -83,7 +83,7 @@ public class MealServiceImpl implements MealService {
             meal.setDisplayOrder(request.getDisplayOrder());
         }
 
-        final Meal updated = this.mealRepository.save(meal);
+        final Meal updated = this.mealRepository.saveAndFlush(meal);
         return MealMapper.toResponse(updated);
     }
 
@@ -108,7 +108,7 @@ public class MealServiceImpl implements MealService {
         final Meal meal = this.mealRepository.findById(id).orElseThrow(
                 () -> new ResourceNotFoundException("Meal", "id", id));
         meal.setAvailable(availability);
-        final Meal updated = this.mealRepository.save(meal);
+        final Meal updated = this.mealRepository.saveAndFlush(meal);
         return MealMapper.toResponse(updated);
     }
 }
