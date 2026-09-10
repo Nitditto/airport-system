@@ -1,22 +1,26 @@
 # CLAUDE.md
 
-File này cung cấp hướng dẫn cho Claude Code khi làm việc với code trong repository này.
+File này chứa **rule và convention** cho Claude Code khi làm việc với repository này. Chỉ chứa quy tắc mang tính lâu dài — không ghi trạng thái codebase, không ghi "chỗ nào đang sai / cần sửa". Việc còn tồn đọng nằm ở [`docs/REFACTOR-BACKLOG.md`](docs/REFACTOR-BACKLOG.md).
 
-## Project Overview
+---
+
+## 1. Project Overview
 
 **Airline Microservices** (`com.nitditto:airline-microservice`, repo `Nitditto/airport-system`) — hệ thống quản lý hàng không dạng multi-module Maven, tách theo domain thành các microservice độc lập (airline core, flight operations, location, pricing, user/auth).
 
-## Tech Stack
+## 2. Tech Stack
 
 - Java 17 + Spring Boot 4.0.7 + Spring Cloud 2025.1.0
-- MySQL + Spring Data JPA (Hibernate `ddl-auto: update`)
+- MySQL + Spring Data JPA (Hibernate `ddl-auto: update` — chỉ dùng ở môi trường dev)
 - Lombok
 - Maven multi-module reactor build
 - Spring Security + JWT tự viết (`JwtProvider`, `JwtConstant`) — chỉ có ở `user-service`
 
-**Chưa có** (lưu ý để không giả định nhầm khi code): service discovery (Eureka), config server, API gateway, Feign client, message broker (Kafka/RabbitMQ), Redis cache, Flyway/Liquibase, PostgreSQL, MapStruct, OpenAPI/Swagger, SLF4J logging, exception handling framework, CI/CD, Docker.
+### Ngoài phạm vi kiến trúc hiện tại
 
-## Repository & Module Structure
+Không giả định các thành phần sau tồn tại khi viết code: service discovery (Eureka), config server, API gateway, Feign client, message broker (Kafka/RabbitMQ), Redis cache, Flyway/Liquibase, PostgreSQL, MapStruct, OpenAPI/Swagger, CI/CD, Docker. Khi cần một trong số này, hỏi trước — đừng tự thêm.
+
+## 3. Repository & Module Structure
 
 Reactor 3 cấp: `root pom` → (`common-lib`, `cloud`, `services`) → `services/pom.xml` → 5 service module.
 
@@ -26,38 +30,42 @@ microservices/
 │                                     # (java.version, spring.boot.version, spring.cloud.version)
 ├── common-lib/                      # Shared jar — mọi service phụ thuộc vào đây
 │   └── src/main/java/com/nitditto/
+│       ├── entity/                  # BaseEntity (id UUIDv7 + createdAt/updatedAt)
 │       ├── embeddable/              # @Embeddable value objects (Address, GeoCode, SeatBenefits...)
 │       ├── enums/                   # AircraftStatus, AirlineStatus, CabinClassType, FlightStatus, UserRole
+│       ├── exception/               # ResourceNotFoundException, BusinessException (dùng chung)
 │       └── payload/
 │           ├── dto/                 # UserDTO
 │           ├── request/             # *Request DTO cho MỌI service (tập trung tại đây)
-│           └── response/            # *Response DTO + ApiResponse, AuthResponse
-├── cloud/                           # Aggregator RỖNG — service-registry/config-server/api-gateway
-│                                     # mới chỉ là comment, CHƯA implement (xem "Known Gaps")
+│           └── response/            # *Response DTO + ApiResponse<T>, AuthResponse
+├── cloud/                           # Aggregator cho service-registry/config-server/api-gateway
 └── services/
     ├── pom.xml                      # Aggregator của 5 service, là parent thật của từng service
-    ├── user-service/        (port 5001)  # Auth, JWT, Spring Security
-    ├── airline-core-service/(port 5002)  # Aircraft, Airline
-    ├── flight-ops-service/  (port 5003)  # Flight, FlightInstance, FlightSchedule
-    ├── location-service/    (port 5004)  # Airport, City
-    └── pricing-service/     (port 5005)  # Fare, FareRules, BaggagePolicy
+    ├── user-service/         port 5001   # Auth, JWT, Spring Security
+    ├── airline-core-service/ port 5002   # Aircraft, Airline
+    ├── flight-ops-service/   port 5003   # Flight, FlightInstance, FlightSchedule
+    ├── location-service/     port 5004   # Airport, City
+    └── pricing-service/      port 5005   # Fare, FareRules, BaggagePolicy
 ```
 
 Mỗi service có package layout giống nhau dưới `com.nitditto`:
+
 ```
 controller/    # @RestController
 service/       # interface — hợp đồng nghiệp vụ
-service/impl/  # *ServiceImpl — cài đặt, @Service @RequiredArgsConstructor
+service/impl/  # *ServiceImpl — @Service @RequiredArgsConstructor
 repository/    # Spring Data JPA interface
+repository/spec/ # *Specs — Specification factory (khi filter động ≥ 3 điều kiện)
 model/         # @Entity
-mapper/        # static method mapper Entity <-> DTO (viết tay, không dùng MapStruct)
-exception/     # GlobalExceptionHandler riêng của từng service (@RestControllerAdvice)
-config/        # (chỉ user-service hiện có: SecurityConfig, JwtProvider, JwtConstant, JwtAuthenticationFilter)
+mapper/        # static method mapper Entity <-> DTO (viết tay, không MapStruct)
+converter/     # AttributeConverter (thay cho @ElementCollection)
+exception/     # GlobalExceptionHandler của service (@RestControllerAdvice)
+config/        # SecurityConfig, JwtProvider, JwtConstant, JwtAuthenticationFilter (hiện chỉ user-service)
 ```
 
-## Build Commands
+## 4. Build Commands
 
-**Không có Maven Wrapper ở thư mục gốc** — dùng `mvn` cài trên máy. Mỗi service con có `mvnw`/`mvnw.cmd`/`.mvn/` riêng (rác còn lại từ lúc mỗi service được khởi tạo độc lập bằng Spring Initializr trước khi gộp vào reactor) — **đừng dùng** các wrapper lẻ đó, luôn chạy `mvn` từ thư mục gốc để giữ đúng version do parent POM quản lý.
+**Không có Maven Wrapper ở thư mục gốc** — dùng `mvn` cài trên máy. Mỗi service con còn `mvnw`/`mvnw.cmd`/`.mvn/` lẻ (rác từ lúc khởi tạo độc lập bằng Spring Initializr) — **đừng dùng**, luôn chạy `mvn` từ thư mục gốc để giữ đúng version do parent POM quản lý.
 
 ```bash
 # Build toàn bộ reactor (common-lib -> cloud -> services)
@@ -77,11 +85,9 @@ mvn -pl services/pricing-service test -Dtest=ClassName#methodName
 mvn clean package -DskipTests
 ```
 
-**Lưu ý khi thêm dependency/version:** chỉ khai báo `<version>` ở root `pom.xml` (`dependencyManagement`) hoặc dùng version do `spring-boot-dependencies`/`spring-cloud-dependencies` BOM quản lý. Service con KHÔNG tự ghim version riêng — tránh lệch version giữa các service. Vi phạm hiện có cần dọn: `user-service/pom.xml` đang tự ghim `<version>0.13.0</version>` cho 3 dependency `jjwt-*` thay vì khai ở `dependencyManagement` gốc.
+**Quản lý version dependency:** chỉ khai `<version>` ở root `pom.xml` (`dependencyManagement`), hoặc dùng version do `spring-boot-dependencies`/`spring-cloud-dependencies` BOM quản lý. Service con **KHÔNG** tự ghim `<version>` riêng — tránh lệch version giữa các service.
 
-## Architecture
-
-### Data Flow (trong một service)
+## 5. Architecture — Data Flow (trong một service)
 
 ```
 Request → Controller → Service (interface) → ServiceImpl → Repository → MySQL
@@ -89,9 +95,16 @@ Request → Controller → Service (interface) → ServiceImpl → Repository �
                                               Mapper (Entity <-> DTO)
 ```
 
-## NO JPA Relationship Annotations (BẮT BUỘC — áp dụng CẢ trong cùng một service)
+- Controller chỉ xử lý HTTP (nhận request, gọi service, bọc `ApiResponse`, trả `ResponseEntity`).
+- Business logic chỉ nằm ở `*ServiceImpl`.
+- Mapper là hàm static thuần — không inject gì.
+- Repository chỉ chứa truy vấn.
 
-Đây là rule nền tảng của project, chi phối cách viết entity, repository, service và mapper. **Mọi khoá ngoại đều là cột `UUID` thô**, không có exception — kể cả khi hai entity nằm cùng một service và cùng một database.
+---
+
+## 6. NO JPA Relationship Annotations (BẮT BUỘC — áp dụng CẢ trong cùng một service)
+
+Rule nền tảng của project, chi phối cách viết entity, repository, service và mapper. **Mọi khoá ngoại đều là cột `UUID` thô**, không exception — kể cả khi hai entity cùng một service, cùng một database.
 
 ### Danh sách annotation bị CẤM
 
@@ -105,9 +118,6 @@ public class Fare extends BaseEntity {
     @OneToOne(mappedBy = "fare", cascade = CascadeType.ALL, orphanRemoval = true)
     private BaggagePolicy baggagePolicy;          // KHÔNG ĐƯỢC
 
-    @OneToOne(mappedBy = "fare", cascade = CascadeType.ALL, orphanRemoval = true)
-    private FareRules fareRules;                  // KHÔNG ĐƯỢC
-
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "cabin_class_id")
     private CabinClass cabinClass;                // KHÔNG ĐƯỢC
@@ -120,10 +130,10 @@ public class Fare extends BaseEntity {
 @Table(name = "fares")
 public class Fare extends BaseEntity {
 
-    @Column(name = "flight_id", nullable = false)
+    @Column(name = "flight_id", columnDefinition = "binary(16)", nullable = false)
     private UUID flightId;                        // trỏ sang flight-ops-service
 
-    @Column(name = "cabin_class_id", nullable = false)
+    @Column(name = "cabin_class_id", columnDefinition = "binary(16)", nullable = false)
     private UUID cabinClassId;                    // trỏ sang airline-core-service
 }
 
@@ -132,16 +142,16 @@ public class Fare extends BaseEntity {
 @Table(name = "baggage_policies")
 public class BaggagePolicy extends BaseEntity {
 
-    @Column(name = "fare_id", nullable = false, unique = true)
+    @Column(name = "fare_id", columnDefinition = "binary(16)", nullable = false, unique = true)
     private UUID fareId;
 }
 ```
 
-**Lý do:** loại bỏ hoàn toàn N+1 do lazy/eager loading; kiểm soát tường minh thời điểm load dữ liệu liên quan; entity serialize/deserialize đơn giản, không cần `@JsonIgnore` để chống vòng lặp vô hạn; và quan trọng nhất — ranh giới service không bị phá vỡ khi một entity sau này bị tách sang service khác (đổi chỗ chỉ là chuyện của tầng service, entity không đổi).
+**Lý do:** loại bỏ hoàn toàn N+1 do lazy/eager loading; kiểm soát tường minh thời điểm load dữ liệu liên quan; entity serialize/deserialize đơn giản, không cần `@JsonIgnore` chống vòng lặp; và quan trọng nhất — ranh giới service không vỡ khi một entity sau này bị tách sang service khác (đổi chỗ chỉ là chuyện của tầng service, entity không đổi).
 
 ### Ngoại lệ được phép: `@Embedded` / `@Embeddable`
 
-`@Embedded` **KHÔNG phải** relationship — nó nhúng field vào chính bảng đó, không sinh join, không sinh query phụ, không gây N+1. Các benefit block của `Fare` (`SeatBenefits`, `BoardingBenefits`, `InFlightBenefits`, `FlexibilityBenefits`, `PremiumServiceBenefits`) và `Address`, `GeoCode` trong `common-lib` là hợp lệ — **giữ nguyên, đừng gỡ khi refactor**.
+`@Embedded` **KHÔNG phải** relationship — nó nhúng field vào chính bảng đó, không sinh join, không sinh query phụ, không gây N+1. Các benefit block của `Fare` (`SeatBenefits`, `BoardingBenefits`, `InFlightBenefits`, `FlexibilityBenefits`, `PremiumServiceBenefits`) và `Address`, `GeoCode` trong `common-lib` là hợp lệ — **giữ nguyên khi refactor**.
 
 ```java
 // ✅ ĐÚNG — cùng bảng, không join
@@ -151,7 +161,7 @@ private SeatBenefits seatBenefits = new SeatBenefits();
 
 ### Thay thế `@ElementCollection`
 
-`@ElementCollection` bị cấm vì nó sinh bảng phụ và lazy-load y hệt `@OneToMany`. Trường hợp thật trong repo: `FlightSchedule.operatingDays` kiểu `List<DayOfWeek>`. Thay bằng `AttributeConverter` lưu vào một cột duy nhất:
+`@ElementCollection` bị cấm vì sinh bảng phụ và lazy-load y hệt `@OneToMany`. Với collection kiểu giá trị (vd. `Set<DayOfWeek> operatingDays`), dùng `AttributeConverter` lưu vào một cột duy nhất:
 
 ```java
 // ✅ ĐÚNG — 1 cột varchar, không bảng phụ, không query phụ
@@ -181,14 +191,14 @@ public class DayOfWeekSetConverter implements AttributeConverter<Set<DayOfWeek>,
 }
 ```
 
-Converter đặt trong package `converter/` của service sở hữu entity (hoặc `common-lib/converter/` nếu ≥2 service dùng).
+Converter đặt trong package `converter/` của service sở hữu entity (hoặc `common-lib/converter/` nếu ≥ 2 service dùng).
 
-### Hệ quả 1 — Mất `cascade`/`orphanRemoval`, phải tự xử lý ở tầng service
+### Hệ quả 1 — Không còn `cascade`/`orphanRemoval`, phải tự xử lý ở tầng service
 
-Trước đây `fareRepository.delete(fare)` tự xoá luôn `BaggagePolicy` và `FareRules`. Giờ **không còn**, phải xoá thủ công trong cùng một transaction:
+Xoá cha không tự xoá con nữa. Phải xoá thủ công trong cùng một transaction, con trước cha sau:
 
 ```java
-// ✅ ĐÚNG — xoá con trước, cha sau, trong 1 transaction
+// ✅ ĐÚNG
 @Override
 @Transactional
 public void deleteFareById(final UUID id) {
@@ -201,21 +211,21 @@ public void deleteFareById(final UUID id) {
 }
 ```
 
-**Bắt buộc:** mọi method xoá một entity có bản ghi con phải có `@Transactional` và xoá con tường minh. Thiếu `@Transactional` ở đây sẽ để lại dữ liệu mồ côi khi có lỗi giữa chừng.
+**Bắt buộc:** mọi method xoá một entity có bản ghi con phải có `@Transactional` và xoá con tường minh. Với các cặp cha-con từng dựa vào FK constraint thật của MySQL, thêm kiểm tra tường minh (ném `BusinessException`) ở tầng service trước khi xoá cha hoặc thêm con.
 
 ### Hệ quả 2 — Mapper nhận dữ liệu liên quan qua tham số
 
-Mapper không còn tự truy ngược quan hệ được (`fare.getFareRules()` không tồn tại nữa), nên dữ liệu liên quan phải được service load sẵn và truyền vào:
+Mapper không truy ngược quan hệ được nữa (`fare.getFareRules()` không tồn tại), nên service load sẵn và truyền vào:
 
 ```java
-// ❌ SAI — mapper tự đi lấy quan hệ (không còn khả thi), hoặc tệ hơn là inject repository vào mapper
+// ❌ SAI — mapper tự đi query, hoặc inject repository vào mapper
 public static FareResponse toResponse(final Fare fare) {
     return FareResponse.builder()
             .fareRules(FareRuleMapper.toResponse(fare.getFareRules()))   // KHÔNG CÒN
             .build();
 }
 
-// ✅ ĐÚNG — service load rồi truyền vào; mapper vẫn là hàm static thuần, không phụ thuộc DB
+// ✅ ĐÚNG — service load rồi truyền vào; mapper vẫn là hàm static thuần
 public static FareResponse toResponse(final Fare fare,
                                       final FareRules fareRules,
                                       final BaggagePolicy baggagePolicy) {
@@ -227,7 +237,7 @@ public static FareResponse toResponse(final Fare fare,
 }
 ```
 
-Giữ mapper là **hàm static thuần, không được inject repository/service vào mapper** — nếu mapper cần đi query thì đó là dấu hiệu logic đặt sai chỗ, phải đẩy lên service.
+**Không inject repository/service vào mapper.** Nếu mapper cần query, logic đang đặt sai chỗ — đẩy lên service.
 
 Nếu số tham số vượt 3, gói lại thành một record ngữ cảnh:
 
@@ -239,22 +249,7 @@ public static FareResponse toResponse(final FareContext context) { ... }
 
 ### Hệ quả 3 — Load dữ liệu liên quan bằng batch query ở tầng service
 
-Đây là phần quan trọng nhất và cũng là chỗ dễ đẻ ra N+1 nhất — xem đầy đủ ở mục "N+1 Query Prevention" bên dưới. Nguyên tắc: **một query cho cha, một query `IN` cho mỗi loại con, rồi ghép trong bộ nhớ bằng `Map`.**
-
-### Vi phạm đã gỡ (tham khảo lịch sử refactor — ĐÃ XONG, giữ lại để biết trước đây từng có gì)
-
-| Service | Entity | Annotation trước đây | Đã thay bằng |
-|---|---|---|---|
-| pricing | `Fare.baggagePolicy` | `@OneToOne(mappedBy)` | bỏ hẳn; `BaggagePolicy.fareId` là `UUID` |
-| pricing | `Fare.fareRules` | `@OneToOne(mappedBy)` | bỏ hẳn; `FareRules.fareId` là `UUID` |
-| pricing | `FareRules.fare`, `BaggagePolicy.fare` | `@OneToOne` | `private UUID fareId;` |
-| airline-core | `Aircraft.airline` | `@ManyToOne` | `private UUID airlineId;` |
-| flight-ops | `FlightSchedule.flight` | `@ManyToOne` | `private UUID flightId;` |
-| flight-ops | `FlightInstance.flight` | `@ManyToOne` | `private UUID flightId;` |
-| flight-ops | `FlightSchedule.operatingDays` | `@ElementCollection` | `@Convert` + `DayOfWeekSetConverter` |
-| location | `Airport.city` | `@ManyToOne` | `private UUID cityId;` |
-
-Đã sửa cả `FlightInstanceRepository.@Query` (`fi.flight.id` → `fi.flightId`) và `FlightScheduleRepository.findByFlightAirlineId()` (derived query qua nested property không còn tồn tại → 2 bước batch-load). Nếu sau này thêm entity mới, rà lại checklist ở mục "N+1 Query Prevention" bên dưới trước khi thêm bất kỳ annotation quan hệ nào.
+Nguyên tắc: **một query cho cha, một query `IN` cho mỗi loại con, rồi ghép trong bộ nhớ bằng `Map`.** Đầy đủ ở [§7 N+1 Query Prevention](#7-n1-query-prevention-quan-trọng).
 
 ### Cross-Service Communication
 
@@ -266,17 +261,18 @@ POST /api/fares/batch-by-ids   // nhận List<UUID>, trả về Map<UUID, FareRe
 ```
 
 **Quy tắc bắt buộc khi thêm liên kết mới giữa 2 service:**
-- Field tham chiếu luôn là `UUID`, đặt tên `<entity>Id`. Không bao giờ map sang entity của service khác (khác database, vỡ ngay khi chạy).
-- Nếu cần load nhiều bản ghi liên quan, cung cấp endpoint `POST /batch-by-ids` nhận `List<UUID>`, tránh gọi API service khác trong loop — xem "N+1 Query Prevention / Loại 2".
-- Khi module `cloud/` (Eureka + Gateway) được dựng lên, thay các lời gọi HTTP thủ công bằng OpenFeign client đặt trong `common-lib` hoặc package `client/` riêng của service gọi — không hardcode `localhost:port`.
 
-## N+1 Query Prevention (QUAN TRỌNG)
+- Field tham chiếu luôn là `UUID`, đặt tên `<entity>Id`. Không bao giờ map sang entity của service khác (khác database, vỡ khi chạy).
+- Cần load nhiều bản ghi liên quan → cung cấp endpoint `POST /batch-by-ids` nhận `List<UUID>` trả `Map<UUID, XxxResponse>`, không gọi API service khác trong loop (xem [§7 Loại 2](#loại-2--gọi-http-sang-service-khác-trong-vòng-lặp-nguy-hiểm-nhất)).
+- Khi module `cloud/` (Eureka + Gateway) dựng xong, thay lời gọi HTTP thủ công bằng OpenFeign client đặt trong `common-lib` hoặc package `client/` của service gọi — không hardcode `localhost:port`.
 
-Vì đã cấm hoàn toàn relationship annotation, **N+1 do lazy/eager loading không còn tồn tại** — Hibernate không có gì để tự đi load ngầm nữa. Đổi lại, việc ghép dữ liệu chuyển sang tay bạn ở tầng service, và đó chính là chỗ N+1 sẽ quay lại nếu viết ẩu. Còn **2 loại** phải phòng.
+---
+
+## 7. N+1 Query Prevention (QUAN TRỌNG)
+
+Vì đã cấm hoàn toàn relationship annotation, **N+1 do lazy/eager loading không còn tồn tại**. Đổi lại, việc ghép dữ liệu chuyển sang tay bạn ở tầng service — và đó là chỗ N+1 quay lại nếu viết ẩu. Có **2 loại** phải phòng.
 
 ### Loại 1 — Gọi repository trong vòng lặp
-
-Đây là dạng phổ biến nhất sau khi bỏ relationship, vì mọi phép "join" giờ đều do bạn tự viết.
 
 ```java
 // ❌ SAI — 1 + N query
@@ -302,34 +298,19 @@ for (final Fare fare : fares) {
 }
 ```
 
-**Công thức chuẩn — thuộc lòng 4 bước:**
+**Công thức chuẩn — 4 bước:**
+
 1. Query danh sách cha (có phân trang).
 2. Trích `List<UUID>` các ID cần tra cứu, nhớ `.distinct()`.
 3. Một query `...In(ids)` cho **mỗi loại** dữ liệu con → gom về `Map<UUID, T>`.
-4. Lặp qua cha, tra `Map` bằng `get()`, không đụng vào repository nữa.
+4. Lặp qua cha, tra `Map` bằng `get()`, không đụng repository nữa.
 
 Số query luôn là **hằng số** theo số loại quan hệ, không phụ thuộc số dòng.
 
 Với dữ liệu tổng hợp (đếm/sum/min), dùng aggregate query một lần thay vì tính từng dòng:
 
 ```java
-// ❌ SAI
-for (final Flight flight : flights) {
-    final long count = fareRepository.countByFlightId(flight.getId());   // N query!
-}
-
-// ✅ ĐÚNG — 1 query gom nhóm
-@Query("""
-        select f.flightId, count(f) from Fare f
-        where f.flightId in :flightIds
-        group by f.flightId
-        """)
-List<Object[]> countByFlightIds(@Param("flightIds") List<UUID> flightIds);
-```
-
-Khi kết quả gồm nhiều cột, ưu tiên **DTO projection** thay vì `Object[]` để khỏi ép kiểu thủ công:
-
-```java
+// ✅ ĐÚNG — 1 query gom nhóm, ưu tiên DTO projection thay vì Object[]
 public record FareCountByFlight(UUID flightId, Long total) {}
 
 @Query("""
@@ -341,7 +322,7 @@ List<FareCountByFlight> countByFlightIds(@Param("flightIds") List<UUID> flightId
 
 ### Loại 2 — Gọi HTTP sang service khác trong vòng lặp (nguy hiểm nhất)
 
-N+1 qua network tệ hơn N+1 qua DB nhiều lần (mỗi lần là một round-trip TCP + serialize JSON, và nhân lên theo độ trễ mạng). Vì các service ở đây tham chiếu nhau bằng ID thô, đây là cái bẫy dễ mắc nhất khi bắt đầu nối service với nhau:
+N+1 qua network tệ hơn N+1 qua DB nhiều lần (mỗi lần là round-trip TCP + serialize JSON, nhân theo độ trễ mạng):
 
 ```java
 // ❌ SAI — N HTTP call
@@ -359,15 +340,14 @@ for (final Fare fare : fares) {
 }
 ```
 
-**Rule:** mọi service expose dữ liệu cho service khác **bắt buộc** có endpoint batch nhận `List<UUID>` và trả `Map<UUID, XxxResponse>` (pattern `getFareByIds` của pricing-service đang làm đúng — nhân rộng ra các service còn lại). Nhớ `.distinct()` danh sách ID trước khi gọi.
+**Rule:** mọi service expose dữ liệu cho service khác **bắt buộc** có endpoint batch nhận `List<UUID>` trả `Map<UUID, XxxResponse>`. Luôn `.distinct()` danh sách ID trước khi gọi.
 
 ### Cấu hình bắt buộc trong `application.yaml`
 
 ```yaml
 spring:
   jpa:
-    open-in-view: false     # giải phóng DB connection ngay khi service trả về,
-                            # không giữ tới lúc render response
+    open-in-view: false     # giải phóng DB connection ngay khi service trả về
     show-sql: true          # DEV ONLY — để đếm query thực tế, tắt ở production
     properties:
       hibernate:
@@ -377,21 +357,21 @@ logging:
     org.hibernate.SQL: DEBUG          # DEV ONLY
 ```
 
-Không thể phòng N+1 nếu không nhìn thấy nó — bật SQL log rồi gọi thử endpoint trả list và **đếm số dòng SQL**. Nếu số query tăng theo số bản ghi thì đang có N+1, không cần đoán.
+Không thể phòng N+1 nếu không nhìn thấy nó — bật SQL log, gọi thử endpoint trả list và **đếm số dòng SQL**. Số query tăng theo số bản ghi = đang có N+1.
 
-### Checklist khi review code (bắt buộc tự soát trước khi kết thúc một task)
+### Checklist N+1 (tự soát trước khi kết thúc task)
 
-- [ ] Entity mới có lọt annotation quan hệ nào không (`@ManyToOne`, `@OneToMany`, `@OneToOne`, `@ManyToMany`, `@JoinColumn`, `@ElementCollection`)?
+- [ ] Entity mới có lọt annotation quan hệ nào không?
 - [ ] Có lời gọi `repository.*` hay HTTP client nào nằm trong `for` / `stream().map()` / `forEach` không?
 - [ ] Mỗi loại dữ liệu con có đúng **một** query `...In(ids)` không, và đã `.distinct()` danh sách ID chưa?
 - [ ] Endpoint trả list đã phân trang chưa?
 - [ ] Đã bật SQL log và đếm số query thực tế cho endpoint trả list chưa?
 
-## Repository & Query Rules
+---
 
-### Bắt buộc phân trang cho MỌI endpoint trả về list
+## 8. Repository & Query Rules
 
-`location-service`, `airline-core-service`, `flight-ops-service` đã làm đúng (`Page<T>` + `Pageable`). Riêng `pricing-service` còn `getFares()` gọi `findAll()` không giới hạn — đây là quả bom hẹn giờ, bảng `fares` lớn dần là sập.
+### Phân trang cho MỌI endpoint trả về list
 
 ```java
 // ❌ SAI — không giới hạn số dòng, và trả entity thô ra ngoài service
@@ -405,16 +385,16 @@ Page<FareResponse> getFares(final Pageable pageable) {
 }
 ```
 
-- Không có ngoại lệ cho endpoint "lấy tất cả" — nếu client thật sự cần toàn bộ, bắt nó phân trang và lặp.
-- Endpoint `batch-by-ids` là ngoại lệ hợp lệ (client đã tự giới hạn bằng danh sách ID), nhưng nên chặn kích thước đầu vào (`@Size(max = 200)` trên `List<UUID>`).
+- Không có ngoại lệ cho endpoint "lấy tất cả" — nếu client cần toàn bộ, bắt nó phân trang và lặp.
+- Endpoint `batch-by-ids` là ngoại lệ hợp lệ (client tự giới hạn bằng danh sách ID), nhưng chặn kích thước đầu vào (`@Size(max = 200)` trên `List<UUID>`).
 
-### Repository chỉ chứa truy vấn, không chứa business logic
+### Repository chỉ chứa truy vấn
 
-Repository là Spring Data JPA thuần: method name query, `@Query` khi cần, `Specification` cho filter động. **Không** đặt logic nghiệp vụ, không đặt mapping Entity↔DTO, không gọi service khác từ repository.
+Spring Data JPA thuần: method name query, `@Query` khi cần, `Specification` cho filter động. **Không** đặt business logic, không mapping Entity↔DTO, không gọi service khác từ repository.
 
-### `Specification` cho filter động — thay cho `@Query` với chuỗi `(:param is null or ...)`
+### `Specification` cho filter động (khi số filter ≥ 3)
 
-`FlightRepository` và `FlightInstanceRepository` hiện dùng pattern `(:depId is null or f.departureAirportId = :depId)`. Cách này chạy được nhưng có 2 nhược: DB không tối ưu được execution plan (điều kiện `is null` chặn việc dùng index), và thêm một filter là phải sửa cả câu JPQL. Khi số filter ≥ 3, chuyển sang `Specification`:
+Thay pattern `(:param is null or f.col = :param)` — pattern đó chặn DB dùng index và phải sửa JPQL mỗi lần thêm filter.
 
 ```java
 public interface FlightRepository
@@ -437,8 +417,7 @@ public final class FlightSpecs {
 ```
 
 ```java
-// Ghép ở tầng service — trả null nghĩa là "bỏ qua điều kiện này",
-// Spring Data tự loại khỏi WHERE nên SQL sinh ra chỉ chứa filter thực sự có giá trị
+// Ghép ở tầng service — trả null nghĩa là "bỏ qua điều kiện này"
 final Specification<Flight> spec = Specification
         .where(FlightSpecs.airlineId(airlineId))
         .and(FlightSpecs.departureAirportId(departureAirportId));
@@ -446,11 +425,9 @@ final Specification<Flight> spec = Specification
 return this.flightRepository.findAll(spec, pageable).map(FlightMapper::toResponse);
 ```
 
-Đặt các lớp `*Specs` trong package `repository/spec/` của service, là `final class` với constructor private (chỉ chứa static factory method, không phải bean).
+Đặt các lớp `*Specs` trong package `repository/spec/`, là `final class` với constructor private (chỉ chứa static factory method, không phải bean).
 
-### Kiểm tra tồn tại: dùng `existsBy*`, không `findBy*` rồi check null
-
-Pattern này repo đang làm **đúng** ở cả 5 service (`existsByFlightIdAndCabinClassIdAndName`, `existsByCityCode`, `existsByFlightNumber`...) — giữ nguyên, đừng thay bằng `findBy`:
+### Kiểm tra tồn tại: `existsBy*`, không `findBy*` rồi check null
 
 ```java
 // ❌ SAI — kéo cả entity về chỉ để biết có tồn tại hay không
@@ -461,7 +438,7 @@ if (fareRepository.countByName(name) > 0) { ... }
 if (this.fareRepository.existsByName(name)) { ... }
 ```
 
-Quy ước cho luồng update: dùng biến thể `*AndIdNot` để loại chính bản ghi đang sửa ra khỏi phép kiểm tra trùng (`existsByCityCodeAndIdNot`) — repo đang làm đúng, nhân rộng cho mọi unique check.
+Luồng update: dùng biến thể `*AndIdNot` để loại chính bản ghi đang sửa khỏi phép kiểm tra trùng (`existsByCityCodeAndIdNot`). Áp dụng cho mọi unique check.
 
 ### Ghi hàng loạt: `saveAll()`, không `save()` trong vòng lặp
 
@@ -475,7 +452,7 @@ for (final Fare fare : fares) {
 this.fareRepository.saveAll(fares);
 ```
 
-Để `saveAll()` thật sự batch dưới JDBC, cần bật trong `application.yaml` (hiện chưa service nào bật):
+Để `saveAll()` thật sự batch dưới JDBC, bật trong `application.yaml`:
 
 ```yaml
 spring:
@@ -487,11 +464,11 @@ spring:
         order_updates: true
 ```
 
-Batch insert chỉ hoạt động khi ID **không** do DB sinh. Vì project dùng UUIDv7 sinh ở tầng ứng dụng (xem "Entity Design Rules"), Hibernate biết ID trước khi insert nên gom batch được — đây là một lợi ích trực tiếp của việc bỏ `IDENTITY`.
+Batch insert chỉ hoạt động khi ID **không** do DB sinh. Project dùng UUIDv7 sinh ở tầng ứng dụng (xem [§10](#10-entity-design-rules)) nên Hibernate biết ID trước khi insert → gom batch được.
 
-Kèm theo: `saveAll()` một danh sách rất lớn vẫn giữ toàn bộ entity trong persistence context. Với >5.000 bản ghi, chia lô và `flush()`/`clear()` sau mỗi lô để tránh phình heap.
+`saveAll()` một danh sách rất lớn vẫn giữ toàn bộ entity trong persistence context. Với > 5.000 bản ghi, chia lô và `flush()`/`clear()` sau mỗi lô để tránh phình heap.
 
-### Chỉ đọc vài cột thì dùng projection, đừng load entity đầy đủ
+### Chỉ đọc vài cột thì dùng projection
 
 ```java
 // ❌ SAI — load cả Fare (kèm 5 khối @Embedded) chỉ để lấy tên và giá
@@ -505,14 +482,11 @@ public interface FareSummary {
 List<FareSummary> findByFlightId(UUID flightId);
 ```
 
-Đặc biệt hữu ích với `Fare` vì entity này có 5 `@Embedded` benefit block — load đầy đủ để chỉ đọc giá là rất lãng phí.
+### Index cho cột được query thường xuyên
 
-### Index cho cột được query thường xuyên (repo hiện KHÔNG có cái nào)
-
-Toàn repo không khai một `@Index` nào. Với `ddl-auto: update`, Hibernate chỉ tự tạo index cho khoá chính và unique constraint — **cột dùng để lọc thì không có index**, nghĩa là mọi truy vấn đang full table scan.
+Với `ddl-auto: update`, Hibernate chỉ tự tạo index cho khoá chính và unique constraint — cột dùng để lọc thì không có, nghĩa là full table scan. Khai `@Index` tường minh:
 
 ```java
-// ✅ ĐÚNG — khai index cho đúng tổ hợp cột mà repository thực sự query
 @Entity
 @Table(
     name = "fares",
@@ -524,11 +498,9 @@ Toàn repo không khai một `@Index` nào. Với `ddl-auto: update`, Hibernate 
 public class Fare extends BaseEntity { ... }
 ```
 
-Các cột đang cần index ngay: `fares(flight_id, cabin_class_id)`, `flights(airline_id)`, `flight_instances(airline_id, departure_date_time)`, `airports(city_id)`, `aircrafts(airline_id)`. Quy tắc: **thêm repository method lọc theo cột nào thì kiểm tra cột đó đã có index chưa**, và index tổ hợp phải đặt cột lọc bằng `=` lên trước cột lọc theo khoảng.
+**Quy tắc:** thêm repository method lọc theo cột nào thì kiểm tra cột đó đã có index chưa. Index tổ hợp đặt cột lọc bằng `=` lên trước cột lọc theo khoảng.
 
 ### `@Transactional` — bắt buộc và nhất quán
-
-Hiện chỉ `flight-ops-service` có, 4 service còn lại không có dòng nào.
 
 ```java
 @Service
@@ -542,27 +514,32 @@ public class FareServiceImpl implements FareService {
 }
 ```
 
-- `readOnly = true` cho method đọc: Hibernate bỏ qua dirty checking → nhanh hơn và tránh vô tình ghi.
-- **Bắt buộc `@Transactional`** cho mọi method ghi có đụng tới ≥2 bảng — đặc biệt là các luồng xoá cha-con thủ công, vì đã không còn `cascade` để dựa vào (xem "NO JPA Relationship Annotations / Hệ quả 1").
-- `@Transactional` chỉ có tác dụng khi được gọi từ **bên ngoài** bean. Gọi `this.someTransactionalMethod()` trong cùng class sẽ bỏ qua proxy và **không** mở transaction — tách sang bean khác nếu cần.
+- `readOnly = true` cho method đọc: Hibernate bỏ qua dirty checking → nhanh hơn, tránh vô tình ghi.
+- **Bắt buộc `@Transactional`** cho mọi method ghi đụng tới ≥ 2 bảng — đặc biệt luồng xoá cha-con thủ công, vì đã không còn `cascade` (xem [§6 Hệ quả 1](#hệ-quả-1--không-còn-cascadeorphanremoval-phải-tự-xử-lý-ở-tầng-service)).
+- `@Transactional` chỉ có tác dụng khi được gọi từ **bên ngoài** bean. Gọi `this.someTransactionalMethod()` trong cùng class bỏ qua proxy → **không** mở transaction. Tách sang bean khác nếu cần.
 
-## common-lib Usage Rules (BẮT BUỘC)
+---
 
-- **DTO dùng chung nhiều service** (Request/Response đại diện cho một entity mà service khác cần đọc) → đặt trong `common-lib/payload/request|response`.
+## 9. common-lib Usage Rules (BẮT BUỘC)
+
+- **DTO dùng chung nhiều service** (Request/Response đại diện cho một entity mà service khác cần đọc) → `common-lib/payload/request|response`.
 - **Enum nghiệp vụ dùng chung** (status, role, type) → `common-lib/enums`.
 - **`@Embeddable` value object dùng chung** (Address, GeoCode...) → `common-lib/embeddable`.
-- **KHÔNG** đặt Entity (`@Entity`) trong `common-lib` — entity luôn thuộc về đúng 1 service, giữ database boundary rõ ràng.
-- **KHÔNG** đặt business logic hay Service/Repository trong `common-lib` — chỉ chứa model dữ liệu thuần (DTO/enum/embeddable) + validation annotation.
-- Thêm class mới vào `common-lib` nghĩa là ít nhất 2 service sẽ dùng nó — nếu chỉ 1 service dùng, giữ trong package `payload` cục bộ của service đó (nếu có) hoặc trong service đó luôn.
+- **Exception dùng chung** (`ResourceNotFoundException`, `BusinessException`) → `common-lib/exception`.
+- **KHÔNG** đặt Entity (`@Entity`) trong `common-lib` — entity luôn thuộc đúng 1 service, giữ database boundary rõ ràng. Ngoại lệ duy nhất: `BaseEntity` (`@MappedSuperclass`, không phải `@Entity`).
+- **KHÔNG** đặt business logic hay Service/Repository trong `common-lib` — chỉ model dữ liệu thuần (DTO/enum/embeddable) + validation annotation.
+- Thêm class mới vào `common-lib` nghĩa là ít nhất 2 service sẽ dùng nó. Nếu chỉ 1 service dùng, giữ trong service đó.
 
-## Entity Design Rules
+---
+
+## 10. Entity Design Rules
 
 ### BaseEntity + UUIDv7 (BẮT BUỘC)
 
-Toàn bộ khoá chính dùng **UUID version 7**, sinh ở tầng ứng dụng — **đã chuẩn hoá xong cho cả 5 service**, mọi entity `extends BaseEntity` đặt trong `common-lib` (trước đây mỗi entity tự khai `id`/`createdAt`/`updatedAt` riêng lẻ với `Long` + generation strategy không đồng nhất: `AUTO` ở location/pricing/user, `IDENTITY` ở airline-core/flight-ops):
+Toàn bộ khoá chính dùng **UUID version 7**, sinh ở tầng ứng dụng. Mọi entity `extends BaseEntity` (đặt trong `common-lib/entity/`):
 
 ```java
-// common-lib/entity/BaseEntity.java — code thật, không phải mẫu
+// common-lib/entity/BaseEntity.java
 @Getter
 @Setter
 @MappedSuperclass
@@ -584,23 +561,22 @@ public abstract class BaseEntity {
 }
 ```
 
-`UuidVersion7Strategy` là `org.hibernate.id.uuid.UuidVersion7Strategy` — có sẵn trong Hibernate 7 mà Spring Boot 4.0.7 kéo về, **không cần thư viện ngoài**.
+`UuidVersion7Strategy` là `org.hibernate.id.uuid.UuidVersion7Strategy` — có sẵn trong Hibernate 7 (Spring Boot 4.0.7 kéo về), không cần thư viện ngoài.
 
 **Quy tắc bắt buộc:**
 
-- **CẤM `@GeneratedValue(strategy = GenerationType.UUID)`** — annotation này trông rất hợp lý nhưng sinh UUID **v4 ngẫu nhiên**, làm phân mảnh index và mất sạch lợi ích của v7. Đây là lỗi âm thầm, không báo gì cả, chỉ lộ ra khi bảng đã lớn. Chỉ dùng đúng cặp `@GeneratedValue` + `@UuidGenerator(algorithm = UuidVersion7Strategy.class)` như trên.
-- **`BaseEntity` là nơi DUY NHẤT khai báo ID.** Entity con không được tự khai lại `id`, `createdAt`, `updatedAt`.
-- **Lưu dạng `binary(16)`**, không phải `char(36)` — tiết kiệm 20 byte mỗi khoá và mỗi index. Đánh đổi: query tay trong MySQL Workbench phải bọc `BIN_TO_UUID(id)` / `UUID_TO_BIN('...')`.
-- **Mọi FK cross-service và trong cùng service đều là `UUID`**, khai kèm `columnDefinition = "binary(16)"` để khớp kiểu với PK:
+- **CẤM `@GeneratedValue(strategy = GenerationType.UUID)`** — sinh UUID **v4 ngẫu nhiên**, làm phân mảnh index và mất hết lợi ích của v7. Lỗi âm thầm, chỉ lộ khi bảng lớn. Chỉ dùng đúng cặp `@UuidGenerator(algorithm = UuidVersion7Strategy.class)` như trên.
+- **`BaseEntity` là nơi DUY NHẤT khai báo `id`, `createdAt`, `updatedAt`.** Entity con không khai lại.
+- **Lưu dạng `binary(16)`**, không `char(36)` — tiết kiệm 20 byte mỗi khoá và mỗi index. Đánh đổi: query tay trong MySQL Workbench phải bọc `BIN_TO_UUID(id)` / `UUID_TO_BIN('...')`.
+- **Mọi FK (cross-service và cùng service) đều là `UUID`**, khai kèm `columnDefinition = "binary(16)"` để khớp kiểu với PK:
 
 ```java
 @Column(name = "flight_id", columnDefinition = "binary(16)", nullable = false)
 private UUID flightId;
 ```
 
-- **`ddl-auto: update` KHÔNG đổi được kiểu cột đã tồn tại** — Hibernate chỉ thêm bảng/cột mới. Việc chuyển từ `Long` sang `UUID` bắt buộc phải **drop và tạo lại database dev**, không có đường migrate tự động.
-
-**Không tự override `equals()`/`hashCode()` theo `id`.** Với UUID sinh ở tầng app, ID đã có sẵn trước khi persist nên so sánh theo `id` là an toàn, nhưng chỉ làm khi thực sự cần bỏ entity vào `Set`/`Map`. Mặc định cứ để nguyên và **không bao giờ dùng `@Data`/`@EqualsAndHashCode` của Lombok trên entity** (nó sinh `equals` trên toàn bộ field, gây lỗi khó lần).
+- **`ddl-auto: update` KHÔNG đổi được kiểu cột đã tồn tại** — chỉ thêm bảng/cột mới. Đổi kiểu cột bắt buộc **drop và tạo lại database dev**.
+- **Không tự override `equals()`/`hashCode()` theo `id`** trừ khi thực sự cần bỏ entity vào `Set`/`Map`. **Không bao giờ** dùng `@Data`/`@EqualsAndHashCode` của Lombok trên entity (sinh `equals` trên toàn bộ field, gây lỗi khó lần).
 
 ### Naming & Table Convention
 
@@ -626,24 +602,21 @@ public class Fare extends BaseEntity {
 - Tên bảng: số nhiều, snake_case (`fares`, `flight_instances`, `baggage_policies`).
 - Tên cột: snake_case, khai `name` tường minh — không dựa vào naming strategy mặc định.
 
-## Coding Standards
+---
+
+## 11. Coding Standards
 
 ### SOLID Principles (Bắt buộc)
 
-**S - Single Responsibility** — Controller chỉ xử lý HTTP, Service chỉ chứa business logic của một domain, tách service nếu class vượt 200 dòng.
+- **S — Single Responsibility** — Controller chỉ xử lý HTTP; Service chỉ chứa business logic của một domain; tách service nếu class vượt ~200 dòng.
+- **O — Open/Closed** — mở rộng qua interface/Strategy, không sửa method hiện có để nhét thêm nhánh `if` cho case mới.
+- **L — Liskov Substitution** — `*ServiceImpl` phải thay thế được interface mà không đổi hành vi; không override để throw `UnsupportedOperationException`.
+- **I — Interface Segregation** — interface nhỏ, gọn theo domain (`FareService` riêng, không gộp với `BaggagePolicyService`).
+- **D — Dependency Inversion** — **BẮT BUỘC** controller và service khác inject qua interface, không inject thẳng `*ServiceImpl`.
 
-**O - Open/Closed** — mở rộng qua interface/Strategy, không sửa method hiện có để nhét thêm nhánh `if` cho case mới.
-
-**L - Liskov Substitution** — `*ServiceImpl` phải thay thế được interface mà không đổi hành vi; không override để throw `UnsupportedOperationException`.
-
-**I - Interface Segregation** — interface nhỏ, gọn theo domain (`FareService`, không gộp `FareService` + `BaggagePolicyService` vào 1 interface).
-
-**D - Dependency Inversion** — **BẮT BUỘC** controller và service khác inject qua interface, không inject thẳng `*ServiceImpl`.
-
-### Dependency Injection Pattern (đã áp dụng đúng trong pricing-service — giữ nguyên)
+### Dependency Injection Pattern
 
 ```java
-// ✅ ĐÚNG
 public interface FareService {
     FareResponse findById(UUID id);
     Map<UUID, FareResponse> findByIds(List<UUID> ids);
@@ -671,39 +644,39 @@ public class FareController {
 }
 ```
 
+Constructor injection qua `@RequiredArgsConstructor` + field `private final`. Không dùng `@Autowired` trên field.
+
 ### Java Naming Conventions
 
-- **Package**: lowercase, không underscore — `com.nitditto.pricing.service` (nếu tách sub-package theo domain).
-- **Class/Interface**: PascalCase danh từ, interface không prefix `I`, implementation suffix `Impl` (`FareService` / `FareServiceImpl`).
+- **Package**: lowercase, không underscore — `com.nitditto.pricing.service`.
+- **Class/Interface**: PascalCase danh từ; interface không prefix `I`; implementation suffix `Impl` (`FareService` / `FareServiceImpl`).
 - **Method**: camelCase, bắt đầu bằng động từ — `findById()`, `createFare()`, `isActive()`. Boolean: `is*`, `has*`, `can*`.
 - **Variable**: camelCase có nghĩa (`flightId`, không viết tắt `fltId`); collection dùng số nhiều (`fares`, `flights`).
 - **Constant**: SCREAMING_SNAKE_CASE.
-- **DTO naming (giữ nguyên convention hiện có)**:
-  ```
-  *Request   — dùng chung cho cả create và update (không tách CreateXRequest/UpdateXRequest)
-  *Response  — response trả về client
-  ```
+- **DTO**: `*Request` (dùng chung cho cả create và update — không tách `CreateXRequest`/`UpdateXRequest`), `*Response` (trả về client).
 
 ### Clean Code Rules
 
 - Method tối đa ~20 dòng, tối đa 3 parameter (nhiều hơn thì gói vào Request object).
 - Một method làm một việc.
-- Không comment giải thích WHAT, chỉ comment khi giải thích WHY (constraint ẩn, workaround).
-- Không catch `Exception` chung chung ở tầng service để nuốt lỗi; ném exception cụ thể (xem mục Exception Handling).
-- Không return `null` cho các phương thức tìm theo id — dùng `Optional` ở repository, ném exception cụ thể ở service.
+- Không comment giải thích WHAT, chỉ comment WHY (constraint ẩn, workaround).
+- Không catch `Exception` chung chung ở tầng service để nuốt lỗi; ném exception cụ thể (xem [§12](#12-exception-handling)).
+- Không return `null` cho method tìm theo id — dùng `Optional` ở repository, ném exception cụ thể ở service.
 
-### `final` & `this` keyword
+### `final` & `this`
 
 - Method parameter và local variable không đổi giá trị: dùng `final`.
 - Luôn dùng `this.` khi truy cập field/method của instance trong service/mapper để phân biệt với parameter cùng tên.
 
 ### Loop vs Stream
 
-- Ưu tiên `for` loop ở hot path (mapping list lớn, batch xử lý); Stream OK cho logic đơn giản không phải hot path.
+- Ưu tiên `for` loop ở hot path (mapping list lớn, batch xử lý). Stream OK cho logic đơn giản không phải hot path.
 
-## Exception Handling (CẦN BỔ SUNG — hiện repo CHƯA có, đây là rule bắt buộc áp dụng khi refactor)
+---
 
-Hiện tại toàn bộ service ném `throw new Exception("...")` thô và controller khai `throws Exception` — không có custom exception, không có `@RestControllerAdvice`. Khi refactor, áp dụng:
+## 12. Exception Handling
+
+Custom exception dùng chung trong `common-lib`, mỗi service có `GlobalExceptionHandler` riêng.
 
 ```java
 // common-lib/exception/ResourceNotFoundException.java
@@ -723,6 +696,7 @@ public class BusinessException extends RuntimeException {
 
 ```java
 // mỗi service: exception/GlobalExceptionHandler.java
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -740,15 +714,25 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusiness(final BusinessException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(ex.getMessage()));
     }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnexpected(final Exception ex) {
+        log.error("Unexpected error", ex);   // log đầy đủ ở server
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("Internal server error"));   // không lộ stack trace ra client
+    }
 }
 ```
 
-- `ResourceNotFoundException`/`BusinessException` đặt trong `common-lib` để mọi service dùng chung; `GlobalExceptionHandler` đặt riêng trong từng service (vì `@RestControllerAdvice` scope theo application context).
-- Service ném `ResourceNotFoundException`/`BusinessException` thay vì `throw new Exception(...)`; controller bỏ `throws Exception`.
+- `ResourceNotFoundException`/`BusinessException` đặt trong `common-lib` (dùng chung). `GlobalExceptionHandler` đặt riêng từng service (`@RestControllerAdvice` scope theo application context).
+- Service ném `ResourceNotFoundException`/`BusinessException` — **không** `throw new Exception(...)`. Controller **không** khai `throws Exception`.
+- Catch-all `Exception.class` luôn log đầy đủ ở server và trả message chung chung — không bao giờ trả stack trace ra client.
 
-## API Response Wrapper (CẦN NÂNG CẤP)
+---
 
-`ApiResponse` hiện tại trong `common-lib` chỉ có 1 field `message`, và chỉ được dùng ở `HomeController` — các endpoint thật trả thẳng DTO, không bọc response. Khi refactor, chuẩn hoá thành generic wrapper và áp dụng cho MỌI endpoint:
+## 13. API Response Wrapper
+
+`ApiResponse<T>` là generic wrapper cho **mọi endpoint có trả dữ liệu**.
 
 ```java
 // common-lib/payload/response/ApiResponse.java
@@ -776,14 +760,19 @@ public ResponseEntity<ApiResponse<FareResponse>> findById(@PathVariable final UU
 }
 ```
 
-Đây là thay đổi breaking cho mọi client hiện có gọi các service — cần đồng bộ refactor tất cả controller cùng lúc, không làm nửa vời (một số endpoint bọc `ApiResponse`, số khác trả thẳng DTO).
+- Áp dụng đồng bộ cho **tất cả** controller — không nửa vời (một số endpoint bọc, số khác trả thẳng DTO).
+- `DELETE` giữ `204 No Content` không body — **không** bọc `ApiResponse` (204 theo spec không nên có body).
 
-## Validation
+---
+
+## 14. Validation
 
 - Request DTO dùng `jakarta.validation.constraints` (`@NotBlank`, `@NotNull`, `@Positive`, `@Size`).
-- **BẮT BUỘC** mọi `@RequestBody` ở controller phải có `@Valid` đi kèm — hiện tại bị thiếu ở một số method (vd. update), cần rà soát và bổ sung khi refactor, không chỉ sửa chỗ đang làm.
+- **BẮT BUỘC** mọi `@RequestBody` ở controller phải có `@Valid` đi kèm — cả create lẫn update.
 
-## Logging (CẦN BỔ SUNG — hiện chưa có SLF4J trong repo)
+---
+
+## 15. Logging
 
 ```java
 @Slf4j
@@ -798,68 +787,33 @@ public class FareServiceImpl implements FareService {
 }
 ```
 
-- Thêm `@Slf4j` cho class Service khi refactor; log ở mức `info` cho hành động ghi (create/update/delete), `warn`/`error` khi bắt exception nghiệp vụ.
-- Không log dữ liệu nhạy cảm (password, token JWT).
+- `@Slf4j` cho class Service. Log mức `info` cho hành động ghi (create/update/delete); `warn`/`error` khi bắt exception nghiệp vụ.
+- **Không** log dữ liệu nhạy cảm (password, token JWT).
 
-## Database
+---
 
-- Mỗi service **một database riêng** (database-per-service) — đúng tinh thần này ở airline-core (`airline`) và location-service (`airline_location`), nhưng **user-service hiện đang trỏ nhầm vào `airline_location`** (copy-paste từ location-service) — phải tách riêng DB cho user-service khi refactor, ví dụ `airline_user`.
-- `ddl-auto: update` chỉ chấp nhận ở môi trường dev hiện tại; không dùng cho production — nếu dự án tiến tới production, cân nhắc Flyway/Liquibase để quản lý schema migration thay vì để Hibernate tự sinh.
+## 16. Database
 
-## Known Gaps / Refactor Backlog (đọc trước khi bắt đầu refactor)
+- **Database-per-service.** Mỗi service một database riêng:
 
-Đây là các vấn đề cụ thể phát hiện được trong codebase hiện tại — không phải style nit, mà là bug/thiếu sót cần xử lý.
+  | Service | Database |
+  |---|---|
+  | user-service | `airline_user` |
+  | airline-core-service | `airline` |
+  | flight-ops-service | `airline_flight` |
+  | location-service | `airline_location` |
+  | pricing-service | `airline_pricing` |
 
-### Nhóm A — Refactor nền tảng — ĐÃ XỬ LÝ XONG CHO CẢ 5 SERVICE
+- `ddl-auto: update` chỉ dùng ở dev. Không dùng cho production — nếu tiến tới production, dùng Flyway/Liquibase để quản lý schema migration.
+- **Không** commit credential/mật khẩu DB thật/JWT secret. Khi lên môi trường thật, chuyển sang biến môi trường hoặc config server.
 
-~~Ba việc dưới đây đụng vào cùng những file entity/mapper/service, và đều đòi drop database vì `ddl-auto: update` không alter được kiểu cột.~~ Đã hoàn thành theo đúng thứ tự: pilot trên `pricing-service` (PR #9) trước để chốt công thức, sau đó nhân rộng ra `location-service`, `airline-core-service`, `flight-ops-service`, `user-service` cùng một đợt (PR #11).
+---
 
-1. ~~**Chuyển toàn bộ ID sang UUIDv7**~~ — **đã xong**: mọi entity ở cả 5 service giờ `extends BaseEntity` (`common-lib/entity/BaseEntity.java`), PK là UUIDv7 lưu `binary(16)`. Đã drop và tạo lại cả 5 database dev (`airline_pricing`, `airline_location`, `airline`, `airline_flight`, `airline_user`).
-2. ~~**Gỡ toàn bộ relationship annotation**~~ — **đã xong**: cả 8 chỗ vi phạm liệt kê ở mục "NO JPA Relationship Annotations" đã gỡ `@ManyToOne`/`@OneToOne`/`@ElementCollection`, thay bằng cột `UUID` thô + (riêng `FlightSchedule.operatingDays`) `DayOfWeekSetConverter`. Vì mất `cascade`, đã thêm chặn tường minh (`BusinessException`) ở tầng service cho mọi cặp cha-con từng dựa vào FK constraint thật của MySQL: `City`↔`Airport`, `Airline`↔`Aircraft`, `Flight`↔`FlightSchedule`/`FlightInstance`, và xoá cha-con thủ công có `@Transactional` cho `Fare`↔`FareRules`/`BaggagePolicy`.
-3. ~~**Sửa `@Query` sau khi gỡ quan hệ**~~ — **đã xong**: `FlightInstanceRepository` đổi `fi.flight.id = :flightId` → `fi.flightId = :flightId`; `FlightScheduleRepository.findByFlightAirlineId(Long)` (derived query đi qua nested property không còn tồn tại) đổi thành 2 bước `FlightRepository.findIdsByAirlineId()` + `findByFlightIdIn()`. Đã verify chạy thật, không chỉ compile.
-
-**Kèm theo trong cùng đợt** (không phải yêu cầu ban đầu của Nhóm A, nhưng bắt buộc phải làm chung vì cùng đụng entity/DTO): toàn bộ Nhóm D (exception handling + `ApiResponse` generic wrapper) cũng đã áp dụng cho cả 5 service — xem Nhóm D bên dưới.
-
-**Bug có sẵn phát hiện trong lúc test end-to-end** (không phải do migration gây ra, chỉ lộ ra vì `GlobalExceptionHandler` giờ bắt được thay vì crash 500 thô) — đã tách task riêng, chưa sửa:
-- `FareMapper.toEntity()` (pricing) — NPE khi thiếu `taxesAndFees`/`airlineFees` trong request, cộng trực tiếp `Double` có thể null.
-- `Aircraft.getTotalSeats()` (airline-core) — NPE khi thiếu bất kỳ field seat nào (`economySeats`/`premiumEconomySeats`/`businessSeats`/`firstClassSeats`), cùng lý do.
-
-### Nhóm B — Bug cấu hình (sửa độc lập, nhanh) — ĐÃ XỬ LÝ XONG
-
-4. ~~**Port collision**~~ — **đã tự fix trước đó**: `flight-ops-service` đã đổi sang `server.port: 5003` (commit "chore: change port to 5003", PR #6). Port thật hiện tại: `user=5001, airline-core=5002, flight-ops=5003, location=5004, pricing=5005` — không còn trùng. Bảng ở mục "Repository & Module Structure" phía trên phản ánh số port cũ đã lỗi thời, cần soát lại nếu thấy sai lệch với `application.yaml` thực tế của từng service.
-5. ~~**`user-service` sai datasource`**~~ — **đã fix**: đổi từ `jdbc:mysql://localhost:3306/airline_location` (copy nhầm từ location-service) sang `jdbc:mysql://localhost:3306/airline_user`. Cần tự tạo database mới trước khi chạy: `CREATE DATABASE airline_user;` (Hibernate `ddl-auto: update` sẽ tự tạo bảng).
-6. ~~**`SecurityConfig` của user-service đang `permitAll()` toàn bộ request`~~ — **đã fix**: thêm [`JwtAuthenticationFilter`](services/user-service/src/main/java/com/nitditto/config/JwtAuthenticationFilter.java) (`OncePerRequestFilter`) đọc header `Authorization: Bearer <token>`, validate bằng `JwtProvider.parseClaims()`, dựng `Authentication` từ claim `email`/`authorities` rồi nạp vào `SecurityContextHolder`. `SecurityConfig` giờ chỉ `permitAll()` cho `/` và `/auth/**`, còn lại bắt buộc `authenticated()`. Filter gắn trước `UsernamePasswordAuthenticationFilter` bằng `addFilterBefore`.
-   - **Nợ kỹ thuật phát sinh, chưa xử lý** (ngoài phạm vi fix này, cân nhắc làm riêng): `UserController.getUserProfile()`/`getAllUsers()` đang tin tưởng header `X-User-Email` do client tự gửi để xác định danh tính — giờ endpoint đã yêu cầu đăng nhập nhưng **chưa** kiểm tra danh tính đó khớp với người dùng trong JWT, nên một user bất kỳ đã đăng nhập vẫn có thể đọc profile của người khác bằng cách tự đổi header. Cần sửa để lấy email từ `SecurityContextHolder` thay vì tin header client.
-   - **Nợ kỹ thuật phát sinh khác**: `AuthServiceImpl.signup()` tạo `Authentication` bằng constructor 2 tham số (`new UsernamePasswordAuthenticationToken(email, password)`), constructor này luôn trả `getAuthorities()` rỗng — nghĩa là JWT sinh ra lúc đăng ký mới **không có claim `authorities`**, user vừa signup chưa có role nào cho tới lần login kế tiếp (`login()` dùng path tạo `Authentication` khác, có authorities đúng). Cần dùng cùng cách tạo `Authentication` như `login()`.
-
-### Nhóm C — Chất lượng tầng dữ liệu
-
-7. **Không có một `@Index` nào trong toàn repo** — mọi truy vấn lọc theo `flightId`, `cabinClassId`, `airlineId`, `cityId`... đang full table scan, vì `ddl-auto: update` chỉ tạo index cho PK và unique constraint.
-8. **`@Transactional` dùng không nhất quán** — chỉ `flight-ops-service` có (`FlightServiceImpl`, `FlightScheduleServiceImpl`), 4 service còn lại không có dòng nào. Đặc biệt cấp thiết sau khi bỏ `cascade`, vì luồng xoá cha-con thủ công không có transaction sẽ để lại dữ liệu mồ côi.
-9. **`pricing-service` thiếu phân trang** — `getFares()` dùng `findAll()` không giới hạn, trong khi 3 service khác đã dùng `Page<T>` + `Pageable` đúng chuẩn.
-10. **`FareServiceImpl.getFares()` trả `List<Fare>` (entity thô)** thay vì `List<FareResponse>` — rò rỉ entity ra ngoài tầng service.
-11. **Chưa bật JDBC batching** — không service nào cấu hình `hibernate.jdbc.batch_size`. Sau khi chuyển UUIDv7 thì batch insert mới hoạt động được, nên bật cùng lúc.
-12. **`open-in-view` vẫn bật mặc định** — giữ DB connection tới tận lúc render response.
-
-### Nhóm D — Chuẩn hoá tầng API
-
-13. ~~**Không có exception handling**~~ — **đã xong cho cả 5 service**: `ResourceNotFoundException`/`BusinessException` trong `common-lib/exception/`, mỗi service có `GlobalExceptionHandler` riêng (`@RestControllerAdvice`) xử lý cả 2 exception này + `MethodArgumentNotValidException` (gom field error) + catch-all `Exception.class` (log đầy đủ ở server bằng `@Slf4j`, trả `ApiResponse.error("Internal server error")` chung chung ra client — không bao giờ lộ stack trace).
-14. ~~**`ApiResponse` chưa phải generic wrapper thật**~~ — **đã xong**: `ApiResponse<T>` giờ có `success`/`message`/`data` + static factory `success()`/`error()`, áp dụng cho MỌI endpoint có trả dữ liệu ở cả 5 service. Riêng `DELETE` giữ nguyên `204 No Content` không body (không bọc `ApiResponse`, vì 204 theo spec không nên có body).
-15. ~~**Thiếu `@Valid`**~~ — **đã xong các chỗ phát hiện được**: `FareController.updateFare`, `AircraftController.updateAircraft`, `FlightController.updateFlight`, `FlightScheduleController.updateFlightSchedule` đã thêm `@Valid`.
-16. **Không có SLF4J logging** ở tầng service — **vẫn còn thiếu**. `@Slf4j` mới chỉ có ở `GlobalExceptionHandler` (log lỗi không lường trước) của mỗi service; chưa có log `info` cho hành động ghi (create/update/delete) như mục "Logging" yêu cầu.
-
-### Nhóm E — Ngoài phạm vi doc này
-
-17. **`cloud/` module rỗng** — service registry / config server / API gateway mới là comment trong `pom.xml`. Cho tới khi dựng xong, service gọi nhau phải hardcode `localhost:<port>`.
-18. **Không có test, không có CI/CD, không có Docker/docker-compose** — cần lưu ý khi ước lượng công sức refactor.
-
-## Git Convention (BẮT BUỘC)
-
-Phần này chuẩn hoá lại đúng cách repo `Nitditto/airport-system` đang làm, và vá các chỗ đang lệch.
+## 17. Git Convention (BẮT BUỘC)
 
 ### Branch Model
 
-Repo dùng mô hình **develop-centric**: `develop` là base branch mặc định (`origin/HEAD -> origin/develop`). **Chưa có `main`/`master`** — khi nào có release thật mới tạo `main`, còn hiện tại mọi PR đều nhắm vào `develop`.
+Mô hình **develop-centric**: `develop` là base branch mặc định. Chưa có `main`/`master` — mọi PR nhắm vào `develop`.
 
 ```
 develop                 ← base branch, luôn ở trạng thái build được
@@ -868,41 +822,31 @@ develop                 ← base branch, luôn ở trạng thái build được
    └── docs/xxx
 ```
 
-**Quy tắc:**
-- **KHÔNG commit trực tiếp lên `develop`.** Mọi thay đổi đi qua nhánh riêng + Pull Request, kể cả sửa một dòng config (`chore: change port to 5003` đã làm đúng — đi qua nhánh `fix/flight-ops` và PR #6).
-- Luôn tách nhánh mới từ `develop` đã cập nhật, không tách từ nhánh feature khác (trừ khi thật sự phụ thuộc, và phải ghi rõ trong PR).
-- Một nhánh = một mục đích. Không gộp "thêm pricing-service" và "sửa port flight-ops" vào cùng nhánh.
+- **KHÔNG commit trực tiếp lên `develop`.** Mọi thay đổi đi qua nhánh riêng + Pull Request, kể cả sửa một dòng config.
+- Luôn tách nhánh mới từ `develop` đã cập nhật, không tách từ nhánh feature khác (trừ khi thật sự phụ thuộc, và ghi rõ trong PR).
+- Một nhánh = một mục đích.
 
 ### Branch Naming
 
 ```
-<type>/<scope-hoặc-mô-tả-ngắn>
+<type>/<mô-tả-ngắn>
 ```
 
-| Prefix | Dùng khi | Ví dụ thật trong repo |
+| Prefix | Dùng khi | Ví dụ |
 |---|---|---|
-| `feature/` | Thêm tính năng / module mới | `feature/pricing-service`, `feature/user-service` |
-| `fix/` | Sửa bug, sửa cấu hình sai | `fix/flight-ops` |
+| `feature/` | Thêm tính năng / module mới | `feature/pricing-service` |
+| `fix/` | Sửa bug, sửa cấu hình sai | `fix/flight-ops-port` |
 | `docs/` | Chỉ đụng tài liệu | `docs/build-base` |
 | `refactor/` | Đổi cấu trúc, không đổi hành vi | `refactor/uuid-migration` |
 | `chore/` | Build, dependency, config vặt | `chore/bump-spring-boot` |
 | `test/` | Chỉ thêm/sửa test | `test/fare-service` |
 
-**Quy tắc đặt tên:**
 - Toàn bộ **lowercase, kebab-case**. Không dấu tiếng Việt, không space, không camelCase.
 - Ngắn gọn nhưng đủ nghĩa: `feature/pricing-service` tốt hơn `feature/new-stuff`.
-- Nếu có issue tracker, thêm số vào cuối: `feature/pricing-service-42`.
-
-> ⚠️ **Lệch đang tồn tại cần thống nhất:** repo có 5 nhánh dùng `feature/` nhưng nhánh `feat/seat-service` lại dùng `feat/`. **Chốt dùng `feature/`** cho branch (còn `feat` chỉ dùng làm *type của commit*, xem mục dưới) — hai khái niệm khác nhau, đừng trộn. Nhánh `feat/seat-service` hiện **chưa merge** vào develop, nên đổi tên trước khi mở PR:
-> ```bash
-> git branch -m feat/seat-service feature/seat-service
-> git push origin :feat/seat-service
-> git push -u origin feature/seat-service
-> ```
+- Có issue tracker thì thêm số vào cuối: `feature/pricing-service-42`.
+- Dùng `feature/` cho branch. `feat` chỉ là *type của commit* — hai khái niệm khác nhau, đừng trộn.
 
 ### Commit Message — Conventional Commits
-
-Repo đang theo Conventional Commits (conventionalcommits.org) — giữ nguyên và áp dụng nhất quán.
 
 ```
 <type>(<scope>): <subject>
@@ -912,21 +856,21 @@ Repo đang theo Conventional Commits (conventionalcommits.org) — giữ nguyên
 <footer — tuỳ chọn: BREAKING CHANGE, Refs #issue>
 ```
 
-**Bảng `type`:**
+**`type`:**
 
 | Type | Ý nghĩa |
 |---|---|
 | `feat` | Thêm tính năng mới cho người dùng/API |
 | `fix` | Sửa bug |
 | `refactor` | Đổi code nhưng **không** đổi hành vi bên ngoài |
-| `perf` | Tối ưu hiệu năng (vd. thêm index, gỡ N+1) |
-| `docs` | Chỉ tài liệu (`CLAUDE.md`, `docs/ROADMAP.md`) |
+| `perf` | Tối ưu hiệu năng (thêm index, gỡ N+1) |
+| `docs` | Chỉ tài liệu |
 | `test` | Thêm/sửa test |
 | `chore` | Build, dependency, cấu hình, việc vặt không đụng logic |
 | `style` | Format, khoảng trắng, import — không đổi logic |
 | `build` | Maven POM, version, reactor structure |
 
-**Bảng `scope`** — bám theo module trong reactor, dùng tên rút gọn (bỏ đuôi `-service`):
+**`scope`** — bám theo module trong reactor, dùng tên rút gọn (bỏ đuôi `-service`):
 
 | Scope | Module |
 |---|---|
@@ -940,22 +884,22 @@ Repo đang theo Conventional Commits (conventionalcommits.org) — giữ nguyên
 | `build` | `pom.xml` gốc, `services/pom.xml`, cấu hình reactor |
 
 - Đụng **một** module → bắt buộc có scope: `feat(pricing): ...`
-- Đụng **nhiều** module cùng lúc (vd. refactor UUID toàn repo) → **bỏ scope**: `refactor: migrate all entity ids to uuidv7`
+- Đụng **nhiều** module cùng lúc → **bỏ scope**: `refactor: migrate all entity ids to uuidv7`
 - Không bịa scope ngoài bảng trên.
 
-**Quy tắc viết `subject`:**
+**`subject`:**
+
 - **Tiếng Anh**, thể mệnh lệnh (imperative): `add`, `implement`, `fix`, `remove` — không phải `added`/`adding`/`adds`.
-- Chữ đầu **thường**, **không** có dấu chấm cuối câu.
+- Chữ đầu **thường**, **không** dấu chấm cuối câu.
 - Tối đa **72 ký tự**.
 - Mô tả *cái gì thay đổi*, không phải *đã làm bao nhiêu file*.
 
 ```
-✅ ĐÚNG (lấy từ chính repo)
+✅ ĐÚNG
 feat(pricing): implement baggage policy management feature
 feat(user): add user-service with authentication and jwt configuration
 feat(common): add shared models and request/response payloads for pricing
-chore: change port to 5003
-docs: add project roadmap and CLAUDE documentation files
+chore(flight-ops): change port to 5003
 
 ❌ SAI
 Feature/pricing service              # tên nhánh, không phải commit message
@@ -965,11 +909,7 @@ fix bug                              # không biết bug gì, ở đâu
 feat(pricing): add fare + fix port + update docs   # gộp 3 việc vào 1 commit
 ```
 
-> ⚠️ Repo hiện có vài commit thiếu scope dù chỉ đụng đúng một module — `feat: add location-service with airport and city controllers` lẽ ra là `feat(location): ...`. Từ giờ áp dụng đủ scope.
-
-**Body — khi nào cần:**
-
-Bỏ qua được với commit hiển nhiên. **Bắt buộc có** khi thay đổi cần giải thích lý do hoặc có đánh đổi:
+**Body** — bỏ qua được với commit hiển nhiên; **bắt buộc có** khi thay đổi cần giải thích lý do hoặc có đánh đổi:
 
 ```
 perf(pricing): add composite index on fares(flight_id, cabin_class_id)
@@ -980,13 +920,9 @@ scan vì ddl-auto: update chỉ tự tạo index cho PK và unique constraint.
 Refs #12
 ```
 
-- Body cách subject đúng **một dòng trống**.
-- Wrap ở **72 ký tự**.
-- Viết **WHY**, không viết WHAT — WHAT đã nằm trong diff rồi.
+- Body cách subject đúng **một dòng trống**. Wrap ở **72 ký tự**. Viết **WHY**, không viết WHAT.
 
-**Footer — breaking change:**
-
-Bắt buộc khai báo khi thay đổi phá vỡ client đang gọi API hoặc phá schema DB:
+**Footer — breaking change** — bắt buộc khai báo khi thay đổi phá vỡ client đang gọi API hoặc phá schema DB:
 
 ```
 refactor: migrate all entity ids from Long to UUIDv7
@@ -996,21 +932,15 @@ và mọi FK cross-service đổi từ Long sang UUID. ddl-auto: update không
 alter được kiểu cột — bắt buộc drop và tạo lại database dev.
 ```
 
-Các thay đổi trong "Known Gaps / Nhóm A" và mục "API Response Wrapper" đều là breaking change — phải ghi footer này.
-
 **Kích thước commit:**
+
 - Một commit = một thay đổi logic hoàn chỉnh, build được. Không commit code không compile.
-- Nhánh `feature/pricing-service` đang là mẫu tốt: tách thành 5 commit theo từng bước (`initialize module` → `add shared payloads` → `Fare` → `Fare Rules` → `Baggage Policy`) thay vì một commit khổng lồ.
-- Không commit file build (`target/`), file IDE (`.idea/`, `.vscode/`) — `.gitignore` đã chặn sẵn, đừng dùng `git add -f` để lách.
+- Chia commit theo bước (`initialize module` → `add shared payloads` → `add Fare` → `add FareRules` → `add BaggagePolicy`) thay vì một commit khổng lồ.
+- Không commit `target/`, `.idea/`, `.vscode/`, `*.iml` (đã có trong `.gitignore` — đừng `git add -f`).
 
 ### Pull Request Convention
 
-**Title:** viết đúng như một commit message conventional — **không** để tên nhánh tự sinh.
-
-```
-✅ feat(pricing): add fare, fare rules and baggage policy management
-❌ Feature/pricing service        # PR #5 đang bị thế này, GitHub tự sinh ra
-```
+**Title:** viết đúng như một commit message conventional — **không** để tên nhánh tự sinh (`feat(pricing): add fare, fare rules and baggage policy management`, không phải `Feature/pricing service`).
 
 **Description — template tối thiểu:**
 
@@ -1023,8 +953,8 @@ Các thay đổi trong "Known Gaps / Nhóm A" và mục "API Response Wrapper" �
 - <thay đổi 2>
 
 ## Cách kiểm thử
-./mvnw -pl services/pricing-service -am clean install
-./mvnw -pl services/pricing-service spring-boot:run
+mvn -pl services/pricing-service -am clean install
+mvn -pl services/pricing-service spring-boot:run
 <endpoint đã gọi thử, kết quả mong đợi>
 
 ## Breaking change
@@ -1034,28 +964,25 @@ Các thay đổi trong "Known Gaps / Nhóm A" và mục "API Response Wrapper" �
 - [ ] Không có annotation quan hệ mới (`@ManyToOne`/`@OneToMany`/`@OneToOne`/`@ManyToMany`/`@JoinColumn`/`@ElementCollection`)
 - [ ] Không có `repository.*` hay HTTP client nằm trong `for`/`stream().map()`/`forEach`
 - [ ] Endpoint trả list đã phân trang (`Page<T>` + `Pageable`)
-- [ ] Method ghi đụng ≥2 bảng đã có `@Transactional`
+- [ ] Method ghi đụng ≥ 2 bảng đã có `@Transactional`
 - [ ] `@RequestBody` đã có `@Valid`
 - [ ] Cột mới dùng để lọc đã có `@Index`
 - [ ] Controller inject qua interface, không phải `*ServiceImpl`
 - [ ] Đã bật SQL log và đếm query cho endpoint trả list
 ```
 
-**Quy tắc:**
 - PR luôn nhắm vào `develop`.
-- PR nhỏ, tập trung. Trên khoảng 400 dòng thay đổi thì cân nhắc tách — trừ các đợt refactor nền tảng (Nhóm A) vốn buộc phải làm một lần.
-- Tự review diff của mình trước khi mở PR: `git diff develop...HEAD`.
+- PR nhỏ, tập trung. Trên ~400 dòng thay đổi thì cân nhắc tách — trừ đợt refactor nền tảng buộc phải làm một lần.
+- Tự review diff trước khi mở PR: `git diff develop...HEAD`.
 - Không merge PR đang đỏ build.
 
 ### Merge Strategy
 
-Repo đang dùng **merge commit** (`Merge pull request #7 from Nitditto/docs/build-base`) — giữ nguyên, vì nó bảo toàn từng commit nhỏ trong nhánh feature (đúng với cách nhánh `feature/pricing-service` chia 5 commit theo bước).
-
 - **Merge commit** — mặc định cho `feature/*`: giữ lại lịch sử từng bước.
-- **Squash** — dùng cho nhánh lặt vặt nhiều commit rác kiểu `fix typo`, `fix again`, gộp thành một commit sạch.
-- **KHÔNG force-push lên `develop`.** Force-push chỉ được phép trên nhánh feature cá nhân **chưa có ai khác cùng làm**, và dùng `--force-with-lease` chứ không phải `--force`.
+- **Squash** — cho nhánh lặt vặt nhiều commit rác kiểu `fix typo`, `fix again`.
+- **KHÔNG force-push lên `develop`.** Force-push chỉ được phép trên nhánh feature cá nhân chưa ai khác cùng làm, và dùng `--force-with-lease`, không phải `--force`.
 
-**Cập nhật nhánh feature khi develop đã chạy trước:**
+**Cập nhật nhánh feature khi develop chạy trước:**
 
 ```bash
 # Ưu tiên rebase khi nhánh CHƯA push hoặc chỉ mình bạn làm — giữ lịch sử thẳng
@@ -1068,21 +995,14 @@ git merge origin/develop
 
 ### Dọn nhánh sau khi merge
 
-**Xoá nhánh ngay sau khi PR được merge**, cả local lẫn remote:
+Xoá nhánh ngay sau khi PR được merge, cả local lẫn remote:
 
 ```bash
 git branch -d feature/pricing-service
 git push origin --delete feature/pricing-service
 ```
 
-> ⚠️ **Đang tồn đọng:** 7 nhánh đã merge vào `develop` nhưng vẫn còn cả local lẫn `origin` — `docs/build-base`, `fix/flight-ops`, và 5 nhánh `feature/*-service`. Cần dọn:
-> ```bash
-> git branch --merged develop | grep -v develop | xargs -r git branch -d
-> git remote prune origin
-> ```
-> Giữ lại `feat/seat-service` — nhánh này **chưa merge**, còn đang làm dở (và cần đổi tên theo mục Branch Naming ở trên).
-
-### Lệnh Git hay dùng cho repo này
+### Lệnh Git hay dùng
 
 ```bash
 # Bắt đầu một task mới
@@ -1110,11 +1030,14 @@ git log --oneline --graph --decorate -20
 
 - Commit trực tiếp lên `develop`.
 - Force-push lên `develop`.
-- Commit credential, mật khẩu DB thật, JWT secret. `application.yaml` hiện đang hardcode user/password MySQL — khi lên môi trường thật phải chuyển sang biến môi trường hoặc config server, và **không bao giờ** commit giá trị thật.
-- Commit `target/`, `.idea/`, `.vscode/`, `*.iml` (đã có trong `.gitignore` — đừng `git add -f`).
+- Commit credential, mật khẩu DB thật, JWT secret.
+- Commit `target/`, `.idea/`, `.vscode/`, `*.iml`.
 - Commit code không compile được, hoặc "commit tạm để mai sửa" lên nhánh chung.
-- Gộp refactor lớn chung với feature mới trong một PR — reviewer không tách được đâu là thay đổi hành vi.
+- Gộp refactor lớn chung với feature mới trong một PR.
 
-## Reference
+---
 
-- Không có `docs/`, `README.md`, hay tài liệu thiết kế nào khác trong repo hiện tại — file này (`CLAUDE.md`) là nguồn quy tắc duy nhất cho tới khi có thêm tài liệu.
+## 18. Reference
+
+- **Việc còn tồn đọng / bug đã biết / nợ kỹ thuật** → [`docs/REFACTOR-BACKLOG.md`](docs/REFACTOR-BACKLOG.md). File `CLAUDE.md` này chỉ chứa rule/convention.
+- Chưa có `README.md` hay tài liệu thiết kế khác — `CLAUDE.md` là nguồn quy tắc chính.
