@@ -9,5 +9,7 @@ import java.util.UUID;
 public interface InsuranceCoverageRepository extends JpaRepository<InsuranceCoverage, UUID> {
     List<InsuranceCoverage> findByAncillaryId(UUID ancillaryId);
 
+    List<InsuranceCoverage> findByAncillaryIdIn(List<UUID> ancillaryIds);
+
     List<InsuranceCoverage> findByAncillaryIdAndActiveTrue(UUID ancillaryId);
 }
