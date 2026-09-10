@@ -47,6 +47,10 @@
       <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
+      <dependency>
+          <groupId>com.fasterxml.jackson.core</groupId>
+          <artifactId>jackson-annotations</artifactId>
+      </dependency>
   </dependencies>
 
   <!--  target/common-lib-0.0.1-SNAPSHOT.jar-->
