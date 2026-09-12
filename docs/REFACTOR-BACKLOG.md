@@ -74,6 +74,11 @@ Không phải do migration gây ra, chỉ lộ ra vì `GlobalExceptionHandler` g
 
 17. 🔭 **`cloud/` module rỗng** — service registry / config server / API gateway mới là comment trong `pom.xml`. Cho tới khi dựng xong, service gọi nhau phải hardcode `localhost:<port>`.
 18. 🔭 **Không có test, không có CI/CD, không có Docker/docker-compose** — lưu ý khi ước lượng công sức refactor.
+19. 🔭 **Redis** — nằm trong danh sách "ngoài phạm vi kiến trúc hiện tại" của `CLAUDE.md` §2; `ROADMAP.md` Section 20 xếp nó sau Section 13-15 (Feign/Gateway) và Section 16 (Docker Compose). **Chưa nên thêm** cho tới khi có tín hiệu đo được, không phải "có sẵn kinh nghiệm nên dùng":
+    - **Cache tra cứu** (Airport/Airline/CabinClass, kết quả search — đúng mục đích ROADMAP Section 20 ghi) — chờ tới khi (a) cross-service call thật đã thay xong các `// todo` bằng Feign/HTTP (Section 13-15), và (b) đã **đo được** bằng SQL log/response-time log (cùng cách đang dùng để bắt N+1) rằng có traffic đọc lặp lại đáng kể — không cache khi chưa có traffic thật để đo.
+    - **Giữ ghế tạm / distributed lock** (nếu cần cho `booking-service.ticketTimeLimit`) — chờ tới khi `BookingServiceImpl.createBooking` thật sự gọi seat-service để giữ ghế (hiện còn `// todo`), và MySQL `@Version` optimistic lock (đã có sẵn ở `Seat`/`SeatInstance` bên seat-service) chứng minh không đủ dưới tải thật. Việc đơn giản hơn không cần Redis: `@Scheduled` job quét `Booking.status = PENDING AND ticketTimeLimit < now()` bằng MySQL.
+    - Cả hai đợi sau **Docker Compose** (Section 16) để Redis chạy kèm MySQL qua `docker-compose up`, không phải cài tay như MySQL hiện tại.
+    - Khi tới lúc làm: đây là module có logic thật (annotation/config/entity/exception/repository), **không** đặt vào `common-lib` (chỉ chứa DTO/enum/embeddable thuần) — tách module riêng cấp root (`redis-lib/` đăng ký vào `<modules>` root `pom.xml`) nếu ≥ 2 service dùng, hoặc giữ cục bộ trong package `config/` của 1 service nếu ban đầu chỉ 1 service cần.
 
 ---
 
