@@ -49,11 +49,14 @@ public class BookingServiceImpl implements BookingService {
     @Override
     @Transactional
     public BookingResponse createBooking(final BookingRequest request, final UUID userId) {
-        final String bookingReference = generateBookingReference();
-
         final List<UUID> seatInstanceIds = request.getPassengers().stream()
                 .map(PassengerRequest::getSeatInstanceId)
                 .collect(Collectors.toList());
+        if (seatInstanceIds.stream().distinct().count() != seatInstanceIds.size()) {
+            throw new BusinessException("Each passenger must be assigned a different seat");
+        }
+
+        final String bookingReference = generateBookingReference();
 
         // Lưu Booking trước để lấy id (UUIDv7 do Hibernate sinh ngay khi save, không cần flush),
         // rồi mới tạo Passenger/Ticket giữ bookingId — cả 3 nằm trong cùng 1 transaction vì
