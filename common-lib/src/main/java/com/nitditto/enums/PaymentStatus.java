@@ -1,4 +1,5 @@
 package com.nitditto.enums;
 
-public class PaymentStatus {
+public enum PaymentStatus {
+    PENDING, SUCCESS, FAILED, CANCELLED, REFUNDED, PROCESSING
 }
