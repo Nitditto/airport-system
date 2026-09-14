@@ -19,3 +19,10 @@ spring:
           batch_size: 50
         order_inserts: true
         order_updates: true
+
+razorpay:
+  api:
+    key: ${RAZORPAY_KEY_ID}
+    secret: ${RAZORPAY_KEY_SECRET}
+  callback:
+    base-url: http://localhost:5173
