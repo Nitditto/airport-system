@@ -17,7 +17,8 @@ import lombok.NoArgsConstructor;
 public class PaymentLinkResponse {
 
     private UUID id;
-    private String paymentUrl;
+    private String paymentLinkUrl;
+    private String paymentLinkId;
     private PaymentStatus status;
     private Instant expiresAt;
 }
