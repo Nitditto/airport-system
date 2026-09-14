@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -40,6 +41,13 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(final MethodArgumentTypeMismatchException ex) {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
         .body(ApiResponse.error("Invalid value for parameter '%s': %s".formatted(ex.getName(), ex.getValue())));
+  }
+
+  // Client không gửi header bắt buộc (vd. X-User-Id). Lỗi client -> 400, không phải 500.
+  @ExceptionHandler(MissingRequestHeaderException.class)
+  public ResponseEntity<ApiResponse<Void>> handleMissingHeader(final MissingRequestHeaderException ex) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(ApiResponse.error("Missing required header '%s'".formatted(ex.getHeaderName())));
   }
 
   // Body JSON hỏng hoặc giá trị enum không hợp lệ (vd. Gender, CabinClassType trong body).
