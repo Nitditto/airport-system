@@ -1,5 +1,7 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.client.AirlineClient;
+import com.nitditto.client.LocationClient;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.FlightInstanceMapper;
 import com.nitditto.model.Flight;
@@ -32,6 +34,8 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
 
   private final FlightRepository flightRepository;
   private final FlightInstanceRepository flightInstanceRepository;
+  private final AirlineClient airlineClient;
+  private final LocationClient locationClient;
 
   @Override
   @Transactional
@@ -43,10 +47,8 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
         .orElseThrow(() -> new ResourceNotFoundException("Flight", "id",
             flightInstanceRequest.getFlightId()));
 
-    // todo: service to service communication - lấy sức chứa thật từ airline-core-service
-    final AircraftResponse aircraftResponse = AircraftResponse.builder()
-        .totalSeats(90)
-        .build();
+    // get aircraft data from airline-core-service
+    final AircraftResponse aircraftResponse = airlineClient.getAircraftById(flight.getAircraftId()).getData();
 
     final FlightInstance flightInstance = FlightInstanceMapper.toEntity(flightInstanceRequest, flight);
     flightInstance.setTotalSeats(aircraftResponse.getTotalSeats());
@@ -55,6 +57,7 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
     final FlightInstance saved = this.flightInstanceRepository.save(flightInstance);
 
     // todo: create seat instances
+    // publish kafka event, seat service consume that and create seat instance
     return this.convertToFlightInstanceResponse(saved, flight);
   }
 
@@ -110,15 +113,27 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
   private FlightInstanceResponse convertToFlightInstanceResponse(final FlightInstance flightInstance,
       final Flight flight) {
 
-    // todo: service to service communication
-    final AirlineResponse airlineResponse =
-        AirlineResponse.builder().id(flightInstance.getAirlineId()).build();
-    final AirportResponse departureAirport = AirportResponse.builder()
-        .id(flightInstance.getDepartureAirportId()).build();
-    final AirportResponse arrivalAirport = AirportResponse.builder()
-        .id(flightInstance.getArrivalAirportId()).build();
-    final AircraftResponse aircraftResponse = AircraftResponse.builder()
-        .id(flight != null ? flight.getAircraftId() : null).build();
+    // service to service communication
+    final AirlineResponse airlineResponse = flightInstance.getAirlineId() != null
+        ? airlineClient.getAirlineById(flightInstance.getAirlineId()).getData()
+        : null;
+
+    final UUID depId = flightInstance.getDepartureAirportId() != null
+        ? flightInstance.getDepartureAirportId()
+        : (flight != null ? flight.getDepartureAirportId() : null);
+    final UUID arrId = flightInstance.getArrivalAirportId() != null
+        ? flightInstance.getArrivalAirportId()
+        : (flight != null ? flight.getArrivalAirportId() : null);
+
+    final AirportResponse departureAirport = depId != null
+        ? locationClient.getAirportById(depId).getData()
+        : null;
+    final AirportResponse arrivalAirport = arrId != null
+        ? locationClient.getAirportById(arrId).getData()
+        : null;
+    final AircraftResponse aircraftResponse = flight != null && flight.getAircraftId() != null
+        ? airlineClient.getAircraftById(flight.getAircraftId()).getData()
+        : null;
 
     return FlightInstanceMapper.toResponse(flightInstance, flight, aircraftResponse, airlineResponse,
         departureAirport, arrivalAirport);

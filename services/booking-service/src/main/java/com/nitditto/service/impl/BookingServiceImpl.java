@@ -1,6 +1,11 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.client.AncillaryClient;
+import com.nitditto.client.FlightClient;
+import com.nitditto.client.PaymentClient;
+import com.nitditto.client.SeatClient;
 import com.nitditto.enums.BookingStatus;
+import com.nitditto.enums.PaymentGateway;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.BookingEnrichmentContext;
@@ -9,17 +14,20 @@ import com.nitditto.model.Booking;
 import com.nitditto.payload.dto.PaymentDTO;
 import com.nitditto.payload.request.BookingRequest;
 import com.nitditto.payload.request.PassengerRequest;
+import com.nitditto.payload.request.PaymentInitiateRequest;
 import com.nitditto.payload.response.BookingResponse;
 import com.nitditto.payload.response.FareResponse;
 import com.nitditto.payload.response.FlightInstanceResponse;
 import com.nitditto.payload.response.FlightResponse;
 import com.nitditto.payload.response.PassengerResponse;
+import com.nitditto.payload.response.PaymentInitiateResponse;
 import com.nitditto.payload.response.TicketResponse;
 import com.nitditto.repository.BookingRepository;
 import com.nitditto.repository.spec.BookingSpecs;
 import com.nitditto.service.BookingService;
 import com.nitditto.service.PassengerService;
 import com.nitditto.service.TicketService;
+import com.nitditto.service.integration.FareIntegrationService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -45,10 +53,15 @@ public class BookingServiceImpl implements BookingService {
     private final BookingRepository bookingRepository;
     private final PassengerService passengerService;
     private final TicketService ticketService;
+    private final FlightClient flightClient;
+    private final SeatClient seatClient;
+    private final AncillaryClient ancillaryClient;
+    private final PaymentClient paymentClient;
+    private final FareIntegrationService fareIntegrationService;
 
     @Override
     @Transactional
-    public BookingResponse createBooking(final BookingRequest request, final UUID userId) {
+    public PaymentInitiateResponse createBooking(final BookingRequest request, final UUID userId) {
         final List<UUID> seatInstanceIds = request.getPassengers().stream()
                 .map(PassengerRequest::getSeatInstanceId)
                 .collect(Collectors.toList());
@@ -58,11 +71,14 @@ public class BookingServiceImpl implements BookingService {
 
         final String bookingReference = generateBookingReference();
 
-        // Lưu Booking trước để lấy id (UUIDv7 do Hibernate sinh ngay khi save, không cần flush),
-        // rồi mới tạo Passenger/Ticket giữ bookingId — cả 3 nằm trong cùng 1 transaction vì
-        // passengerService/ticketService là bean khác, lời gọi @Transactional của chúng join
-        // vào transaction đã mở ở đây (propagation REQUIRED mặc định).
+        final FlightResponse flightResponse = flightClient.getFlightById(request.getFlightId())
+                .getBody().getData();
+
         Booking booking = BookingMapper.toEntity(request, userId, bookingReference, seatInstanceIds);
+
+        // set airline id from flightResponse
+        booking.setAirlineId(flightResponse.getAirline().getId());
+
         booking = this.bookingRepository.saveAndFlush(booking);
 
         final List<PassengerResponse> passengers = this.passengerService
@@ -70,10 +86,28 @@ public class BookingServiceImpl implements BookingService {
         final List<TicketResponse> tickets = enrichTickets(
                 this.ticketService.generateTicketsForBooking(booking.getId(), passengers), booking, passengers);
 
-        // todo step 7: calculate price from fare + seat + ancillary + meal (out of scope)
-        // todo step 8: initiate payment via payment-service (out of scope)
+        // step 7: calculate price
+        // 1. calculate fareTotal
+        Double fareTotal = fareIntegrationService.calculateFareTotal(request.getFareId());
+        Double seatPrice = seatClient.calculateSeatPrice(seatInstanceIds);
+        Double ancillaryPrice = ancillaryClient.calculateAncillariesPrice(booking.getAncillaryIds()).getData();
+        Double mealPrice = ancillaryClient.calculateMealPrice(booking.getMealIds()).getData();
 
-        return BookingMapper.toResponse(booking, buildContext(passengers, tickets));
+        Double totalPrice = (fareTotal != null ? fareTotal : 0.0)
+                + (seatPrice != null ? seatPrice : 0.0)
+                + (ancillaryPrice != null ? ancillaryPrice : 0.0)
+                + (mealPrice != null ? mealPrice : 0.0);
+
+        // step 8: initiate payment via payment-service
+        PaymentInitiateRequest paymentInitiateRequest = PaymentInitiateRequest.builder()
+                .userId(userId)
+                .bookingId(booking.getId())
+                .amount(totalPrice)
+                .paymentGateway(PaymentGateway.RAZORPAY)
+                .description("Payment for booking ID : " + bookingReference)
+                .build();
+
+        return paymentClient.initiatePayment(paymentInitiateRequest).getBody().getData();
     }
 
     @Override
@@ -147,8 +181,10 @@ public class BookingServiceImpl implements BookingService {
         return new PageImpl<>(responses, page.getPageable(), page.getTotalElements());
     }
 
-    // Công thức batch-load chuẩn: gom distinct bookingId -> 1 query IN cho mỗi loại con
-    // (passenger, ticket) -> Map -> ghép trong bộ nhớ. Số query hằng số theo số booking.
+    // Công thức batch-load chuẩn: gom distinct bookingId -> 1 query IN cho mỗi loại
+    // con
+    // (passenger, ticket) -> Map -> ghép trong bộ nhớ. Số query hằng số theo số
+    // booking.
     private List<BookingResponse> convertToBookingResponses(final List<Booking> bookings) {
         if (bookings.isEmpty()) {
             return List.of();
@@ -169,8 +205,10 @@ public class BookingServiceImpl implements BookingService {
         return responses;
     }
 
-    // TicketMapper không được phép tự đi lấy Booking/Passenger (rule NO-JPA-relationship
-    // kéo theo mapper thuần không traversal) -> điền field phẳng denormalized ở đây, nơi
+    // TicketMapper không được phép tự đi lấy Booking/Passenger (rule
+    // NO-JPA-relationship
+    // kéo theo mapper thuần không traversal) -> điền field phẳng denormalized ở
+    // đây, nơi
     // đã có sẵn cả Booking lẫn danh sách Passenger tương ứng, không cần query thêm.
     private List<TicketResponse> enrichTickets(final List<TicketResponse> tickets, final Booking booking,
             final List<PassengerResponse> passengers) {
@@ -188,8 +226,10 @@ public class BookingServiceImpl implements BookingService {
         return tickets;
     }
 
-    // todo: khi có Feign client tới flight-ops/pricing/seat/ancillary-service, batch-fetch
-    // theo đúng công thức N+1 (distinct id -> 1 query IN mỗi loại -> Map) thay vì stub rỗng
+    // todo: khi có Feign client tới flight-ops/pricing/seat/ancillary-service,
+    // batch-fetch
+    // theo đúng công thức N+1 (distinct id -> 1 query IN mỗi loại -> Map) thay vì
+    // stub rỗng
     // như hiện tại — xem "Loại 2" trong CLAUDE.md.
     private BookingEnrichmentContext buildContext(final List<PassengerResponse> passengers,
             final List<TicketResponse> tickets) {

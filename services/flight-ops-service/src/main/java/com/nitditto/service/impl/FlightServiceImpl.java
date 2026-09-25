@@ -1,23 +1,23 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.client.AirlineClient;
+import com.nitditto.client.LocationClient;
 import com.nitditto.enums.FlightStatus;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.FlightMapper;
 import com.nitditto.model.Flight;
+import com.nitditto.payload.request.FlightRequest;
 import com.nitditto.payload.response.AircraftResponse;
 import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.AirportResponse;
+import com.nitditto.payload.response.FlightResponse;
 import com.nitditto.repository.FlightInstanceRepository;
 import com.nitditto.repository.FlightRepository;
 import com.nitditto.repository.FlightScheduleRepository;
 import com.nitditto.service.FlightService;
-
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-
-import com.nitditto.payload.request.FlightRequest;
-import com.nitditto.payload.response.FlightResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -31,6 +31,8 @@ public class FlightServiceImpl implements FlightService {
   private final FlightRepository flightRepository;
   private final FlightScheduleRepository flightScheduleRepository;
   private final FlightInstanceRepository flightInstanceRepository;
+  private final AirlineClient airlineClient;
+  private final LocationClient locationClient;
 
   @Transactional
   @Override
@@ -51,6 +53,7 @@ public class FlightServiceImpl implements FlightService {
   public Page<FlightResponse> getFlightsByAirline(final UUID airlineId, final UUID departureAirportId,
       final UUID arrivalAirportId, final Pageable pageable) {
     // todo: watch airlineId
+    // todo: N+1 qua Feign - cần batch-by-ids cho AirlineClient/LocationClient (xem kế hoạch Phase 2)
     return this.flightRepository.findByAirlineId(airlineId,
         departureAirportId,
         arrivalAirportId,
@@ -99,7 +102,8 @@ public class FlightServiceImpl implements FlightService {
     final Flight existingFlight = this.flightRepository.findByAirlineIdAndId(airlineId, id)
         .orElseThrow(() -> new ResourceNotFoundException("Flight", "id", id));
 
-    // Gỡ @ManyToOne khỏi FlightSchedule/FlightInstance đồng nghĩa mất luôn FK constraint thật
+    // Gỡ @ManyToOne khỏi FlightSchedule/FlightInstance đồng nghĩa mất luôn FK
+    // constraint thật
     // ở MySQL từng chặn việc này - phải tự kiểm tra để tránh dữ liệu mồ côi.
     if (this.flightScheduleRepository.existsByFlightId(id)
         || this.flightInstanceRepository.existsByFlightId(id)) {
@@ -110,16 +114,15 @@ public class FlightServiceImpl implements FlightService {
   }
 
   private FlightResponse convertToFLightResponse(final Flight flight) {
+    final AircraftResponse aircraftResponse = this.airlineClient.getAircraftById(flight.getAircraftId()).getData();
+    final AirlineResponse airlineResponse = this.airlineClient.getAirlineById(flight.getAirlineId()).getData();
+    return this.buildFlightResponse(flight, aircraftResponse, airlineResponse);
+  }
 
-    // todo: service to service communication
-    final AircraftResponse aircraftResponse = AircraftResponse.builder().id(flight.getAircraftId())
-        .build();
-    final AirlineResponse airlineResponse =
-        AirlineResponse.builder().id(flight.getAirlineId()).build();
-    final AirportResponse departureAirport =
-        AirportResponse.builder().id(flight.getDepartureAirportId()).build();
-    final AirportResponse arrivalAirport =
-        AirportResponse.builder().id(flight.getArrivalAirportId()).build();
+  private FlightResponse buildFlightResponse(final Flight flight, final AircraftResponse aircraftResponse,
+      final AirlineResponse airlineResponse) {
+    final AirportResponse departureAirport = locationClient.getAirportById(flight.getDepartureAirportId()).getData();
+    final AirportResponse arrivalAirport = locationClient.getAirportById(flight.getArrivalAirportId()).getData();
     return FlightMapper.toResponse(flight, aircraftResponse, airlineResponse, departureAirport,
         arrivalAirport);
   }
