@@ -25,6 +25,7 @@ import com.nitditto.enums.BookingStatus;
 import com.nitditto.payload.request.BookingRequest;
 import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.BookingResponse;
+import com.nitditto.payload.response.PaymentInitiateResponse;
 import com.nitditto.service.BookingService;
 
 import jakarta.validation.Valid;
@@ -37,7 +38,8 @@ public class BookingController {
   private final BookingService bookingService;
 
   @PostMapping
-  public ResponseEntity<ApiResponse<BookingResponse>> createBooking(@RequestHeader("X-User-Id") final UUID userId,
+  public ResponseEntity<ApiResponse<PaymentInitiateResponse>> createBooking(
+      @RequestHeader("X-User-Id") final UUID userId,
       @Valid @RequestBody final BookingRequest bookingRequest) {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(ApiResponse.success(this.bookingService.createBooking(bookingRequest, userId)));

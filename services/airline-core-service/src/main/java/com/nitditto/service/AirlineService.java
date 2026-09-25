@@ -5,6 +5,7 @@ import com.nitditto.payload.request.AirlineRequest;
 import com.nitditto.payload.response.AirlineDropDownItem;
 import com.nitditto.payload.response.AirlineResponse;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -16,6 +17,8 @@ public interface AirlineService {
   AirlineResponse getAirlineByOwner(UUID ownerId);
 
   AirlineResponse getAirlineById(UUID airlineId);
+
+  Map<UUID, AirlineResponse> getAirlinesByIds(List<UUID> ids);
 
   Page<AirlineResponse> getAllAirlines(Pageable pageable);
 

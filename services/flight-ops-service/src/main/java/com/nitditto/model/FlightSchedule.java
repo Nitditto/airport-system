@@ -57,5 +57,6 @@ public class FlightSchedule extends BaseEntity {
   @Builder.Default
   private Set<DayOfWeek> operatingDays = new HashSet<>();
 
+  @Builder.Default
   private Boolean isActive = true;
 }

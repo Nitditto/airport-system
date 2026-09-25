@@ -98,3 +98,21 @@ mvn clean package -DskipTests
 | [07-security.md](development/07-security.md) | JWT, phân quyền, không tin dữ liệu client gửi — ĐÚNG/SAI |
 | [08-definition-of-done.md](development/08-definition-of-done.md) | Checklist tự soát trước khi mở PR |
 | [09-bug-co-that-trong-repo.md](development/09-bug-co-that-trong-repo.md) | Bảo tàng bug thật đã gặp — học từ lỗi của chính dự án |
+
+### `features/`
+
+Tài liệu theo từng mảng kiến trúc/tính năng — mỗi file có phần **5W1H** (What/Why/Who/When/Where/How)
+để trả lời "cái này sinh ra để làm gì" trước khi đi vào cách cài đặt.
+
+| File | Trạng thái | Nội dung |
+|---|---|---|
+| [spring-cloud-service-discovery.md](features/spring-cloud-service-discovery.md) | 🟢 Đã có | Vì sao cần Eureka, cơ chế đăng ký/tra cứu/load balancing, Eureka vs Consul |
+| [eureka-service-registry.md](features/eureka-service-registry.md) | 🟢 Đã có | Hướng dẫn cài đặt Eureka Server/Client từng bước |
+| [openfeign-client.md](features/openfeign-client.md) | 🟡 Có hạ tầng, chưa dùng thật | `@FeignClient`, timeout/retry/logging/interceptor, nợ kỹ thuật cần dọn |
+| [inter-service-communication.md](features/inter-service-communication.md) | 🟢 Đã có | `RestTemplate` + Eureka giữa `flight-ops-service` ↔ `airline-core-service`, chống N+1 qua HTTP |
+| [resilience-fault-tolerance.md](features/resilience-fault-tolerance.md) | ⬜ Chưa làm | Circuit Breaker/Retry/Fallback/Bulkhead với Resilience4j |
+| [api-gateway-routing.md](features/api-gateway-routing.md) | ⬜ Chưa làm | Spring Cloud Gateway, routing theo tên service, JWT tập trung, rate limiting |
+| [communication-patterns.md](features/communication-patterns.md) | 🟢/⬜ Một phần | Khi nào chọn Sync (REST/Feign) vs Async (Kafka), áp vào luồng Booking/Payment |
+| [observability.md](features/observability.md) | ⬜ Chưa làm | Correlation ID/Tracing (Zipkin), structured logging, metrics (Prometheus/Grafana) |
+| [booking-service.md](features/booking-service.md) | ⬜ Thiết kế | Domain Booking — service điều phối trung tâm |
+| [payment-service.md](features/payment-service.md) | 🟢 Đã có | Domain Payment — tích hợp Razorpay |

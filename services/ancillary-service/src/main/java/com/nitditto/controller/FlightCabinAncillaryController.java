@@ -76,8 +76,8 @@ public class FlightCabinAncillaryController {
     return ResponseEntity.ok(ApiResponse.success(this.flightCabinAncillaryService.getAllByIds(ids)));
   }
 
-  @PostMapping("/calculate-price")
-  public ResponseEntity<ApiResponse<Double>> calculatePrice(
+  @PostMapping("/price/total")
+  public ResponseEntity<ApiResponse<Double>> calculateAncillariesPrice(
       @RequestBody final List<UUID> flightCabinAncillaryIds) {
     return ResponseEntity.ok(ApiResponse.success(
         this.flightCabinAncillaryService.calculateAncillaryPrice(flightCabinAncillaryIds)));

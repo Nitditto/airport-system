@@ -11,7 +11,10 @@ import com.nitditto.repository.AircraftRepository;
 import com.nitditto.repository.AirlineRepository;
 import com.nitditto.service.AircraftService;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +52,19 @@ public class AircraftServiceImpl implements AircraftService {
         .orElseThrow(() -> new ResourceNotFoundException("Aircraft", "id", id));
     final Airline airline = this.airlineRepository.findById(aircraft.getAirlineId()).orElse(null);
     return AircraftMapper.toResponse(aircraft, airline);
+  }
+
+  @Override
+  public Map<UUID, AircraftResponse> getAircraftsByIds(final List<UUID> ids) {
+    final List<Aircraft> aircrafts = this.aircraftRepository.findAllById(ids);
+
+    final List<UUID> airlineIds = aircrafts.stream().map(Aircraft::getAirlineId).distinct().toList();
+    final Map<UUID, Airline> airlineById = this.airlineRepository.findAllById(airlineIds).stream()
+        .collect(Collectors.toMap(Airline::getId, Function.identity()));
+
+    return aircrafts.stream()
+        .collect(Collectors.toMap(Aircraft::getId,
+            aircraft -> AircraftMapper.toResponse(aircraft, airlineById.get(aircraft.getAirlineId()))));
   }
 
   @Override

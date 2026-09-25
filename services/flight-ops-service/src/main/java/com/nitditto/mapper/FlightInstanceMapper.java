@@ -23,8 +23,12 @@ public class FlightInstanceMapper {
         .flightId(flight.getId())
         .airlineId(flight.getAirlineId())
         .scheduleId(flightInstanceRequest.getScheduleId())
-        .departureAirportId(flightInstanceRequest.getDepartureAirportId())
-        .arrivalAirportId(flightInstanceRequest.getArrivalAirportId())
+        .departureAirportId(flightInstanceRequest.getDepartureAirportId() != null
+            ? flightInstanceRequest.getDepartureAirportId()
+            : (flight != null ? flight.getDepartureAirportId() : null))
+        .arrivalAirportId(flightInstanceRequest.getArrivalAirportId() != null
+            ? flightInstanceRequest.getArrivalAirportId()
+            : (flight != null ? flight.getArrivalAirportId() : null))
         .departureDateTime(flightInstanceRequest.getDepartureDateTime())
         .arrivalDateTime(flightInstanceRequest.getArrivalDateTime())
         .status(FlightStatus.SCHEDULED)

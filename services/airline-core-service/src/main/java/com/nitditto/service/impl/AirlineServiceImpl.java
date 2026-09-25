@@ -12,7 +12,10 @@ import com.nitditto.repository.AircraftRepository;
 import com.nitditto.repository.AirlineRepository;
 import com.nitditto.service.AirlineService;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -50,6 +53,12 @@ public class AirlineServiceImpl implements AirlineService {
         .orElseThrow(() -> new ResourceNotFoundException("Airline", "id", airlineId));
 
     return AirlineMapper.toResponse(airline);
+  }
+
+  @Override
+  public Map<UUID, AirlineResponse> getAirlinesByIds(final List<UUID> ids) {
+    return this.airlineRepository.findAllById(ids).stream()
+        .collect(Collectors.toMap(Airline::getId, AirlineMapper::toResponse));
   }
 
   @Override

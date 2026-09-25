@@ -3,6 +3,7 @@ package com.nitditto.service;
 import com.nitditto.enums.BookingStatus;
 import com.nitditto.payload.request.BookingRequest;
 import com.nitditto.payload.response.BookingResponse;
+import com.nitditto.payload.response.PaymentInitiateResponse;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -11,7 +12,7 @@ import java.util.UUID;
 
 public interface BookingService {
 
-    BookingResponse createBooking(BookingRequest request, UUID userId);
+    PaymentInitiateResponse createBooking(BookingRequest request, UUID userId);
 
     BookingResponse getBookingById(UUID id);
 
