@@ -31,6 +31,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(message));
   }
 
+  @ExceptionHandler(feign.FeignException.class)
+  public ResponseEntity<ApiResponse<Void>> handleFeignException(final feign.FeignException ex) {
+    log.error("Feign inter-service error: status {}", ex.status(), ex);
+    final HttpStatus status = HttpStatus.resolve(ex.status());
+    final HttpStatus responseStatus = status != null ? status : HttpStatus.BAD_GATEWAY;
+    return ResponseEntity.status(responseStatus)
+        .body(ApiResponse.error("Inter-service call failed: " + ex.getMessage()));
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiResponse<Void>> handleUnexpected(final Exception ex) {
     log.error("Unexpected error", ex);

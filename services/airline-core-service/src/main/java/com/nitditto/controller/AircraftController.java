@@ -6,6 +6,7 @@ import com.nitditto.payload.response.AircraftResponse;
 import com.nitditto.service.AircraftService;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -44,6 +45,12 @@ public class AircraftController {
   public ResponseEntity<ApiResponse<List<AircraftResponse>>> listAllAircrafts(
       @RequestHeader("X-User-Id") final UUID userId) {
     return ResponseEntity.ok(ApiResponse.success(this.aircraftService.listAllAircraftByOwner(userId)));
+  }
+
+  @PostMapping("/batch-by-ids")
+  public ResponseEntity<ApiResponse<Map<UUID, AircraftResponse>>> getAircraftsByIds(
+      @RequestBody final List<UUID> ids) {
+    return ResponseEntity.ok(ApiResponse.success(this.aircraftService.getAircraftsByIds(ids)));
   }
 
   @PutMapping("/{id}")

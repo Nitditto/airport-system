@@ -1,5 +1,6 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.client.LocationClient;
 import com.nitditto.enums.FlightStatus;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
@@ -36,6 +37,7 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
   private final FlightRepository flightRepository;
   private final FlightScheduleRepository flightScheduleRepository;
   private final FlightInstanceService flightInstanceService;
+  private final LocationClient locationClient;
 
   @Transactional(rollbackFor = Exception.class)
   @Override
@@ -126,7 +128,8 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
   }
 
   /**
-   * 1 query cha (đã có) + 1 query {@code IN} để batch-load Flight cho cả danh sách,
+   * 1 query cha (đã có) + 1 query {@code IN} để batch-load Flight cho cả danh
+   * sách,
    * thay vì fetch từng cái trong loop (N+1).
    */
   private List<FlightScheduleResponse> toResponses(final List<FlightSchedule> schedules) {
@@ -140,14 +143,22 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
 
     final List<FlightScheduleResponse> responses = new ArrayList<>(schedules.size());
     for (final FlightSchedule schedule : schedules) {
-      // todo: service to service communication - Airport thật cần gọi location-service
-      final AirportResponse departure =
-          AirportResponse.builder().id(schedule.getDepartureAirportId()).build();
-      final AirportResponse arrival =
-          AirportResponse.builder().id(schedule.getArrivalAirportId()).build();
+      // todo: service to service communication - Airport thật cần gọi
+      // location-service
+      final AirportResponse departure = AirportResponse.builder().id(schedule.getDepartureAirportId()).build();
+      final AirportResponse arrival = AirportResponse.builder().id(schedule.getArrivalAirportId()).build();
       responses.add(FlightScheduleMapper.toResponse(
           schedule, flightById.get(schedule.getFlightId()), arrival, departure));
     }
     return responses;
+  }
+
+  private FlightScheduleResponse convertToFlightScheduleResponse(FlightSchedule flightSchedule) {
+    // fetch actual airport data from airline core service
+    final AirportResponse departureAirport = locationClient.getAirportById(flightSchedule.getDepartureAirportId()).getData();
+    final AirportResponse arrivalAirport = locationClient.getAirportById(flightSchedule.getArrivalAirportId()).getData();
+
+    return FlightScheduleMapper.toResponse(flightSchedule, null, arrivalAirport, departureAirport);
+
   }
 }

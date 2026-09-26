@@ -8,6 +8,7 @@ import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.service.AirlineService;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -53,6 +54,12 @@ public class AirlineController {
   @GetMapping
   public ResponseEntity<ApiResponse<Page<AirlineResponse>>> getAllAirlines(final Pageable pageable) {
     return ResponseEntity.ok(ApiResponse.success(this.airlineService.getAllAirlines(pageable)));
+  }
+
+  @PostMapping("/batch-by-ids")
+  public ResponseEntity<ApiResponse<Map<UUID, AirlineResponse>>> getAirlinesByIds(
+      @RequestBody final List<UUID> ids) {
+    return ResponseEntity.ok(ApiResponse.success(this.airlineService.getAirlinesByIds(ids)));
   }
 
   @GetMapping("/dropdown")
