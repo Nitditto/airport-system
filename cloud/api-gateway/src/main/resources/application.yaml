@@ -1,0 +1,23 @@
+server:
+  port: 5000
+
+spring:
+  config:
+    import:
+      - "optional:file:./.env[.properties]"
+      - "optional:file:../../.env[.properties]"
+  application:
+    name: api-gateway
+
+jwt:
+  secret: ${JWT_SECRET}
+
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+

@@ -22,7 +22,7 @@
   <modules>
     <module>service-registry</module>
 <!--    <module>config-server</module>-->
-<!--    <module>api-gateway</module>-->
+    <module>api-gateway</module>
   </modules>
 
 
