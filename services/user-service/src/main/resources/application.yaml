@@ -1,6 +1,13 @@
 server:
   port: 5001
+
+jwt:
+  secret: ${JWT_SECRET}
 spring:
+  config:
+    import:
+      - "optional:file:./.env[.properties]"
+      - "optional:file:../../.env[.properties]"
   application:
     name: user-service
   datasource:
