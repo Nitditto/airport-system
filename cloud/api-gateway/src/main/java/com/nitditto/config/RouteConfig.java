@@ -6,20 +6,43 @@ import org.springframework.cloud.gateway.server.mvc.handler.GatewayRouterFunctio
 import org.springframework.cloud.gateway.server.mvc.handler.HandlerFunctions;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.web.servlet.function.*;
+import org.springframework.web.servlet.function.RequestPredicates;
+import org.springframework.web.servlet.function.RouterFunction;
+import org.springframework.web.servlet.function.RouterFunctions;
+import org.springframework.web.servlet.function.ServerRequest;
+import org.springframework.web.servlet.function.ServerResponse;
 
 import java.util.Arrays;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
+import java.util.regex.Pattern;
 
+/**
+ * Mỗi service đúng một route; quyền được quyết định trong một filter duy nhất nên không còn
+ * phụ thuộc thứ tự bean {@code @Order}. Gateway chỉ kiểm tra role — quyền sở hữu bản ghi
+ * (owner A sửa dữ liệu của owner B) thuộc về service nghiệp vụ, đối chiếu qua X-User-Id.
+ */
 @Configuration
 public class RouteConfig {
 
     private static final String USER_ID_HEADER = "X-User-Id";
     private static final String USER_EMAIL_HEADER = "X-User-Email";
     private static final String USER_ROLES_HEADER = "X-User-Roles";
+
+    private static final Set<HttpMethod> WRITE_METHODS =
+            Set.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH, HttpMethod.DELETE);
+
+    // POST nhưng bản chất là đọc (CLAUDE.md §6): không được coi là thao tác ghi
+    private static final Pattern BATCH_READ_PATH = Pattern.compile("^/api/[^/]+/batch-by-ids/?$");
+    private static final Pattern AIRLINE_LISTING_PATH = Pattern.compile("^/api/airlines/?$");
+
+    private static final UserRole[] ADMIN = {UserRole.ROLE_SYSTEM_ADMIN};
+    private static final UserRole[] ADMIN_OR_OWNER = {UserRole.ROLE_SYSTEM_ADMIN, UserRole.ROLE_AIRLINE_OWNER};
+    private static final UserRole[] ANY_AUTHENTICATED = {};
 
     private final JwtUtil jwtUtil;
 
@@ -37,149 +60,113 @@ public class RouteConfig {
     }
 
     @Bean
-    @Order(1)
-    public RouterFunction<ServerResponse> adminLocationServiceRoutes() {
-        return GatewayRouterFunctions.route("admin-location-routes")
-                .route(RequestPredicates.POST("/api/cities/**"), HandlerFunctions.http())
-                .route(RequestPredicates.POST("/api/airports/**"), HandlerFunctions.http())
-                .before(this::jwtAuthFilter)
-                .before(request -> requireRole(request, UserRole.ROLE_SYSTEM_ADMIN.toString()))
-                .filter(LoadBalancerFilterFunctions.lb("location-service"))
-                .build();
-    }
-
-
-    @Bean
-    @Order(1)
-    public RouterFunction<ServerResponse> adminAirlineCoreServiceRoutes() {
-        return GatewayRouterFunctions.route("admin-airline-core-routes")
-                .route(RequestPredicates.GET("/api/airlines"), HandlerFunctions.http())
-                .before(this::jwtAuthFilter)
-                .before(request -> requireRole(request, UserRole.ROLE_SYSTEM_ADMIN.toString()))
-                .filter(LoadBalancerFilterFunctions.lb("airline-core-service"))
-                .build();
-    }
-
-    @Bean
     public RouterFunction<ServerResponse> userServiceRoutes() {
-        return GatewayRouterFunctions.route("user-service-core-routes")
-                .route(RequestPredicates.path("/api/users/**"), HandlerFunctions.http())
-                .before(this::jwtAuthFilter)
-                .filter(LoadBalancerFilterFunctions.lb("user-service"))
-                .build();
+        return this.route("user-service-core-routes", "user-service", this.authenticated(ANY_AUTHENTICATED),
+                "/api/users/**");
     }
 
     @Bean
-    @Order(2)
+    public RouterFunction<ServerResponse> locationServiceRoutes() {
+        return this.route("location-service-routes", "location-service", this.authenticated(ADMIN),
+                "/api/cities/**", "/api/airports/**");
+    }
+
+    @Bean
     public RouterFunction<ServerResponse> airlineCoreServiceRoutes() {
-        return GatewayRouterFunctions.route("airline-core-routes")
-                .route(RequestPredicates.path("/api/airlines/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/aircrafts/**"), HandlerFunctions.http())
-                .before(this::jwtAuthFilter)
-                .filter(LoadBalancerFilterFunctions.lb("airline-core-service"))
-                .build();
+        return this.route("airline-core-routes", "airline-core-service", this::airlineCoreAccess,
+                "/api/airlines/**", "/api/aircrafts/**");
     }
 
     @Bean
     public RouterFunction<ServerResponse> seatServiceRoutes() {
-        return GatewayRouterFunctions.route("seat-service-routes")
-                .route(RequestPredicates.path("/api/cabin-classes/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/seat-maps/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/seats/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/seat-instances/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/flight-instance-cabins/**"), HandlerFunctions.http())
-                .before(this::jwtAuthFilter)
-                .filter(LoadBalancerFilterFunctions.lb("seat-service"))
-                .build();
+        return this.route("seat-service-routes", "seat-service", this.authenticated(ADMIN_OR_OWNER),
+                "/api/cabin-classes/**", "/api/seat-maps/**", "/api/seats/**",
+                "/api/seat-instances/**", "/api/flight-instance-cabins/**");
     }
 
     @Bean
     public RouterFunction<ServerResponse> flightOpsServiceRoutes() {
-        return GatewayRouterFunctions.route("flight-ops-routes")
-                .route(RequestPredicates.path("/api/flights/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/flight-instances/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/flight-schedules/**"), HandlerFunctions.http())
-                .before(this::jwtAuthFilter)
-                .filter(LoadBalancerFilterFunctions.lb("flight-ops-service"))
-                .build();
+        return this.route("flight-ops-routes", "flight-ops-service", this.authenticated(ADMIN_OR_OWNER),
+                "/api/flights/**", "/api/flight-instances/**", "/api/flight-schedules/**");
     }
-
 
     @Bean
     public RouterFunction<ServerResponse> pricingServiceRoutes() {
-        return GatewayRouterFunctions.route("pricing-service-routes")
-                .route(RequestPredicates.path("/api/fares/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/fare-rules/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/baggage-policies/**"), HandlerFunctions.http())
-                .before(this::jwtAuthFilter)
-                .filter(LoadBalancerFilterFunctions.lb("pricing-service"))
-                .build();
+        return this.route("pricing-service-routes", "pricing-service", this.authenticated(ADMIN_OR_OWNER),
+                "/api/fares/**", "/api/fare-rules/**", "/api/baggage-policies/**");
     }
-
 
     @Bean
     public RouterFunction<ServerResponse> ancillaryServiceRoutes() {
-        return GatewayRouterFunctions.route("ancillary-service-routes")
-                .route(RequestPredicates.path("/api/meals/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/ancillaries/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/insurance-coverages/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/flight-meals/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/flight-cabin-ancillaries/**"), HandlerFunctions.http())
-                .before(this::jwtAuthFilter)
-                .filter(LoadBalancerFilterFunctions.lb("ancillary-service"))
-                .build();
-    }
-
-    @Bean
-    @Order(2)
-    public RouterFunction<ServerResponse> locationServiceRoutes() {
-        return GatewayRouterFunctions.route("location-service-routes")
-                .route(RequestPredicates.path("/api/cities/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/airports/**"), HandlerFunctions.http())
-                .before(this::jwtAuthFilter)
-                .filter(LoadBalancerFilterFunctions.lb("location-service"))
-                .build();
+        return this.route("ancillary-service-routes", "ancillary-service", this.authenticated(ADMIN_OR_OWNER),
+                "/api/meals/**", "/api/ancillaries/**", "/api/insurance-coverages/**",
+                "/api/flight-meals/**", "/api/flight-cabin-ancillaries/**");
     }
 
     @Bean
     public RouterFunction<ServerResponse> bookingServiceRoutes() {
-        return GatewayRouterFunctions.route("booking-service-routes")
-                .route(RequestPredicates.path("/api/bookings/**"), HandlerFunctions.http())
-                .before(this::jwtAuthFilter)
-                .filter(LoadBalancerFilterFunctions.lb("booking-service"))
-                .build();
+        return this.route("booking-service-routes", "booking-service", this.authenticated(ANY_AUTHENTICATED),
+                "/api/bookings/**");
     }
 
     @Bean
     public RouterFunction<ServerResponse> paymentServiceRoutes() {
-        return GatewayRouterFunctions.route("payment-service-routes")
-                .route(RequestPredicates.path("/api/payments/**"), HandlerFunctions.http())
-                .before(this::jwtAuthFilter)
-                .filter(LoadBalancerFilterFunctions.lb("payment-service"))
+        return this.route("payment-service-routes", "payment-service", this.authenticated(ANY_AUTHENTICATED),
+                "/api/payments/**");
+    }
+
+    private RouterFunction<ServerResponse> route(final String routeId, final String serviceId,
+                                                 final UnaryOperator<ServerRequest> access, final String... paths) {
+        final RouterFunctions.Builder builder = GatewayRouterFunctions.route(routeId);
+        for (final String path : paths) {
+            builder.route(RequestPredicates.path(path), HandlerFunctions.http());
+        }
+        return builder.before(access)
+                .filter(LoadBalancerFilterFunctions.lb(serviceId))
                 .build();
     }
 
-    private ServerRequest jwtAuthFilter(ServerRequest request) {
+    private UnaryOperator<ServerRequest> authenticated(final UserRole... writeRoles) {
+        return request -> this.secured(request, writeRoles);
+    }
 
-        String authHeader = request.headers().firstHeader(JwtConstant.JWT_HEADER);
+    /** Danh sách toàn bộ hãng (kèm trạng thái quản trị) chỉ dành cho admin; còn lại theo quy tắc ghi chung. */
+    private ServerRequest airlineCoreAccess(final ServerRequest request) {
+        final ServerRequest authenticated = this.secured(request, ADMIN_OR_OWNER);
+        if (HttpMethod.GET.equals(authenticated.method())
+                && AIRLINE_LISTING_PATH.matcher(authenticated.path()).matches()) {
+            return this.requireAnyRole(authenticated, ADMIN);
+        }
+        return authenticated;
+    }
 
-        // step 1 check auth header exist
+    /** Xác thực JWT; nếu là thao tác ghi thì yêu cầu thêm một trong {@code writeRoles} (rỗng = chỉ cần đăng nhập). */
+    private ServerRequest secured(final ServerRequest request, final UserRole... writeRoles) {
+        final ServerRequest authenticated = this.jwtAuthFilter(request);
+        if (writeRoles.length > 0 && this.isWrite(authenticated)) {
+            return this.requireAnyRole(authenticated, writeRoles);
+        }
+        return authenticated;
+    }
+
+    private boolean isWrite(final ServerRequest request) {
+        return WRITE_METHODS.contains(request.method())
+                && !(HttpMethod.POST.equals(request.method()) && BATCH_READ_PATH.matcher(request.path()).matches());
+    }
+
+    private ServerRequest jwtAuthFilter(final ServerRequest request) {
+        final String authHeader = request.headers().firstHeader(JwtConstant.JWT_HEADER);
         if (authHeader == null || !authHeader.startsWith(JwtConstant.TOKEN_PREFIX)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "missing or invalid authorization token");
+            throw new UnauthorizedException("missing or invalid authorization token");
         }
+        final String token = authHeader.substring(JwtConstant.TOKEN_PREFIX.length());
 
-        // step 2 remove prefix from token
-        String token = authHeader.substring(JwtConstant.TOKEN_PREFIX.length());
-
-        // validate
-        if (!jwtUtil.isTokenValid(token)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid or expired JWT token");
-        }
-
-        // step 3 grab user info from jwt token
-        String email = jwtUtil.extractEmail(token);
-        String authorities = jwtUtil.extractAuthorities(token);
-        UUID userId = jwtUtil.extractUserId(token);
+        // verify + lấy danh tính một lần; token thiếu/sai kiểu claim cũng bị từ chối, không forward "null"
+        final JwtUtil.Identity identity = this.jwtUtil.parseIdentity(token)
+                .orElseThrow(() -> new UnauthorizedException("invalid or expired JWT token"));
+        final String email = identity.email();
+        final String authorities = identity.authorities();
+        final UUID userId = identity.userId();
 
         // set (không add) để ghi đè header X-User-* mà client có thể tự gửi kèm
         return ServerRequest.from(request)
@@ -190,7 +177,7 @@ public class RouteConfig {
                 }).build();
     }
 
-    private ServerRequest stripIdentityHeaders(ServerRequest request) {
+    private ServerRequest stripIdentityHeaders(final ServerRequest request) {
         return ServerRequest.from(request)
                 .headers(headers -> {
                     headers.remove(USER_ID_HEADER);
@@ -199,11 +186,17 @@ public class RouteConfig {
                 }).build();
     }
 
-    private ServerRequest requireRole(ServerRequest request, String role) {
-        String roles = request.headers().firstHeader(USER_ROLES_HEADER);
-        if (roles == null || !Arrays.asList(roles.split(",")).contains(role)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "access denied, required role: '" + role + "'");
+    private ServerRequest requireAnyRole(final ServerRequest request, final UserRole... allowedRoles) {
+        final String roles = request.headers().firstHeader(USER_ROLES_HEADER);
+        if (roles != null) {
+            final Set<String> granted = Set.copyOf(Arrays.stream(roles.split(",")).map(String::trim).toList());
+            for (final UserRole allowed : allowedRoles) {
+                if (granted.contains(allowed.name())) {
+                    return request;
+                }
+            }
         }
-        return request;
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "access denied, required one of roles: " + Arrays.toString(allowedRoles));
     }
 }
