@@ -41,6 +41,7 @@ import org.springframework.test.context.DynamicPropertySource;
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
         "jwt.secret=" + GatewayJwtE2ETest.SECRET,
+        "gateway.cors.allowed-origins=http://localhost:3000",
         "eureka.client.enabled=false"
     })
 class GatewayJwtE2ETest {
@@ -119,6 +120,78 @@ class GatewayJwtE2ETest {
 
       assertThat(response.statusCode()).isEqualTo(401);
       assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void tokenWithoutUserIdClaim_returns401_insteadOfForwardingNullIdentity() throws Exception {
+      final long now = System.currentTimeMillis();
+      final String token = Jwts.builder()
+          .issuedAt(new Date(now - 1_000))
+          .expiration(new Date(now + 60_000))
+          .claim("email", "e2e@test.com")
+          .claim("authorities", ROLE_ADMIN)
+          .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+          .compact();
+
+      final HttpResponse<String> response = send("GET", "/api/airlines", token, Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(401);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void tokenWithoutExpiration_returns401() throws Exception {
+      final String token = Jwts.builder()
+          .claim("email", "e2e@test.com")
+          .claim("authorities", ROLE_ADMIN)
+          .claim("userId", UUID.randomUUID().toString())
+          .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+          .compact();
+
+      final HttpResponse<String> response = send("GET", "/api/airlines", token, Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(401);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void tokenWithArrayAuthoritiesClaim_returns401_notServerError() throws Exception {
+      final String token = Jwts.builder()
+          .expiration(new Date(System.currentTimeMillis() + 60_000))
+          .claim("email", "e2e@test.com")
+          .claim("authorities", List.of(ROLE_ADMIN))
+          .claim("userId", UUID.randomUUID().toString())
+          .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+          .compact();
+
+      final HttpResponse<String> response = send("GET", "/api/airlines", token, Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(401);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void tokenWithNonUuidUserId_returns401() throws Exception {
+      final String token = Jwts.builder()
+          .expiration(new Date(System.currentTimeMillis() + 60_000))
+          .claim("email", "e2e@test.com")
+          .claim("authorities", ROLE_ADMIN)
+          .claim("userId", "not-a-uuid")
+          .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+          .compact();
+
+      final HttpResponse<String> response = send("GET", "/api/airlines", token, Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(401);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void routeToServiceWithoutInstances_withoutToken_returns401NotServerError() throws Exception {
+      // booking-service không được đăng ký trong discovery của test này
+      final HttpResponse<String> response = send("GET", "/api/bookings/anything", null, Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(401);
     }
 
     @Test
@@ -236,8 +309,118 @@ class GatewayJwtE2ETest {
   }
 
   @Nested
+  @DisplayName("write method rules")
+  class WriteRules {
+
+    @Test
+    void userRole_cannotUpdateOrDeleteLocationData() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("PUT", "/api/cities/" + UUID.randomUUID(), token, Map.of(), "{}").statusCode())
+          .isEqualTo(403);
+      assertThat(send("DELETE", "/api/airports/" + UUID.randomUUID(), token, Map.of(), null).statusCode())
+          .isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void userRole_cannotWriteAircraftsOrAirlines() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/aircrafts", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("DELETE", "/api/airlines/" + UUID.randomUUID(), token, Map.of(), null).statusCode())
+          .isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void userRole_canReadWithJwtOnly() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("GET", "/api/cities", token, Map.of(), null).statusCode()).isEqualTo(200);
+      assertThat(send("GET", "/api/airlines/" + UUID.randomUUID(), token, Map.of(), null).statusCode())
+          .isEqualTo(200);
+    }
+
+    @Test
+    void userRole_canCallBatchByIds_becauseItIsARead() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/airlines/batch-by-ids", token, Map.of(), "[]").statusCode()).isEqualTo(200);
+      assertThat(send("POST", "/api/aircrafts/batch-by-ids", token, Map.of(), "[]").statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void batchByIdsExemption_doesNotApplyToNestedOrOtherPaths() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/airlines/x/batch-by-ids", token, Map.of(), "[]").statusCode())
+          .isEqualTo(403);
+      assertThat(send("PUT", "/api/airlines/batch-by-ids", token, Map.of(), "[]").statusCode())
+          .isEqualTo(403);
+    }
+
+    @Test
+    void owner_canWriteAircrafts_butNotLocationNorAirlineListing() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_OWNER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/aircrafts", token, Map.of(), "{}").statusCode()).isEqualTo(200);
+      assertThat(send("POST", "/api/cities", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("GET", "/api/airlines", token, Map.of(), null).statusCode()).isEqualTo(403);
+    }
+
+    @Test
+    void admin_canDeleteAircraftsAndUpdateCities() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_ADMIN, SECRET, 60_000);
+
+      assertThat(send("DELETE", "/api/aircrafts/" + UUID.randomUUID(), token, Map.of(), null).statusCode())
+          .isEqualTo(200);
+      assertThat(send("PUT", "/api/cities/" + UUID.randomUUID(), token, Map.of(), "{}").statusCode())
+          .isEqualTo(200);
+    }
+  }
+
+  @Nested
   @DisplayName("public routes")
   class PublicRoutes {
+
+    @Test
+    void unauthorizedResponse_carriesWwwAuthenticateBearer() throws Exception {
+      final HttpResponse<String> response = send("GET", "/api/airlines", null, Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(401);
+      assertThat(response.headers().firstValue("WWW-Authenticate")).contains("Bearer");
+    }
+
+    @Test
+    void corsPreflight_fromAllowedOrigin_isAnsweredWithoutToken() throws Exception {
+      final HttpResponse<String> response = send("OPTIONS", "/api/flights", null, Map.of(
+          "Origin", "http://localhost:3000",
+          "Access-Control-Request-Method", "POST",
+          "Access-Control-Request-Headers", "authorization,content-type"), null);
+
+      assertThat(response.statusCode()).isEqualTo(200);
+      assertThat(response.headers().firstValue("Access-Control-Allow-Origin")).contains("http://localhost:3000");
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void corsPreflight_fromUnknownOrigin_isRejected() throws Exception {
+      final HttpResponse<String> response = send("OPTIONS", "/api/flights", null, Map.of(
+          "Origin", "http://evil.example",
+          "Access-Control-Request-Method", "POST"), null);
+
+      assertThat(response.statusCode()).isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void healthEndpoint_isReachableWithoutToken() throws Exception {
+      final HttpResponse<String> response = send("GET", "/actuator/health", null, Map.of(), null);
+
+      assertThat(response.statusCode()).isIn(200, 503);
+      assertThat(RECEIVED).isEmpty();
+    }
 
     @Test
     void authRoute_isForwardedWithoutToken_andStripsClientIdentityHeaders() throws Exception {
