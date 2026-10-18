@@ -384,6 +384,14 @@ class GatewayJwtE2ETest {
   class PublicRoutes {
 
     @Test
+    void unauthorizedResponse_carriesWwwAuthenticateBearer() throws Exception {
+      final HttpResponse<String> response = send("GET", "/api/airlines", null, Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(401);
+      assertThat(response.headers().firstValue("WWW-Authenticate")).contains("Bearer");
+    }
+
+    @Test
     void authRoute_isForwardedWithoutToken_andStripsClientIdentityHeaders() throws Exception {
       final HttpResponse<String> response = send("POST", "/auth/login", null,
           Map.of("X-User-Id", UUID.randomUUID().toString(), "X-User-Roles", ROLE_ADMIN), "{}");

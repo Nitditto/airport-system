@@ -157,13 +157,13 @@ public class RouteConfig {
     private ServerRequest jwtAuthFilter(final ServerRequest request) {
         final String authHeader = request.headers().firstHeader(JwtConstant.JWT_HEADER);
         if (authHeader == null || !authHeader.startsWith(JwtConstant.TOKEN_PREFIX)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "missing or invalid authorization token");
+            throw new UnauthorizedException("missing or invalid authorization token");
         }
         final String token = authHeader.substring(JwtConstant.TOKEN_PREFIX.length());
 
         // verify + lấy danh tính một lần; token thiếu/sai kiểu claim cũng bị từ chối, không forward "null"
         final JwtUtil.Identity identity = this.jwtUtil.parseIdentity(token)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid or expired JWT token"));
+                .orElseThrow(() -> new UnauthorizedException("invalid or expired JWT token"));
         final String email = identity.email();
         final String authorities = identity.authorities();
         final UUID userId = identity.userId();
