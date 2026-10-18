@@ -16,7 +16,7 @@ public interface BookingService {
 
     BookingResponse getBookingById(UUID id);
 
-    Page<BookingResponse> getAllBookingsByAirline(UUID airlineId, String search, BookingStatus status,
+    Page<BookingResponse> getAllBookingsByAirline(UUID userId, String search, BookingStatus status,
             UUID flightInstanceId, Pageable pageable);
 
     Page<BookingResponse> getBookingsByUser(UUID userId, Pageable pageable);
