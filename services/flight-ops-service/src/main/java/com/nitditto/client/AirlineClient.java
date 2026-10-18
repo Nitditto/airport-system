@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import com.nitditto.payload.response.AircraftResponse;
 import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.ApiResponse;
+import org.springframework.web.bind.annotation.RequestHeader;
 
 @FeignClient(name = "airline-core-service")
 public interface AirlineClient {
@@ -18,4 +19,8 @@ public interface AirlineClient {
 
   @GetMapping("/api/aircrafts/{id}")
   ApiResponse<AircraftResponse> getAircraftById(@PathVariable("id") UUID id);
+
+    @GetMapping("/api/airlines/admin")
+    ApiResponse<AirlineResponse> getAirlineByOwner(
+            @RequestHeader("X-User-Id") final UUID userId);
 }

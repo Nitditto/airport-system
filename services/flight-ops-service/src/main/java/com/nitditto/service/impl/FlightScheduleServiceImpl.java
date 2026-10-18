@@ -1,5 +1,6 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.client.AirlineClient;
 import com.nitditto.client.LocationClient;
 import com.nitditto.enums.FlightStatus;
 import com.nitditto.exception.BusinessException;
@@ -9,6 +10,7 @@ import com.nitditto.model.Flight;
 import com.nitditto.model.FlightSchedule;
 import com.nitditto.payload.request.FlightInstanceRequest;
 import com.nitditto.payload.request.FlightScheduleRequest;
+import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.AirportResponse;
 import com.nitditto.payload.response.FlightScheduleResponse;
 import com.nitditto.repository.FlightRepository;
@@ -38,13 +40,14 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
   private final FlightScheduleRepository flightScheduleRepository;
   private final FlightInstanceService flightInstanceService;
   private final LocationClient locationClient;
+    private final AirlineClient airlineClient;
 
   @Transactional(rollbackFor = Exception.class)
   @Override
-  public FlightScheduleResponse createFlightSchedule(final UUID airlineId,
+    public FlightScheduleResponse createFlightSchedule(final UUID userId,
       final FlightScheduleRequest flightScheduleRequest) {
 
-    // todo watch for airlineId
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
     if (flightScheduleRequest.getOperatingDays() == null
         || flightScheduleRequest.getOperatingDays().isEmpty()) {
       throw new BusinessException("Operating days cannot be empty");
@@ -83,7 +86,7 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
         }
         flightInstanceRequest.setDepartureDateTime(departureDateTime);
         flightInstanceRequest.setArrivalDateTime(arrivalDateTime);
-        this.flightInstanceService.createFlightInstance(airlineId, flightInstanceRequest);
+                this.flightInstanceService.createFlightInstance(userId, flightInstanceRequest);
       }
     }
     return FlightScheduleMapper.toResponse(savedSchedule, flight,
@@ -99,9 +102,9 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
   }
 
   @Override
-  public List<FlightScheduleResponse> getFlightScheduleByAirline(final UUID airlineId) {
-    // todo: watch airlineId
-    final List<UUID> flightIds = this.flightRepository.findIdsByAirlineId(airlineId);
+    public List<FlightScheduleResponse> getFlightScheduleByAirline(final UUID userId) {
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
+        final List<UUID> flightIds = this.flightRepository.findIdsByAirlineId(airlineResponse.getId());
     final List<FlightSchedule> schedules = this.flightScheduleRepository.findByFlightIdIn(flightIds);
     return this.toResponses(schedules);
   }
@@ -127,11 +130,6 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
     this.flightScheduleRepository.deleteById(id);
   }
 
-  /**
-   * 1 query cha (đã có) + 1 query {@code IN} để batch-load Flight cho cả danh
-   * sách,
-   * thay vì fetch từng cái trong loop (N+1).
-   */
   private List<FlightScheduleResponse> toResponses(final List<FlightSchedule> schedules) {
     if (schedules.isEmpty()) {
       return List.of();

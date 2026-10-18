@@ -39,10 +39,11 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
 
   @Override
   @Transactional
-  public FlightInstanceResponse createFlightInstance(final UUID airlineId,
+    public FlightInstanceResponse createFlightInstance(final UUID userId,
       final FlightInstanceRequest flightInstanceRequest) {
 
-    // todo: watch airlineId
+        // fetch airline by owner id
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
     final Flight flight = this.flightRepository.findById(flightInstanceRequest.getFlightId())
         .orElseThrow(() -> new ResourceNotFoundException("Flight", "id",
             flightInstanceRequest.getFlightId()));
@@ -70,14 +71,15 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
   }
 
   @Override
-  public Page<FlightInstanceResponse> getByAirlineId(final UUID airlineId, final UUID departureAirportId,
+    public Page<FlightInstanceResponse> getByAirlineId(final UUID userId, final UUID departureAirportId,
       final UUID arrivalAirportId, final UUID flightId, final LocalDate onDate, final Pageable pageable) {
 
-    // todo: watch airlineId
+        // fetch by owner id
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
     final LocalDateTime start = onDate != null ? onDate.atStartOfDay() : null;
     final LocalDateTime end = onDate != null ? onDate.plusDays(1).atStartOfDay() : null;
 
-    final Page<FlightInstance> page = this.flightInstanceRepository.findByAirlineId(airlineId,
+        final Page<FlightInstance> page = this.flightInstanceRepository.findByAirlineId(airlineResponse.getId(),
         departureAirportId, arrivalAirportId, flightId, start, end, pageable);
 
     // Batch-load Flight cho cả trang thay vì fetch từng cái trong Page.map() (N+1)

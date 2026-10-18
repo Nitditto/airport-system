@@ -32,11 +32,11 @@ public class FlightInstanceController {
 
   @PostMapping
   public ResponseEntity<ApiResponse<FlightInstanceResponse>> createFlightInstance(
-      @RequestHeader("X-Airline-Id") final UUID airlineId,
+      @RequestHeader("X-User-Id") final UUID userId,
       @Valid @RequestBody final FlightInstanceRequest flightInstanceRequest) {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(ApiResponse.success(
-            this.flightInstanceService.createFlightInstance(airlineId, flightInstanceRequest)));
+            this.flightInstanceService.createFlightInstance(userId, flightInstanceRequest)));
   }
 
   @GetMapping("/{id}")
@@ -47,14 +47,14 @@ public class FlightInstanceController {
 
   @GetMapping
   public ResponseEntity<ApiResponse<Page<FlightInstanceResponse>>> getByAirlineId(
-      @RequestHeader("X-Airline-Id") final UUID airlineId,
+      @RequestHeader("X-User-Id") final UUID userId,
       @RequestParam(required = false) final UUID departureAirportId,
       @RequestParam(required = false) final UUID arrivalAirportId,
       @RequestParam(required = false) final UUID flightId,
       @RequestParam(required = false) final LocalDate onDate, final Pageable pageable
   ) {
     return ResponseEntity.ok(ApiResponse.success(
-        this.flightInstanceService.getByAirlineId(airlineId, departureAirportId, arrivalAirportId,
+        this.flightInstanceService.getByAirlineId(userId, departureAirportId, arrivalAirportId,
             flightId, onDate, pageable)));
   }
 

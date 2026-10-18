@@ -9,12 +9,12 @@ import org.springframework.data.domain.Pageable;
 
 public interface FlightInstanceService {
 
-  FlightInstanceResponse createFlightInstance(UUID airlineId,
+  FlightInstanceResponse createFlightInstance(UUID userId,
       FlightInstanceRequest flightInstanceRequest);
 
   FlightInstanceResponse getFlightInstanceById(UUID id);
 
-  Page<FlightInstanceResponse> getByAirlineId(UUID airlineId,
+  Page<FlightInstanceResponse> getByAirlineId(UUID userId,
       UUID departureAirportId,
       UUID arrivalAirportId,
       UUID flightId,

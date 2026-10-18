@@ -7,12 +7,12 @@ import java.util.UUID;
 
 public interface FlightScheduleService {
 
-  FlightScheduleResponse createFlightSchedule(UUID airlineId,
+  FlightScheduleResponse createFlightSchedule(UUID userId,
       FlightScheduleRequest flightScheduleRequest);
 
   FlightScheduleResponse getFlightScheduleById(UUID id);
 
-  List<FlightScheduleResponse> getFlightScheduleByAirline(UUID airlineId);
+  List<FlightScheduleResponse> getFlightScheduleByAirline(UUID userId);
 
   FlightScheduleResponse updateFlightSchedule(UUID id,
       FlightScheduleRequest flightScheduleRequest);

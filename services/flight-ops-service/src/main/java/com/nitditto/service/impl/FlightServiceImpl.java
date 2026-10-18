@@ -36,25 +36,27 @@ public class FlightServiceImpl implements FlightService {
 
   @Transactional
   @Override
-  public FlightResponse createFlight(final UUID airlineId, final FlightRequest flightRequest) {
+    public FlightResponse createFlight(final UUID userId, final FlightRequest flightRequest) {
 
     // todo: watch airlineId
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
     if (this.flightRepository.existsByFlightNumber(flightRequest.getFlightNumber())) {
       throw new BusinessException("flight with already exist");
     }
     final Flight flight = FlightMapper.toEntity(flightRequest);
-    flight.setAirlineId(airlineId);
+        flight.setAirlineId(airlineResponse.getId());
     final Flight savedFlight = this.flightRepository.save(flight);
 
     return this.convertToFLightResponse(savedFlight);
   }
 
   @Override
-  public Page<FlightResponse> getFlightsByAirline(final UUID airlineId, final UUID departureAirportId,
+    public Page<FlightResponse> getFlightsByAirline(final UUID userId, final UUID departureAirportId,
       final UUID arrivalAirportId, final Pageable pageable) {
     // todo: watch airlineId
-    // todo: N+1 qua Feign - cần batch-by-ids cho AirlineClient/LocationClient (xem kế hoạch Phase 2)
-    return this.flightRepository.findByAirlineId(airlineId,
+        // todo: N+1 qua Feign - cần batch-by-ids cho AirlineClient/LocationClient
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
+        return this.flightRepository.findByAirlineId(airlineResponse.getId(),
         departureAirportId,
         arrivalAirportId,
         pageable).map(this::convertToFLightResponse);
@@ -96,15 +98,11 @@ public class FlightServiceImpl implements FlightService {
 
   @Transactional
   @Override
-  public void deleteFlight(final UUID airlineId, final UUID id) {
-
-    // todo: watch airlineId
-    final Flight existingFlight = this.flightRepository.findByAirlineIdAndId(airlineId, id)
+    public void deleteFlight(final UUID userId, final UUID id) {
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
+        final Flight existingFlight = this.flightRepository.findByAirlineIdAndId(airlineResponse.getId(), id)
         .orElseThrow(() -> new ResourceNotFoundException("Flight", "id", id));
 
-    // Gỡ @ManyToOne khỏi FlightSchedule/FlightInstance đồng nghĩa mất luôn FK
-    // constraint thật
-    // ở MySQL từng chặn việc này - phải tự kiểm tra để tránh dữ liệu mồ côi.
     if (this.flightScheduleRepository.existsByFlightId(id)
         || this.flightInstanceRepository.existsByFlightId(id)) {
       throw new BusinessException("Cannot delete flight that still has schedules or instances");
