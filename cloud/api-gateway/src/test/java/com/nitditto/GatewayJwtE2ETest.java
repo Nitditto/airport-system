@@ -41,6 +41,7 @@ import org.springframework.test.context.DynamicPropertySource;
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
         "jwt.secret=" + GatewayJwtE2ETest.SECRET,
+        "gateway.cors.allowed-origins=http://localhost:3000",
         "eureka.client.enabled=false"
     })
 class GatewayJwtE2ETest {
@@ -389,6 +390,36 @@ class GatewayJwtE2ETest {
 
       assertThat(response.statusCode()).isEqualTo(401);
       assertThat(response.headers().firstValue("WWW-Authenticate")).contains("Bearer");
+    }
+
+    @Test
+    void corsPreflight_fromAllowedOrigin_isAnsweredWithoutToken() throws Exception {
+      final HttpResponse<String> response = send("OPTIONS", "/api/flights", null, Map.of(
+          "Origin", "http://localhost:3000",
+          "Access-Control-Request-Method", "POST",
+          "Access-Control-Request-Headers", "authorization,content-type"), null);
+
+      assertThat(response.statusCode()).isEqualTo(200);
+      assertThat(response.headers().firstValue("Access-Control-Allow-Origin")).contains("http://localhost:3000");
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void corsPreflight_fromUnknownOrigin_isRejected() throws Exception {
+      final HttpResponse<String> response = send("OPTIONS", "/api/flights", null, Map.of(
+          "Origin", "http://evil.example",
+          "Access-Control-Request-Method", "POST"), null);
+
+      assertThat(response.statusCode()).isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void healthEndpoint_isReachableWithoutToken() throws Exception {
+      final HttpResponse<String> response = send("GET", "/actuator/health", null, Map.of(), null);
+
+      assertThat(response.statusCode()).isIn(200, 503);
+      assertThat(RECEIVED).isEmpty();
     }
 
     @Test
