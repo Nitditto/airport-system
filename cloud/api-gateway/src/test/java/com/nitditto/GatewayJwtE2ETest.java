@@ -261,6 +261,78 @@ class GatewayJwtE2ETest {
   }
 
   @Nested
+  @DisplayName("write method rules")
+  class WriteRules {
+
+    @Test
+    void userRole_cannotUpdateOrDeleteLocationData() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("PUT", "/api/cities/" + UUID.randomUUID(), token, Map.of(), "{}").statusCode())
+          .isEqualTo(403);
+      assertThat(send("DELETE", "/api/airports/" + UUID.randomUUID(), token, Map.of(), null).statusCode())
+          .isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void userRole_cannotWriteAircraftsOrAirlines() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/aircrafts", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("DELETE", "/api/airlines/" + UUID.randomUUID(), token, Map.of(), null).statusCode())
+          .isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void userRole_canReadWithJwtOnly() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("GET", "/api/cities", token, Map.of(), null).statusCode()).isEqualTo(200);
+      assertThat(send("GET", "/api/airlines/" + UUID.randomUUID(), token, Map.of(), null).statusCode())
+          .isEqualTo(200);
+    }
+
+    @Test
+    void userRole_canCallBatchByIds_becauseItIsARead() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/airlines/batch-by-ids", token, Map.of(), "[]").statusCode()).isEqualTo(200);
+      assertThat(send("POST", "/api/aircrafts/batch-by-ids", token, Map.of(), "[]").statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void batchByIdsExemption_doesNotApplyToNestedOrOtherPaths() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/airlines/x/batch-by-ids", token, Map.of(), "[]").statusCode())
+          .isEqualTo(403);
+      assertThat(send("PUT", "/api/airlines/batch-by-ids", token, Map.of(), "[]").statusCode())
+          .isEqualTo(403);
+    }
+
+    @Test
+    void owner_canWriteAircrafts_butNotLocationNorAirlineListing() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_OWNER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/aircrafts", token, Map.of(), "{}").statusCode()).isEqualTo(200);
+      assertThat(send("POST", "/api/cities", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("GET", "/api/airlines", token, Map.of(), null).statusCode()).isEqualTo(403);
+    }
+
+    @Test
+    void admin_canDeleteAircraftsAndUpdateCities() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_ADMIN, SECRET, 60_000);
+
+      assertThat(send("DELETE", "/api/aircrafts/" + UUID.randomUUID(), token, Map.of(), null).statusCode())
+          .isEqualTo(200);
+      assertThat(send("PUT", "/api/cities/" + UUID.randomUUID(), token, Map.of(), "{}").statusCode())
+          .isEqualTo(200);
+    }
+  }
+
+  @Nested
   @DisplayName("public routes")
   class PublicRoutes {
 
