@@ -31,47 +31,47 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class AncillaryServiceImpl implements AncillaryService {
 
-  private final AncillaryRepository ancillaryRepository;
+    private final AncillaryRepository ancillaryRepository;
     private final InsuranceCoverageRepository insuranceCoverageRepository;
     private final FlightCabinAncillaryRepository flightCabinAncillaryRepository;
     private final AirlineClient airlineClient;
 
-  @Override
+    @Override
     @Transactional
     public AncillaryResponse createAncillary(UUID userId, AncillaryRequest request) {
 
         AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
 
-    Ancillary ancillary = Ancillary.builder()
-        .type(request.getType())
-        .subType(request.getSubType())
-        .rfisc(request.getRfisc())
-        .name(request.getName())
-        .description(request.getDescription())
-        .metadata(request.getMetadata())
-        .displayOrder(request.getDisplayOrder())
+        Ancillary ancillary = Ancillary.builder()
+                .type(request.getType())
+                .subType(request.getSubType())
+                .rfisc(request.getRfisc())
+                .name(request.getName())
+                .description(request.getDescription())
+                .metadata(request.getMetadata())
+                .displayOrder(request.getDisplayOrder())
                 .airlineId(airlineResponse.getId())
-        .build();
+                .build();
 
-    Ancillary saved = ancillaryRepository.save(ancillary);
-    return AncillaryMapper.toResponse(saved, null);
-  }
+        Ancillary saved = ancillaryRepository.save(ancillary);
+        return AncillaryMapper.toResponse(saved, null);
+    }
 
-  @Override
-  public AncillaryResponse getById(UUID id) {
-    Ancillary ancillary = ancillaryRepository.findById(id).orElseThrow(
-        () -> new ResourceNotFoundException("Ancillary", "id", id));
+    @Override
+    public AncillaryResponse getById(UUID id) {
+        Ancillary ancillary = ancillaryRepository.findById(id).orElseThrow(
+                () -> new ResourceNotFoundException("Ancillary", "id", id));
 
         return this.toResponseWithCoverages(ancillary);
-  }
+    }
 
-  @Override
+    @Override
     public List<AncillaryResponse> getByAirlineId(UUID userId) {
         AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
         final List<Ancillary> ancillaries = ancillaryRepository.findByAirlineId(airlineResponse.getId());
         if (ancillaries.isEmpty()) {
             return List.of();
-            }
+        }
 
         final List<UUID> ancillaryIds = ancillaries.stream().map(Ancillary::getId).distinct().toList();
         final Map<UUID, List<InsuranceCoverage>> coveragesByAncillaryId =
@@ -87,37 +87,37 @@ public class AncillaryServiceImpl implements AncillaryService {
             responses.add(AncillaryMapper.toResponse(ancillary, coverageResponses));
         }
         return responses;
-  }
+    }
 
-  @Override
+    @Override
     @Transactional
-  public AncillaryResponse updateAncillary(UUID id, AncillaryRequest request) {
-    Ancillary ancillary = ancillaryRepository.findById(id)
-        .orElseThrow(() -> new ResourceNotFoundException("Ancillary", "id", id));
+    public AncillaryResponse updateAncillary(UUID id, AncillaryRequest request) {
+        Ancillary ancillary = ancillaryRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Ancillary", "id", id));
 
-    ancillary.setType(request.getType());
-    ancillary.setSubType(request.getSubType());
-    ancillary.setRfisc(request.getRfisc());
-    ancillary.setName(request.getName());
-    ancillary.setDescription(request.getDescription());
-    ancillary.setMetadata(request.getMetadata());
-    ancillary.setDisplayOrder(request.getDisplayOrder());
+        ancillary.setType(request.getType());
+        ancillary.setSubType(request.getSubType());
+        ancillary.setRfisc(request.getRfisc());
+        ancillary.setName(request.getName());
+        ancillary.setDescription(request.getDescription());
+        ancillary.setMetadata(request.getMetadata());
+        ancillary.setDisplayOrder(request.getDisplayOrder());
 
-    Ancillary updated = ancillaryRepository.save(ancillary);
+        Ancillary updated = ancillaryRepository.save(ancillary);
         return this.toResponseWithCoverages(updated);
-  }
+    }
 
-  @Override
+    @Override
     @Transactional
-  public void deleteAncillary(UUID id) {
-    Ancillary ancillary = ancillaryRepository.findById(id)
-        .orElseThrow(() -> new ResourceNotFoundException("Ancillary", "id", id));
+    public void deleteAncillary(UUID id) {
+        Ancillary ancillary = ancillaryRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Ancillary", "id", id));
         if (flightCabinAncillaryRepository.existsByAncillaryId(id)) {
             throw new BusinessException("Ancillary is still offered on flights and cannot be deleted");
         }
         insuranceCoverageRepository.deleteByAncillaryId(id);
-    ancillaryRepository.delete(ancillary);
-  }
+        ancillaryRepository.delete(ancillary);
+    }
 
     private AncillaryResponse toResponseWithCoverages(final Ancillary ancillary) {
         final List<InsuranceCoverageResponse> coverages = insuranceCoverageRepository
