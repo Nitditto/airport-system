@@ -1,6 +1,7 @@
 package com.nitditto.service.impl;
 
 import com.nitditto.client.AirlineClient;
+import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.AncillaryMapper;
 import com.nitditto.mapper.InsuranceCoverageMapper;
@@ -11,6 +12,7 @@ import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.AncillaryResponse;
 import com.nitditto.payload.response.InsuranceCoverageResponse;
 import com.nitditto.repository.AncillaryRepository;
+import com.nitditto.repository.FlightCabinAncillaryRepository;
 import com.nitditto.repository.InsuranceCoverageRepository;
 import com.nitditto.service.AncillaryService;
 import org.springframework.stereotype.Service;
@@ -31,6 +33,7 @@ public class AncillaryServiceImpl implements AncillaryService {
 
   private final AncillaryRepository ancillaryRepository;
     private final InsuranceCoverageRepository insuranceCoverageRepository;
+    private final FlightCabinAncillaryRepository flightCabinAncillaryRepository;
     private final AirlineClient airlineClient;
 
   @Override
@@ -109,6 +112,10 @@ public class AncillaryServiceImpl implements AncillaryService {
   public void deleteAncillary(UUID id) {
     Ancillary ancillary = ancillaryRepository.findById(id)
         .orElseThrow(() -> new ResourceNotFoundException("Ancillary", "id", id));
+        if (flightCabinAncillaryRepository.existsByAncillaryId(id)) {
+            throw new BusinessException("Ancillary is still offered on flights and cannot be deleted");
+        }
+        insuranceCoverageRepository.deleteByAncillaryId(id);
     ancillaryRepository.delete(ancillary);
   }
 

@@ -13,6 +13,8 @@ public interface FlightCabinAncillaryRepository extends JpaRepository<FlightCabi
 
   List<FlightCabinAncillary> findByFlightIdAndCabinClassId(UUID flightId, UUID cabinClassId);
 
+  boolean existsByAncillaryId(UUID ancillaryId);
+
   boolean existsByFlightIdAndCabinClassIdAndAncillaryId(UUID flightId, UUID cabinClassId, UUID ancillaryId);
 
   // Không có association tới Ancillary (rule NO JPA relationship), nên lọc theo type bằng
