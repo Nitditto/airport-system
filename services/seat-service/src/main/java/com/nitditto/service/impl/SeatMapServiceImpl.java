@@ -1,5 +1,6 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.client.AirlineClient;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.SeatMapMapper;
@@ -7,6 +8,7 @@ import com.nitditto.model.CabinClass;
 import com.nitditto.model.Seat;
 import com.nitditto.model.SeatMap;
 import com.nitditto.payload.request.SeatMapRequest;
+import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.SeatMapResponse;
 import com.nitditto.repository.CabinClassRepository;
 import com.nitditto.repository.SeatMapRepository;
@@ -30,10 +32,12 @@ public class SeatMapServiceImpl implements SeatMapService {
     private final CabinClassRepository cabinClassRepository;
     private final SeatRepository seatRepository;
     private final SeatService seatService;
+    private final AirlineClient airlineClient;
 
     @Override
     @Transactional
-    public SeatMapResponse createSeatMap(final UUID airlineId, final SeatMapRequest seatMapRequest) {
+    public SeatMapResponse createSeatMap(final UUID userId, final SeatMapRequest seatMapRequest) {
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
         final CabinClass cabinClass = this.cabinClassRepository.findById(seatMapRequest.getCabinClassId())
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "CabinClass", "id", seatMapRequest.getCabinClassId()));
@@ -43,7 +47,7 @@ public class SeatMapServiceImpl implements SeatMapService {
         }
 
         final SeatMap seatMap = SeatMapMapper.toEntity(seatMapRequest, cabinClass);
-        seatMap.setAirlineId(airlineId);
+        seatMap.setAirlineId(airlineResponse.getId());
         final SeatMap savedSeatMap = this.seatMapRepository.save(seatMap);
 
         // generate seats for seat map
