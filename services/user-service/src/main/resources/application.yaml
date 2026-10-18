@@ -3,6 +3,12 @@ server:
 
 jwt:
   secret: ${JWT_SECRET}
+
+app:
+  admin:
+    # để trống = không seed tài khoản admin
+    email: ${ADMIN_EMAIL:}
+    password: ${ADMIN_PASSWORD:}
 spring:
   config:
     import:
