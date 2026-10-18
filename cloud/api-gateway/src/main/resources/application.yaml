@@ -8,6 +8,11 @@ spring:
       - "optional:file:../../.env[.properties]"
   application:
     name: api-gateway
+  http:
+    clients:
+      # không đặt timeout thì một service treo sẽ giữ thread của gateway vô thời hạn
+      connect-timeout: 2s
+      read-timeout: 15s
 
 jwt:
   secret: ${JWT_SECRET}
