@@ -5,6 +5,8 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -29,6 +31,17 @@ public class GlobalExceptionHandler {
         .map(error -> "%s: %s".formatted(error.getField(), error.getDefaultMessage()))
         .collect(Collectors.joining("; "));
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(message));
+  }
+
+  @ExceptionHandler(UsernameNotFoundException.class)
+  public ResponseEntity<ApiResponse<Void>> handleUserNotFound(final UsernameNotFoundException ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(ApiResponse.error("User not found with email: %s".formatted(ex.getMessage())));
+  }
+
+  @ExceptionHandler(HttpMessageNotReadableException.class)
+  public ResponseEntity<ApiResponse<Void>> handleUnreadableBody(final HttpMessageNotReadableException ex) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error("Malformed request body"));
   }
 
   @ExceptionHandler(Exception.class)

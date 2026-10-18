@@ -4,12 +4,14 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import javax.crypto.SecretKey;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
@@ -17,9 +19,11 @@ import org.springframework.stereotype.Service;
 @Service
 public class JwtProvider {
 
-  private final SecretKey key = Keys.hmacShaKeyFor(
-      JwtConstant.SECRET_KEY.getBytes()
-  );
+  private final SecretKey key;
+
+  public JwtProvider(@Value("${jwt.secret}") final String secret) {
+    this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+  }
 
   public Claims parseClaims(final String token) throws JwtException {
     return Jwts.parser()
