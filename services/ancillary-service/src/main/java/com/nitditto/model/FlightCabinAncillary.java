@@ -6,6 +6,7 @@ import com.nitditto.entity.BaseEntity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.*;
@@ -17,7 +18,8 @@ import lombok.*;
 @AllArgsConstructor
 @Table(name = "flight_cabin_ancillary", uniqueConstraints = {
     @UniqueConstraint(name = "uk_fca_flight_cabin_ancillary",
-        columnNames = { "flight_id", "cabin_class_id", "ancillary_id" }) })
+        columnNames = { "flight_id", "cabin_class_id", "ancillary_id" }) },
+    indexes = { @Index(name = "idx_fca_ancillary", columnList = "ancillary_id") })
 @Entity
 public class FlightCabinAncillary extends BaseEntity {
 
