@@ -1,10 +1,12 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.client.AirlineClient;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.MealMapper;
 import com.nitditto.model.Meal;
 import com.nitditto.payload.request.MealRequest;
+import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.MealResponse;
 import com.nitditto.repository.MealRepository;
 import com.nitditto.service.MealService;
@@ -24,13 +26,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class MealServiceImpl implements MealService {
 
     private final MealRepository mealRepository;
+    private final AirlineClient airlineClient;
 
     @Override
     @Transactional
-    public MealResponse createMeal(final UUID airlineId, final MealRequest request) {
-        if (this.mealRepository.existsByCodeAndAirlineId(request.getCode(), airlineId)) {
+    public MealResponse createMeal(final UUID userId, final MealRequest request) {
+
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
+        if (this.mealRepository.existsByCodeAndAirlineId(request.getCode(), airlineResponse.getId())) {
             throw new BusinessException(
-                    "Meal code '%s' already exists for airline %s".formatted(request.getCode(), airlineId));
+                    "Meal code '%s' already exists".formatted(request.getCode()));
         }
 
         final Meal meal = Meal.builder()
@@ -44,7 +49,7 @@ public class MealServiceImpl implements MealService {
                         request.getRequiresAdvanceBooking() != null ? request.getRequiresAdvanceBooking() : false)
                 .advanceBookingHours(request.getAdvanceBookingHours())
                 .displayOrder(request.getDisplayOrder() != null ? request.getDisplayOrder() : 0)
-                .airlineId(airlineId)
+                .airlineId(airlineResponse.getId())
                 .build();
 
         final Meal saved = this.mealRepository.saveAndFlush(meal);
@@ -60,13 +65,14 @@ public class MealServiceImpl implements MealService {
 
     @Override
     @Transactional
-    public MealResponse updateMeal(final UUID airlineId, final UUID id, final MealRequest request) {
+    public MealResponse updateMeal(final UUID userId, final UUID id, final MealRequest request) {
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
         final Meal meal = this.mealRepository.findById(id).orElseThrow(
                 () -> new ResourceNotFoundException("Meal", "id", id));
 
-        if (this.mealRepository.existsByAirlineIdAndCodeAndIdNot(airlineId, request.getCode(), id)) {
+        if (this.mealRepository.existsByAirlineIdAndCodeAndIdNot(airlineResponse.getId(), request.getCode(), id)) {
             throw new BusinessException(
-                    "Meal code '%s' already exists for airline %s".formatted(request.getCode(), airlineId));
+                    "Meal code '%s' already exists".formatted(request.getCode()));
         }
 
         meal.setCode(request.getCode());
@@ -88,8 +94,9 @@ public class MealServiceImpl implements MealService {
     }
 
     @Override
-    public List<MealResponse> getByAirlineId(final UUID airlineId) {
-        return this.mealRepository.findByAirlineId(airlineId)
+    public List<MealResponse> getByAirlineId(final UUID userId) {
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
+        return this.mealRepository.findByAirlineId(airlineResponse.getId())
                 .stream().map(MealMapper::toResponse).collect(Collectors.toList());
     }
 

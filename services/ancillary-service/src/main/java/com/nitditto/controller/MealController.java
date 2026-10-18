@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,12 +32,12 @@ public class MealController {
 
   private final MealService mealService;
 
-  @PostMapping("/airline/{airlineId}")
+    @PostMapping
   public ResponseEntity<ApiResponse<MealResponse>> createMeal(
-      @PathVariable final UUID airlineId,
+            @RequestHeader("X-User-Id") final UUID userId,
       @Valid @RequestBody final MealRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(ApiResponse.success(this.mealService.createMeal(airlineId, request)));
+                .body(ApiResponse.success(this.mealService.createMeal(userId, request)));
   }
 
   @GetMapping("/{id}")
@@ -44,19 +45,19 @@ public class MealController {
     return ResponseEntity.ok(ApiResponse.success(this.mealService.getMealById(id)));
   }
 
-  @GetMapping("/airline/{airlineId}")
+    @GetMapping("/airline")
   public ResponseEntity<ApiResponse<List<MealResponse>>> getByAirlineId(
-      @PathVariable final UUID airlineId) {
-    return ResponseEntity.ok(ApiResponse.success(this.mealService.getByAirlineId(airlineId)));
+            @RequestHeader("X-User-Id") final UUID userId) {
+        return ResponseEntity.ok(ApiResponse.success(this.mealService.getByAirlineId(userId)));
   }
 
-  @PutMapping("/airline/{airlineId}/{id}")
+    @PutMapping("/{id}")
   public ResponseEntity<ApiResponse<MealResponse>> updateMeal(
-      @PathVariable final UUID airlineId,
+            @RequestHeader("X-User-Id") final UUID userId,
       @PathVariable final UUID id,
       @Valid @RequestBody final MealRequest request) {
     return ResponseEntity.ok(
-        ApiResponse.success(this.mealService.updateMeal(airlineId, id, request)));
+                ApiResponse.success(this.mealService.updateMeal(userId, id, request)));
   }
 
   @PatchMapping("/{id}/availability")

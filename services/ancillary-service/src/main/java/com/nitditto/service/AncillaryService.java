@@ -7,7 +7,7 @@ import com.nitditto.payload.request.AncillaryRequest;
 import com.nitditto.payload.response.AncillaryResponse;
 
 public interface AncillaryService {
-  AncillaryResponse createAncillary(UUID airlineId, AncillaryRequest request);
+  AncillaryResponse createAncillary(UUID userId, AncillaryRequest request);
 
   AncillaryResponse getById(UUID id);
 

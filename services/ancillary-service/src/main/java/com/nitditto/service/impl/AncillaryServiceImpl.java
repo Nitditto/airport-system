@@ -1,9 +1,11 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.client.AirlineClient;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.AncillaryMapper;
 import com.nitditto.model.Ancillary;
 import com.nitditto.payload.request.AncillaryRequest;
+import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.AncillaryResponse;
 import com.nitditto.repository.AncillaryRepository;
 import com.nitditto.service.AncillaryService;
@@ -20,9 +22,12 @@ import java.util.stream.Collectors;
 public class AncillaryServiceImpl implements AncillaryService {
 
   private final AncillaryRepository ancillaryRepository;
+  private final AirlineClient airlineClient;
 
   @Override
-  public AncillaryResponse createAncillary(UUID airlineId, AncillaryRequest request) {
+  public AncillaryResponse createAncillary(UUID userId, AncillaryRequest request) {
+
+    AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
 
     Ancillary ancillary = Ancillary.builder()
         .type(request.getType())
@@ -32,7 +37,7 @@ public class AncillaryServiceImpl implements AncillaryService {
         .description(request.getDescription())
         .metadata(request.getMetadata())
         .displayOrder(request.getDisplayOrder())
-        .airlineId(airlineId)
+        .airlineId(airlineResponse.getId())
         .build();
 
     Ancillary saved = ancillaryRepository.save(ancillary);
@@ -49,8 +54,9 @@ public class AncillaryServiceImpl implements AncillaryService {
   }
 
   @Override
-  public List<AncillaryResponse> getByAirlineId(UUID airlineId) {
-    return ancillaryRepository.findByAirlineId(airlineId)
+  public List<AncillaryResponse> getByAirlineId(UUID userId) {
+    AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
+    return ancillaryRepository.findByAirlineId(airlineResponse.getId())
         .stream().map(
             ancillary -> {
               // todo: fetch insurance coverages by ancillary

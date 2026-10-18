@@ -7,13 +7,13 @@ import java.util.List;
 import java.util.UUID;
 
 public interface MealService {
-  MealResponse createMeal(UUID airlineId, MealRequest request);
+  MealResponse createMeal(UUID userId, MealRequest request);
 
   MealResponse getMealById(UUID id);
 
-  MealResponse updateMeal(UUID airlineId, UUID id, MealRequest request);
+  MealResponse updateMeal(UUID userId, UUID id, MealRequest request);
 
-  List<MealResponse> getByAirlineId(UUID airlineId);
+  List<MealResponse> getByAirlineId(UUID userId);
 
   void deleteMealById(UUID id);
 

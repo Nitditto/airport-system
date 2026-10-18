@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -29,12 +30,12 @@ public class AncillaryController {
 
   private final AncillaryService ancillaryService;
 
-  @PostMapping("/airline/{airlineId}")
+  @PostMapping
   public ResponseEntity<ApiResponse<AncillaryResponse>> createAncillary(
-      @PathVariable final UUID airlineId,
+      @RequestHeader("X-User-Id") final UUID userId,
       @Valid @RequestBody final AncillaryRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(ApiResponse.success(this.ancillaryService.createAncillary(airlineId, request)));
+        .body(ApiResponse.success(this.ancillaryService.createAncillary(userId, request)));
   }
 
   @GetMapping("/{id}")
@@ -42,10 +43,10 @@ public class AncillaryController {
     return ResponseEntity.ok(ApiResponse.success(this.ancillaryService.getById(id)));
   }
 
-  @GetMapping("/airline/{airlineId}")
+  @GetMapping("/airline")
   public ResponseEntity<ApiResponse<List<AncillaryResponse>>> getByAirlineId(
-      @PathVariable final UUID airlineId) {
-    return ResponseEntity.ok(ApiResponse.success(this.ancillaryService.getByAirlineId(airlineId)));
+      @RequestHeader("X-User-Id") final UUID userId) {
+    return ResponseEntity.ok(ApiResponse.success(this.ancillaryService.getByAirlineId(userId)));
   }
 
   @PutMapping("/{id}")
