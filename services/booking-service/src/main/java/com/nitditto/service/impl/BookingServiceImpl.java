@@ -1,10 +1,6 @@
 package com.nitditto.service.impl;
 
-import com.nitditto.client.AncillaryClient;
-import com.nitditto.client.AirlineClient;
-import com.nitditto.client.FlightClient;
-import com.nitditto.client.PaymentClient;
-import com.nitditto.client.SeatClient;
+import com.nitditto.client.*;
 import com.nitditto.enums.BookingStatus;
 import com.nitditto.enums.PaymentGateway;
 import com.nitditto.exception.BusinessException;
@@ -16,14 +12,7 @@ import com.nitditto.payload.dto.PaymentDTO;
 import com.nitditto.payload.request.BookingRequest;
 import com.nitditto.payload.request.PassengerRequest;
 import com.nitditto.payload.request.PaymentInitiateRequest;
-import com.nitditto.payload.response.BookingResponse;
-import com.nitditto.payload.response.AirlineResponse;
-import com.nitditto.payload.response.FareResponse;
-import com.nitditto.payload.response.FlightInstanceResponse;
-import com.nitditto.payload.response.FlightResponse;
-import com.nitditto.payload.response.PassengerResponse;
-import com.nitditto.payload.response.PaymentInitiateResponse;
-import com.nitditto.payload.response.TicketResponse;
+import com.nitditto.payload.response.*;
 import com.nitditto.repository.BookingRepository;
 import com.nitditto.repository.spec.BookingSpecs;
 import com.nitditto.service.BookingService;
