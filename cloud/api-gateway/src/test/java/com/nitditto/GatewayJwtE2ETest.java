@@ -139,6 +139,53 @@ class GatewayJwtE2ETest {
     }
 
     @Test
+    void tokenWithoutExpiration_returns401() throws Exception {
+      final String token = Jwts.builder()
+          .claim("email", "e2e@test.com")
+          .claim("authorities", ROLE_ADMIN)
+          .claim("userId", UUID.randomUUID().toString())
+          .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+          .compact();
+
+      final HttpResponse<String> response = send("GET", "/api/airlines", token, Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(401);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void tokenWithArrayAuthoritiesClaim_returns401_notServerError() throws Exception {
+      final String token = Jwts.builder()
+          .expiration(new Date(System.currentTimeMillis() + 60_000))
+          .claim("email", "e2e@test.com")
+          .claim("authorities", List.of(ROLE_ADMIN))
+          .claim("userId", UUID.randomUUID().toString())
+          .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+          .compact();
+
+      final HttpResponse<String> response = send("GET", "/api/airlines", token, Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(401);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void tokenWithNonUuidUserId_returns401() throws Exception {
+      final String token = Jwts.builder()
+          .expiration(new Date(System.currentTimeMillis() + 60_000))
+          .claim("email", "e2e@test.com")
+          .claim("authorities", ROLE_ADMIN)
+          .claim("userId", "not-a-uuid")
+          .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+          .compact();
+
+      final HttpResponse<String> response = send("GET", "/api/airlines", token, Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(401);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
     void routeToServiceWithoutInstances_withoutToken_returns401NotServerError() throws Exception {
       // booking-service không được đăng ký trong discovery của test này
       final HttpResponse<String> response = send("GET", "/api/bookings/anything", null, Map.of(), null);

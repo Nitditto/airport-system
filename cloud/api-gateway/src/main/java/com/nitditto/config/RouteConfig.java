@@ -154,32 +154,19 @@ public class RouteConfig {
                 && !(HttpMethod.POST.equals(request.method()) && BATCH_READ_PATH.matcher(request.path()).matches());
     }
 
-    private ServerRequest jwtAuthFilter(ServerRequest request) {
-
-        String authHeader = request.headers().firstHeader(JwtConstant.JWT_HEADER);
-
-        // step 1 check auth header exist
+    private ServerRequest jwtAuthFilter(final ServerRequest request) {
+        final String authHeader = request.headers().firstHeader(JwtConstant.JWT_HEADER);
         if (authHeader == null || !authHeader.startsWith(JwtConstant.TOKEN_PREFIX)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "missing or invalid authorization token");
         }
+        final String token = authHeader.substring(JwtConstant.TOKEN_PREFIX.length());
 
-        // step 2 remove prefix from token
-        String token = authHeader.substring(JwtConstant.TOKEN_PREFIX.length());
-
-        // validate
-        if (!jwtUtil.isTokenValid(token)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid or expired JWT token");
-        }
-
-        // step 3 grab user info from jwt token
-        String email = jwtUtil.extractEmail(token);
-        String authorities = jwtUtil.extractAuthorities(token);
-        UUID userId = jwtUtil.extractUserId(token);
-
-        // token ký đúng nhưng thiếu claim danh tính thì không được forward "null" xuống downstream
-        if (email == null || authorities == null || userId == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "JWT token is missing identity claims");
-        }
+        // verify + lấy danh tính một lần; token thiếu/sai kiểu claim cũng bị từ chối, không forward "null"
+        final JwtUtil.Identity identity = this.jwtUtil.parseIdentity(token)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid or expired JWT token"));
+        final String email = identity.email();
+        final String authorities = identity.authorities();
+        final UUID userId = identity.userId();
 
         // set (không add) để ghi đè header X-User-* mà client có thể tự gửi kèm
         return ServerRequest.from(request)
