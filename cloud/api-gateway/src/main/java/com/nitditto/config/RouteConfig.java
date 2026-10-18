@@ -181,6 +181,11 @@ public class RouteConfig {
         String authorities = jwtUtil.extractAuthorities(token);
         UUID userId = jwtUtil.extractUserId(token);
 
+        // token ký đúng nhưng thiếu claim danh tính thì không được forward "null" xuống downstream
+        if (email == null || authorities == null || userId == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "JWT token is missing identity claims");
+        }
+
         // set (không add) để ghi đè header X-User-* mà client có thể tự gửi kèm
         return ServerRequest.from(request)
                 .headers(headers -> {

@@ -122,6 +122,31 @@ class GatewayJwtE2ETest {
     }
 
     @Test
+    void tokenWithoutUserIdClaim_returns401_insteadOfForwardingNullIdentity() throws Exception {
+      final long now = System.currentTimeMillis();
+      final String token = Jwts.builder()
+          .issuedAt(new Date(now - 1_000))
+          .expiration(new Date(now + 60_000))
+          .claim("email", "e2e@test.com")
+          .claim("authorities", ROLE_ADMIN)
+          .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+          .compact();
+
+      final HttpResponse<String> response = send("GET", "/api/airlines", token, Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(401);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void routeToServiceWithoutInstances_withoutToken_returns401NotServerError() throws Exception {
+      // booking-service không được đăng ký trong discovery của test này
+      final HttpResponse<String> response = send("GET", "/api/bookings/anything", null, Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(401);
+    }
+
+    @Test
     void nonBearerAuthorizationHeader_returns401() throws Exception {
       final HttpResponse<String> response = send("GET", "/api/airlines", null,
           Map.of("Authorization", "Basic dXNlcjpwYXNz"), null);

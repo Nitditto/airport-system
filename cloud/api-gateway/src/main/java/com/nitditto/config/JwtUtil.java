@@ -35,7 +35,15 @@ public class JwtUtil {
     }
 
     public UUID extractUserId(String token) {
-        return UUID.fromString(extractAllClaims(token).get("userId", String.class));
+        final String userId = extractAllClaims(token).get("userId", String.class);
+        if (userId == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(userId);
+        } catch (final IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     public boolean isTokenValid(String token) {
