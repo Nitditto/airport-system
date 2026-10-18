@@ -11,12 +11,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.function.RequestPredicates;
 import org.springframework.web.servlet.function.RouterFunction;
+import org.springframework.web.servlet.function.RouterFunctions;
 import org.springframework.web.servlet.function.ServerRequest;
 import org.springframework.web.servlet.function.ServerResponse;
 
 import java.util.Arrays;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
 
 /**
@@ -59,97 +61,73 @@ public class RouteConfig {
 
     @Bean
     public RouterFunction<ServerResponse> userServiceRoutes() {
-        return GatewayRouterFunctions.route("user-service-core-routes")
-                .route(RequestPredicates.path("/api/users/**"), HandlerFunctions.http())
-                .before(request -> this.secured(request, ANY_AUTHENTICATED))
-                .filter(LoadBalancerFilterFunctions.lb("user-service"))
-                .build();
+        return this.route("user-service-core-routes", "user-service", this.authenticated(ANY_AUTHENTICATED),
+                "/api/users/**");
     }
 
     @Bean
     public RouterFunction<ServerResponse> locationServiceRoutes() {
-        return GatewayRouterFunctions.route("location-service-routes")
-                .route(RequestPredicates.path("/api/cities/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/airports/**"), HandlerFunctions.http())
-                .before(request -> this.secured(request, ADMIN))
-                .filter(LoadBalancerFilterFunctions.lb("location-service"))
-                .build();
+        return this.route("location-service-routes", "location-service", this.authenticated(ADMIN),
+                "/api/cities/**", "/api/airports/**");
     }
 
     @Bean
     public RouterFunction<ServerResponse> airlineCoreServiceRoutes() {
-        return GatewayRouterFunctions.route("airline-core-routes")
-                .route(RequestPredicates.path("/api/airlines/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/aircrafts/**"), HandlerFunctions.http())
-                .before(this::airlineCoreAccess)
-                .filter(LoadBalancerFilterFunctions.lb("airline-core-service"))
-                .build();
+        return this.route("airline-core-routes", "airline-core-service", this::airlineCoreAccess,
+                "/api/airlines/**", "/api/aircrafts/**");
     }
 
     @Bean
     public RouterFunction<ServerResponse> seatServiceRoutes() {
-        return GatewayRouterFunctions.route("seat-service-routes")
-                .route(RequestPredicates.path("/api/cabin-classes/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/seat-maps/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/seats/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/seat-instances/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/flight-instance-cabins/**"), HandlerFunctions.http())
-                .before(request -> this.secured(request, ADMIN_OR_OWNER))
-                .filter(LoadBalancerFilterFunctions.lb("seat-service"))
-                .build();
+        return this.route("seat-service-routes", "seat-service", this.authenticated(ADMIN_OR_OWNER),
+                "/api/cabin-classes/**", "/api/seat-maps/**", "/api/seats/**",
+                "/api/seat-instances/**", "/api/flight-instance-cabins/**");
     }
 
     @Bean
     public RouterFunction<ServerResponse> flightOpsServiceRoutes() {
-        return GatewayRouterFunctions.route("flight-ops-routes")
-                .route(RequestPredicates.path("/api/flights/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/flight-instances/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/flight-schedules/**"), HandlerFunctions.http())
-                .before(request -> this.secured(request, ADMIN_OR_OWNER))
-                .filter(LoadBalancerFilterFunctions.lb("flight-ops-service"))
-                .build();
+        return this.route("flight-ops-routes", "flight-ops-service", this.authenticated(ADMIN_OR_OWNER),
+                "/api/flights/**", "/api/flight-instances/**", "/api/flight-schedules/**");
     }
 
     @Bean
     public RouterFunction<ServerResponse> pricingServiceRoutes() {
-        return GatewayRouterFunctions.route("pricing-service-routes")
-                .route(RequestPredicates.path("/api/fares/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/fare-rules/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/baggage-policies/**"), HandlerFunctions.http())
-                .before(request -> this.secured(request, ADMIN_OR_OWNER))
-                .filter(LoadBalancerFilterFunctions.lb("pricing-service"))
-                .build();
+        return this.route("pricing-service-routes", "pricing-service", this.authenticated(ADMIN_OR_OWNER),
+                "/api/fares/**", "/api/fare-rules/**", "/api/baggage-policies/**");
     }
 
     @Bean
     public RouterFunction<ServerResponse> ancillaryServiceRoutes() {
-        return GatewayRouterFunctions.route("ancillary-service-routes")
-                .route(RequestPredicates.path("/api/meals/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/ancillaries/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/insurance-coverages/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/flight-meals/**"), HandlerFunctions.http())
-                .route(RequestPredicates.path("/api/flight-cabin-ancillaries/**"), HandlerFunctions.http())
-                .before(request -> this.secured(request, ADMIN_OR_OWNER))
-                .filter(LoadBalancerFilterFunctions.lb("ancillary-service"))
-                .build();
+        return this.route("ancillary-service-routes", "ancillary-service", this.authenticated(ADMIN_OR_OWNER),
+                "/api/meals/**", "/api/ancillaries/**", "/api/insurance-coverages/**",
+                "/api/flight-meals/**", "/api/flight-cabin-ancillaries/**");
     }
 
     @Bean
     public RouterFunction<ServerResponse> bookingServiceRoutes() {
-        return GatewayRouterFunctions.route("booking-service-routes")
-                .route(RequestPredicates.path("/api/bookings/**"), HandlerFunctions.http())
-                .before(request -> this.secured(request, ANY_AUTHENTICATED))
-                .filter(LoadBalancerFilterFunctions.lb("booking-service"))
-                .build();
+        return this.route("booking-service-routes", "booking-service", this.authenticated(ANY_AUTHENTICATED),
+                "/api/bookings/**");
     }
 
     @Bean
     public RouterFunction<ServerResponse> paymentServiceRoutes() {
-        return GatewayRouterFunctions.route("payment-service-routes")
-                .route(RequestPredicates.path("/api/payments/**"), HandlerFunctions.http())
-                .before(request -> this.secured(request, ANY_AUTHENTICATED))
-                .filter(LoadBalancerFilterFunctions.lb("payment-service"))
+        return this.route("payment-service-routes", "payment-service", this.authenticated(ANY_AUTHENTICATED),
+                "/api/payments/**");
+    }
+
+    private RouterFunction<ServerResponse> route(final String routeId, final String serviceId,
+                                                 final UnaryOperator<ServerRequest> access, final String... paths) {
+        final RouterFunctions.Builder builder = GatewayRouterFunctions.route(routeId);
+        for (final String path : paths) {
+            builder.route(RequestPredicates.path(path), HandlerFunctions.http());
+        }
+        return builder.before(access)
+                .filter(LoadBalancerFilterFunctions.lb(serviceId))
                 .build();
+    }
+
+    private UnaryOperator<ServerRequest> authenticated(final UserRole... writeRoles) {
+        return request -> this.secured(request, writeRoles);
     }
 
     /** Danh sách toàn bộ hãng (kèm trạng thái quản trị) chỉ dành cho admin; còn lại theo quy tắc ghi chung. */
