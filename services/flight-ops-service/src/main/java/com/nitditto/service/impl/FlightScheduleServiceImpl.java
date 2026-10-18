@@ -60,6 +60,9 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
     if (flightScheduleRequest.getEndDate().isBefore(flightScheduleRequest.getStartDate())) {
       throw new BusinessException("End date cannot be before start date");
     }
+    if (!airlineResponse.getId().equals(flight.getAirlineId())) {
+      throw new ResourceNotFoundException("Flight", "id", flight.getId());
+    }
     final FlightSchedule flightSchedule = FlightScheduleMapper.toEntity(flightScheduleRequest, flight);
     final FlightSchedule savedSchedule = this.flightScheduleRepository.save(flightSchedule);
 
@@ -69,14 +72,7 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
     final LocalDate startDate = savedSchedule.getStartDate();
     final LocalDate endDate = savedSchedule.getEndDate();
 
-    final FlightInstanceRequest flightInstanceRequest = FlightInstanceRequest.builder()
-        .scheduleId(savedSchedule.getId())
-        .flightId(flight.getId())
-        .arrivalAirportId(flight.getArrivalAirportId())
-        .departureAirportId(flight.getDepartureAirportId())
-        .status(FlightStatus.SCHEDULED)
-        .build();
-
+    final List<FlightInstanceRequest> flightInstanceRequests = new ArrayList<>();
     for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
       if (operatingDays.contains(date.getDayOfWeek())) {
         LocalDateTime departureDateTime = LocalDateTime.of(date, savedSchedule.getDepartureTime());
@@ -84,11 +80,18 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
         if (arrivalDateTime.isBefore(departureDateTime)) {
           arrivalDateTime = arrivalDateTime.plusDays(1);
         }
-        flightInstanceRequest.setDepartureDateTime(departureDateTime);
-        flightInstanceRequest.setArrivalDateTime(arrivalDateTime);
-                this.flightInstanceService.createFlightInstance(userId, flightInstanceRequest);
+        flightInstanceRequests.add(FlightInstanceRequest.builder()
+            .scheduleId(savedSchedule.getId())
+            .flightId(flight.getId())
+            .arrivalAirportId(flight.getArrivalAirportId())
+            .departureAirportId(flight.getDepartureAirportId())
+            .status(FlightStatus.SCHEDULED)
+            .departureDateTime(departureDateTime)
+            .arrivalDateTime(arrivalDateTime)
+            .build());
       }
     }
+    this.flightInstanceService.createFlightInstances(airlineResponse.getId(), flightInstanceRequests);
     return FlightScheduleMapper.toResponse(savedSchedule, flight,
         AirportResponse.builder().id(flight.getArrivalAirportId()).build(),
         AirportResponse.builder().id(flight.getDepartureAirportId()).build());
