@@ -16,6 +16,7 @@ import com.nitditto.repository.FlightRepository;
 import com.nitditto.service.FlightInstanceService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -39,26 +40,68 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
 
   @Override
   @Transactional
-  public FlightInstanceResponse createFlightInstance(final UUID airlineId,
+  public FlightInstanceResponse createFlightInstance(final UUID userId,
       final FlightInstanceRequest flightInstanceRequest) {
-
-    // todo: watch airlineId
+    final AirlineResponse airlineResponse = this.airlineClient.getAirlineByOwner(userId).getData();
     final Flight flight = this.flightRepository.findById(flightInstanceRequest.getFlightId())
         .orElseThrow(() -> new ResourceNotFoundException("Flight", "id",
             flightInstanceRequest.getFlightId()));
+    this.requireOwnedBy(flight, airlineResponse.getId());
 
     // get aircraft data from airline-core-service
-    final AircraftResponse aircraftResponse = airlineClient.getAircraftById(flight.getAircraftId()).getData();
+    final AircraftResponse aircraftResponse = this.airlineClient.getAircraftById(flight.getAircraftId()).getData();
 
-    final FlightInstance flightInstance = FlightInstanceMapper.toEntity(flightInstanceRequest, flight);
-    flightInstance.setTotalSeats(aircraftResponse.getTotalSeats());
-    flightInstance.setAvailableSeats(aircraftResponse.getTotalSeats());
-
-    final FlightInstance saved = this.flightInstanceRepository.save(flightInstance);
+    final FlightInstance saved = this.flightInstanceRepository.save(
+        this.toEntity(flightInstanceRequest, flight, aircraftResponse));
 
     // todo: create seat instances
     // publish kafka event, seat service consume that and create seat instance
     return this.convertToFlightInstanceResponse(saved, flight);
+  }
+
+  @Override
+  @Transactional
+  public void createFlightInstances(final UUID airlineId,
+      final List<FlightInstanceRequest> flightInstanceRequests) {
+    if (flightInstanceRequests.isEmpty()) {
+      return;
+    }
+    final List<UUID> flightIds = flightInstanceRequests.stream()
+        .map(FlightInstanceRequest::getFlightId).distinct().toList();
+    final Map<UUID, Flight> flightById = this.flightRepository.findAllById(flightIds).stream()
+        .collect(Collectors.toMap(Flight::getId, Function.identity()));
+
+    for (final UUID flightId : flightIds) {
+      final Flight flight = flightById.get(flightId);
+      if (flight == null) {
+        throw new ResourceNotFoundException("Flight", "id", flightId);
+      }
+      this.requireOwnedBy(flight, airlineId);
+    }
+
+    final List<UUID> aircraftIds = flightById.values().stream().map(Flight::getAircraftId).distinct().toList();
+    final Map<UUID, AircraftResponse> aircraftById = this.airlineClient.getAircraftsByIds(aircraftIds).getData();
+
+    final List<FlightInstance> flightInstances = new ArrayList<>(flightInstanceRequests.size());
+    for (final FlightInstanceRequest request : flightInstanceRequests) {
+      final Flight flight = flightById.get(request.getFlightId());
+      flightInstances.add(this.toEntity(request, flight, aircraftById.get(flight.getAircraftId())));
+    }
+    this.flightInstanceRepository.saveAll(flightInstances);
+  }
+
+  private void requireOwnedBy(final Flight flight, final UUID airlineId) {
+    if (!airlineId.equals(flight.getAirlineId())) {
+      throw new ResourceNotFoundException("Flight", "id", flight.getId());
+    }
+  }
+
+  private FlightInstance toEntity(final FlightInstanceRequest request, final Flight flight,
+      final AircraftResponse aircraftResponse) {
+    final FlightInstance flightInstance = FlightInstanceMapper.toEntity(request, flight);
+    flightInstance.setTotalSeats(aircraftResponse.getTotalSeats());
+    flightInstance.setAvailableSeats(aircraftResponse.getTotalSeats());
+    return flightInstance;
   }
 
   @Override
@@ -70,14 +113,15 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
   }
 
   @Override
-  public Page<FlightInstanceResponse> getByAirlineId(final UUID airlineId, final UUID departureAirportId,
+    public Page<FlightInstanceResponse> getByAirlineId(final UUID userId, final UUID departureAirportId,
       final UUID arrivalAirportId, final UUID flightId, final LocalDate onDate, final Pageable pageable) {
 
-    // todo: watch airlineId
+        // fetch by owner id
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
     final LocalDateTime start = onDate != null ? onDate.atStartOfDay() : null;
     final LocalDateTime end = onDate != null ? onDate.plusDays(1).atStartOfDay() : null;
 
-    final Page<FlightInstance> page = this.flightInstanceRepository.findByAirlineId(airlineId,
+        final Page<FlightInstance> page = this.flightInstanceRepository.findByAirlineId(airlineResponse.getId(),
         departureAirportId, arrivalAirportId, flightId, start, end, pageable);
 
     // Batch-load Flight cho cả trang thay vì fetch từng cái trong Page.map() (N+1)

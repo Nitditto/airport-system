@@ -1,6 +1,7 @@
 package com.nitditto.service.impl;
 
 import com.nitditto.client.AncillaryClient;
+import com.nitditto.client.AirlineClient;
 import com.nitditto.client.FlightClient;
 import com.nitditto.client.PaymentClient;
 import com.nitditto.client.SeatClient;
@@ -16,6 +17,7 @@ import com.nitditto.payload.request.BookingRequest;
 import com.nitditto.payload.request.PassengerRequest;
 import com.nitditto.payload.request.PaymentInitiateRequest;
 import com.nitditto.payload.response.BookingResponse;
+import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.FareResponse;
 import com.nitditto.payload.response.FlightInstanceResponse;
 import com.nitditto.payload.response.FlightResponse;
@@ -58,6 +60,7 @@ public class BookingServiceImpl implements BookingService {
     private final AncillaryClient ancillaryClient;
     private final PaymentClient paymentClient;
     private final FareIntegrationService fareIntegrationService;
+    private final AirlineClient airlineClient;
 
     @Override
     @Transactional
@@ -118,10 +121,13 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
-    public Page<BookingResponse> getAllBookingsByAirline(final UUID airlineId, final String search,
+    public Page<BookingResponse> getAllBookingsByAirline(final UUID userId, final String search,
             final BookingStatus status, final UUID flightInstanceId, final Pageable pageable) {
+
+        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
+
         final Specification<Booking> spec = Specification
-                .where(BookingSpecs.airlineId(airlineId))
+                .where(BookingSpecs.airlineId(airlineResponse.getId()))
                 .and(BookingSpecs.status(status))
                 .and(BookingSpecs.flightInstanceId(flightInstanceId))
                 .and(BookingSpecs.search(search));

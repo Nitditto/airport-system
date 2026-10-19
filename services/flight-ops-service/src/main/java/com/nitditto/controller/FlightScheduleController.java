@@ -29,12 +29,12 @@ public class FlightScheduleController {
 
   @PostMapping
   public ResponseEntity<ApiResponse<FlightScheduleResponse>> createFlightSchedule(
-      @RequestHeader("X-Airline-Id") final UUID airlineId,
+      @RequestHeader("X-User-Id") final UUID userId,
       @Valid @RequestBody final FlightScheduleRequest flightScheduleRequest) {
     // todo: watch for airline id
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(ApiResponse.success(
-            this.flightScheduleService.createFlightSchedule(airlineId, flightScheduleRequest)));
+            this.flightScheduleService.createFlightSchedule(userId, flightScheduleRequest)));
   }
 
   @GetMapping("/{id}")
@@ -45,9 +45,9 @@ public class FlightScheduleController {
 
   @GetMapping
   public ResponseEntity<ApiResponse<List<FlightScheduleResponse>>> getFlightSchedules(
-      @RequestHeader("X-Airline-Id") final UUID airlineId) {
+      @RequestHeader("X-User-Id") final UUID userId) {
     return ResponseEntity.ok(
-        ApiResponse.success(this.flightScheduleService.getFlightScheduleByAirline(airlineId)));
+        ApiResponse.success(this.flightScheduleService.getFlightScheduleByAirline(userId)));
   }
 
   @PutMapping("/{id}")

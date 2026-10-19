@@ -35,10 +35,10 @@ public class FlightController {
   @PostMapping
   public ResponseEntity<ApiResponse<FlightResponse>> createFlight(
       @Valid @RequestBody final FlightRequest flightRequest,
-      @RequestHeader("X-Airline-Id") final UUID airlineId
+      @RequestHeader("X-User-Id") final UUID userId
   ) {
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(ApiResponse.success(this.flightService.createFlight(airlineId, flightRequest)));
+        .body(ApiResponse.success(this.flightService.createFlight(userId, flightRequest)));
   }
 
   @GetMapping("/{id}")
@@ -48,12 +48,12 @@ public class FlightController {
 
   @GetMapping("/airline")
   public ResponseEntity<ApiResponse<Page<FlightResponse>>> getFlightsByAirline(
-      @RequestHeader("X-Airline-Id") final UUID airlineId,
+      @RequestHeader("X-User-Id") final UUID userId,
       @RequestParam(required = false) final UUID departureAirportId,
       @RequestParam(required = false) final UUID arrivalAirportId,
       final Pageable pageable) {
     return ResponseEntity.ok(ApiResponse.success(this.flightService.getFlightsByAirline(
-        airlineId,
+            userId,
         departureAirportId,
         arrivalAirportId,
         pageable
@@ -78,8 +78,8 @@ public class FlightController {
 
   @DeleteMapping("/{id}")
   public ResponseEntity<Void> deleteFlight(@PathVariable final UUID id,
-      @RequestHeader("X-Airline-Id") final UUID airlineId) {
-    this.flightService.deleteFlight(airlineId, id);
+      @RequestHeader("X-User-Id") final UUID userId) {
+    this.flightService.deleteFlight(userId, id);
     return ResponseEntity.noContent().build();
   }
 }

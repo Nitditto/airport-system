@@ -9,9 +9,9 @@ import org.springframework.data.domain.Pageable;
 
 public interface FlightService {
 
-  FlightResponse createFlight(UUID airlineId, FlightRequest flightRequest);
+  FlightResponse createFlight(UUID userId, FlightRequest flightRequest);
 
-  Page<FlightResponse> getFlightsByAirline(UUID airlineId, UUID departureAirportId,
+  Page<FlightResponse> getFlightsByAirline(UUID userId, UUID departureAirportId,
       UUID arrivalAirportId, Pageable pageable);
 
   FlightResponse getFlightById(UUID id);
@@ -20,5 +20,5 @@ public interface FlightService {
 
   FlightResponse changeStatus(UUID id, FlightStatus flightStatus);
 
-  void deleteFlight(UUID airlineId, UUID id);
+  void deleteFlight(UUID userId, UUID id);
 }

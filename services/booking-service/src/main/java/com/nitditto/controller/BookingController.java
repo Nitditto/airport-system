@@ -55,10 +55,10 @@ public class BookingController {
       @RequestParam(required = false) final String search,
       @RequestParam(required = false) final BookingStatus status,
       @RequestParam(required = false) final UUID flightInstanceId,
-      @RequestParam(required = false) final UUID airlineId,
+      @RequestHeader("X-User-Id") final UUID userId,
       @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) final Pageable pageable) {
     return ResponseEntity.ok(ApiResponse.success(
-        this.bookingService.getAllBookingsByAirline(airlineId, search, status, flightInstanceId, pageable)));
+        this.bookingService.getAllBookingsByAirline(userId, search, status, flightInstanceId, pageable)));
   }
 
   @GetMapping("/user/history")

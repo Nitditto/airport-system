@@ -6,7 +6,7 @@ import com.nitditto.payload.request.SeatMapRequest;
 import com.nitditto.payload.response.SeatMapResponse;
 
 public interface SeatMapService {
-    SeatMapResponse createSeatMap(UUID airlineId, SeatMapRequest seatMapRequest);
+    SeatMapResponse createSeatMap(UUID userId, SeatMapRequest seatMapRequest);
 
     SeatMapResponse getSeatMapById(UUID seatMapId);
 
