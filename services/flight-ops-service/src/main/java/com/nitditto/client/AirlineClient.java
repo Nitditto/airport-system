@@ -18,11 +18,11 @@ import org.springframework.web.bind.annotation.RequestHeader;
 @FeignClient(name = "airline-core-service")
 public interface AirlineClient {
 
-  @GetMapping("/api/airlines/{id}")
-  ApiResponse<AirlineResponse> getAirlineById(@PathVariable("id") UUID id);
+    @GetMapping("/api/airlines/{id}")
+    ApiResponse<AirlineResponse> getAirlineById(@PathVariable("id") UUID id);
 
-  @GetMapping("/api/aircrafts/{id}")
-  ApiResponse<AircraftResponse> getAircraftById(@PathVariable("id") UUID id);
+    @GetMapping("/api/aircrafts/{id}")
+    ApiResponse<AircraftResponse> getAircraftById(@PathVariable("id") UUID id);
 
   @PostMapping("/api/aircrafts/batch-by-ids")
   ApiResponse<Map<UUID, AircraftResponse>> getAircraftsByIds(@RequestBody List<UUID> ids);

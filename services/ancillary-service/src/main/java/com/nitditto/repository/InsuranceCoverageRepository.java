@@ -12,4 +12,6 @@ public interface InsuranceCoverageRepository extends JpaRepository<InsuranceCove
     List<InsuranceCoverage> findByAncillaryIdIn(List<UUID> ancillaryIds);
 
     List<InsuranceCoverage> findByAncillaryIdAndActiveTrue(UUID ancillaryId);
+
+    void deleteByAncillaryId(UUID ancillaryId);
 }

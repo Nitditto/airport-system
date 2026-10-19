@@ -32,11 +32,11 @@ public class AuthServiceImpl implements AuthService {
   private final JwtProvider jwtProvider;
   private final CustomUserDetailsService customUserDetailsService;
   /*
-    1. Check if email already exists
-    2. Encode password using BCrypt
-    3. Save user in database
-    4. Generate JWT token
-    5. Return token and user information
+   * 1. Check if email already exists
+   * 2. Encode password using BCrypt
+   * 3. Save user in database
+   * 4. Generate JWT token
+   * 5. Return token and user information
    */
 
   @Override
@@ -65,8 +65,7 @@ public class AuthServiceImpl implements AuthService {
         savedUser.getEmail(), savedUser.getPassword(), List.of(authority));
 
     final String jwt = this.jwtProvider.generateToken(
-        authentication, savedUser.getId()
-    );
+        authentication, savedUser.getId());
 
     final AuthResponse authResponse = new AuthResponse();
     authResponse.setJwt(jwt);
@@ -78,12 +77,12 @@ public class AuthServiceImpl implements AuthService {
   }
 
   /*
-    1. Load user by email
-    2. Compare password with BCrypt
-    3. Update "lastLogin" time
-    4. Generate Jwt token
-    5. Return token and user information
-  */
+   * 1. Load user by email
+   * 2. Compare password with BCrypt
+   * 3. Update "lastLogin" time
+   * 4. Generate Jwt token
+   * 5. Return token and user information
+   */
   @Override
   @Transactional
   public AuthResponse login(final String email, final String password) {
@@ -111,7 +110,6 @@ public class AuthServiceImpl implements AuthService {
       throw new BusinessException("Invalid password");
     }
     return new UsernamePasswordAuthenticationToken(
-        userDetails, null, userDetails.getAuthorities()
-    );
+        userDetails, null, userDetails.getAuthorities());
   }
 }
