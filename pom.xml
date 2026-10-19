@@ -26,6 +26,10 @@
     <!--    Framework versions - single source of truth-->
     <spring.boot.version>4.0.7</spring.boot.version>
     <spring.cloud.version>2025.1.0</spring.cloud.version>
+
+    <!--    Container image build-->
+    <jib.version>3.4.5</jib.version>
+    <docker.image.prefix>nitditto</docker.image.prefix>
   </properties>
 
   <dependencyManagement>
@@ -66,6 +70,16 @@
           <groupId>org.springframework.boot</groupId>
           <artifactId>spring-boot-maven-plugin</artifactId>
           <version>${spring.boot.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>com.google.cloud.tools</groupId>
+          <artifactId>jib-maven-plugin</artifactId>
+          <version>${jib.version}</version>
+          <configuration>
+            <to>
+              <image>${docker.image.prefix}/${project.artifactId}:${project.version}</image>
+            </to>
+          </configuration>
         </plugin>
       </plugins>
     </pluginManagement>
