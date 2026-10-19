@@ -6,25 +6,12 @@
         <groupId>com.nitditto</groupId>
         <artifactId>cloud</artifactId>
         <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>service-registry</artifactId>
 
     <name>service-registry</name>
 
-    <description/>
-    <url/>
-    <licenses>
-        <license/>
-    </licenses>
-    <developers>
-        <developer/>
-    </developers>
-    <scm>
-        <connection/>
-        <developerConnection/>
-        <tag/>
-        <url/>
-    </scm>
     <dependencies>
         <dependency>
             <groupId>org.springframework.cloud</groupId>
