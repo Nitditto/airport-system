@@ -109,6 +109,7 @@ Tài liệu theo từng mảng kiến trúc/tính năng — mỗi file có phầ
 | [spring-cloud-service-discovery.md](features/spring-cloud-service-discovery.md) | 🟢 Đã có | Vì sao cần Eureka, cơ chế đăng ký/tra cứu/load balancing, Eureka vs Consul |
 | [eureka-service-registry.md](features/eureka-service-registry.md) | 🟢 Đã có | Hướng dẫn cài đặt Eureka Server/Client từng bước |
 | [openfeign-client.md](features/openfeign-client.md) | 🟡 Có hạ tầng, chưa dùng thật | `@FeignClient`, timeout/retry/logging/interceptor, nợ kỹ thuật cần dọn |
+| [docker-compose.md](features/docker-compose.md) | 🟡 Đã có, chưa chạy thử đầy đủ | Build image bằng Jib, chạy full stack bằng Docker Compose, env ghi đè, xử lý sự cố |
 | [inter-service-communication.md](features/inter-service-communication.md) | 🟢 Đã có | `RestTemplate` + Eureka giữa `flight-ops-service` ↔ `airline-core-service`, chống N+1 qua HTTP |
 | [resilience-fault-tolerance.md](features/resilience-fault-tolerance.md) | ⬜ Chưa làm | Circuit Breaker/Retry/Fallback/Bulkhead với Resilience4j |
 | [api-gateway-routing.md](features/api-gateway-routing.md) | ⬜ Chưa làm | Spring Cloud Gateway, routing theo tên service, JWT tập trung, rate limiting |
