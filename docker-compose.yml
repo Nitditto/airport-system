@@ -1,14 +1,44 @@
-# Build images trước: mvn clean install && mvn compile jib:dockerBuild (chạy ở thư mục gốc)
-# Cấu hình bí mật (JWT_SECRET, RAZORPAY_*...) lấy từ file .env cùng thư mục.
+# =============================================================================
+# Airline Microservices — full stack
+# =============================================================================
+# Build image BE trước (chạy ở thư mục này):
+#   mvn clean install && mvn compile jib:dockerBuild
+#
+# Biến bí mật (JWT_SECRET, RAZORPAY_*...) lấy từ file .env cùng thư mục.
+#
+#   docker compose up -d                  # MySQL + Eureka + Gateway + 9 service BE
+#   docker compose --profile full up -d --build   # thêm frontend (build từ ../frontend)
+#
+# Dev FE thường chạy `npm run dev` trên máy host (HMR) và gọi gateway :5000, không cần profile full.
+#
+# Publish ra host: api-gateway (5000), service-registry (8761), mysql (3307),
+# và frontend (5173) khi bật profile full. Nginx của frontend proxy /auth, /api sang gateway.
+# =============================================================================
+
 name: airline
 
+x-business-service: &business-service
+  restart: unless-stopped
+  networks: [airline]
+
+x-eureka: &eureka
+  EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
+
+x-depends: &depends
+  mysql:
+    condition: service_healthy
+  service-registry:
+    condition: service_started
+
 services:
+
   mysql:
     image: mysql:8.4
+    container_name: airline-mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
     ports:
-      - "3307:3306"
+      - "127.0.0.1:3307:3306"   # 3307 để không đụng MySQL cài sẵn trên máy
     volumes:
       - mysql-data:/var/lib/mysql
       - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -17,16 +47,20 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 20s
     networks: [airline]
 
   service-registry:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/service-registry:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-service-registry
     ports:
       - "8761:8761"
+    restart: unless-stopped
     networks: [airline]
 
   api-gateway:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/api-gateway:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-api-gateway
     environment:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
@@ -36,128 +70,120 @@ services:
     depends_on:
       service-registry:
         condition: service_started
+    restart: unless-stopped
     networks: [airline]
 
   user-service:
+    <<: *business-service
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/user-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-user-service
     environment:
+      <<: *eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_user
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-    depends_on:
-      mysql:
-        condition: service_healthy
-      service-registry:
-        condition: service_started
-    networks: [airline]
+    depends_on: *depends
 
   airline-core-service:
+    <<: *business-service
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/airline-core-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-core-service
     environment:
+      <<: *eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
-    depends_on:
-      mysql:
-        condition: service_healthy
-      service-registry:
-        condition: service_started
-    networks: [airline]
+    depends_on: *depends
 
   flight-ops-service:
+    <<: *business-service
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/flight-ops-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-flight-ops-service
     environment:
+      <<: *eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_flight
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
-    depends_on:
-      mysql:
-        condition: service_healthy
-      service-registry:
-        condition: service_started
-    networks: [airline]
+    depends_on: *depends
 
   location-service:
+    <<: *business-service
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/location-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-location-service
     environment:
+      <<: *eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_location
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
-    depends_on:
-      mysql:
-        condition: service_healthy
-      service-registry:
-        condition: service_started
-    networks: [airline]
+    depends_on: *depends
 
   pricing-service:
+    <<: *business-service
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/pricing-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-pricing-service
     environment:
+      <<: *eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_pricing
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
-    depends_on:
-      mysql:
-        condition: service_healthy
-      service-registry:
-        condition: service_started
-    networks: [airline]
+    depends_on: *depends
 
   seat-service:
+    <<: *business-service
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/seat-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-seat-service
     environment:
+      <<: *eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_seat
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
-    depends_on:
-      mysql:
-        condition: service_healthy
-      service-registry:
-        condition: service_started
-    networks: [airline]
+    depends_on: *depends
 
   ancillary-service:
+    <<: *business-service
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/ancillary-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-ancillary-service
     environment:
+      <<: *eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_ancillary
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
-    depends_on:
-      mysql:
-        condition: service_healthy
-      service-registry:
-        condition: service_started
-    networks: [airline]
+    depends_on: *depends
 
   booking-service:
+    <<: *business-service
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/booking-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-booking-service
     environment:
+      <<: *eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_booking
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
-    depends_on:
-      mysql:
-        condition: service_healthy
-      service-registry:
-        condition: service_started
-    networks: [airline]
+    depends_on: *depends
 
   payment-service:
+    <<: *business-service
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/payment-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-payment-service
     environment:
+      <<: *eureka
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_payment
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_CALLBACK_BASE_URL: ${RAZORPAY_CALLBACK_BASE_URL:-http://localhost:${FRONTEND_PORT:-5173}}
+    depends_on: *depends
+
+  frontend:
+    profiles: ["full"]   # chỉ chạy khi có --profile full
+    build:
+      context: ../frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        VITE_ENABLE_BACKEND_SHIMS: ${VITE_ENABLE_BACKEND_SHIMS:-true}
+        VITE_BOOKING_HOLD_MINUTES: ${VITE_BOOKING_HOLD_MINUTES:-15}
+    image: ${DOCKER_IMAGE_PREFIX:-nitditto}/frontend:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
     depends_on:
-      mysql:
-        condition: service_healthy
-      service-registry:
-        condition: service_started
+      - api-gateway
+    restart: unless-stopped
     networks: [airline]
 
 volumes:
