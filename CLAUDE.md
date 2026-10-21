@@ -1026,6 +1026,16 @@ git commit --amend
 git log --oneline --graph --decorate -20
 ```
 
+### Quy tắc cho AI/Claude khi tạo commit
+
+- Tuân thủ Conventional Commits nghiêm ngặt: `<type>(<scope>): <subject>`
+  - Types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `chore`, `build`, `ci`
+  - Subject: thể mệnh lệnh (imperative), chữ thường, không dấu chấm cuối, tối đa 72 ký tự.
+  - Scope chỉ lấy từ bảng scope ở trên; đụng nhiều module thì bỏ scope.
+- Chỉ xuất **đúng một dòng** commit message.
+- **TUYỆT ĐỐI KHÔNG** có co-author (`Co-Authored-By`), không footer, không dòng "Generated with Claude Code", không bọc trong markdown code block. Quy tắc này áp dụng cả cho mô tả Pull Request.
+- Một commit = một thay đổi logic; tạo nhánh `<type>/<mô-tả>` trước, không commit lên `develop`; chỉ push khi được yêu cầu.
+
 ### Những điều TUYỆT ĐỐI không làm
 
 - Commit trực tiếp lên `develop`.
