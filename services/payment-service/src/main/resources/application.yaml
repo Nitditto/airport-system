@@ -30,7 +30,7 @@ razorpay:
     key: ${RAZORPAY_KEY_ID}
     secret: ${RAZORPAY_KEY_SECRET}
   callback:
-    base-url: http://localhost:5173
+    base-url: ${RAZORPAY_CALLBACK_BASE_URL:http://localhost:5173}
 
 eureka:
   client:
