@@ -1,6 +1,6 @@
 # Docker Compose & Jib
 
-> Hiện thực: [`docker-compose.yml`](../../docker-compose.yml), [`docker/mysql/init.sql`](../../docker/mysql/init.sql), cấu hình `jib-maven-plugin` ở [`pom.xml`](../../pom.xml) gốc.
+> Hiện thực: [`docker-compose.yml`](../../docker-compose.yml), [`docker-compose.dev.yml`](../../docker-compose.dev.yml), [`docker/mysql/init.sql`](../../docker/mysql/init.sql), cấu hình `jib-maven-plugin` ở [`pom.xml`](../../pom.xml) gốc.
 
 Trang này mô tả cách đóng gói toàn bộ hệ thống thành container và chạy bằng một lệnh. Dành cho dev cần chạy full stack local mà không phải bật từng service trong IDE.
 
@@ -19,9 +19,9 @@ Trang này mô tả cách đóng gói toàn bộ hệ thống thành container v
                   └─────────────────────────────────────────────────────────────┘
 ```
 
-- **11 container ứng dụng + 1 MySQL**: `service-registry`, `api-gateway` và 9 service nghiệp vụ (`user`, `airline-core`, `flight-ops`, `location`, `pricing`, `seat`, `ancillary`, `booking`, `payment`).
+- **11 container BE + 1 MySQL** (+ `frontend` nginx khi bật profile `full`): `service-registry`, `api-gateway` và 9 service nghiệp vụ (`user`, `airline-core`, `flight-ops`, `location`, `pricing`, `seat`, `ancillary`, `booking`, `payment`).
 - Image **không viết Dockerfile** — build bằng [Jib](https://github.com/GoogleContainerTools/jib) trực tiếp từ Maven. Chỉ goal `jib:dockerBuild` cần Docker daemon.
-- Chỉ `api-gateway`, `service-registry` và `mysql` publish port ra máy host. Các service nghiệp vụ chỉ truy cập được trong mạng compose (qua gateway hoặc Feign + Eureka).
+- Chỉ `api-gateway`, `service-registry` và `mysql` publish port ra máy host (thêm `frontend` :5173 nếu bật profile `full`; nginx của nó proxy `/auth`, `/api` sang gateway nên không cần CORS). Các service nghiệp vụ chỉ truy cập được trong mạng compose (qua gateway hoặc Feign + Eureka).
 
 ## 2. Điều kiện cần
 
@@ -29,7 +29,7 @@ Trang này mô tả cách đóng gói toàn bộ hệ thống thành container v
 |---|---|
 | Docker Desktop (hoặc Docker Engine + Compose v2) | `docker compose version` phải chạy được |
 | JDK 17 + Maven | Build từ thư mục gốc, **không** dùng `mvnw` lẻ trong từng service |
-| File `.env` ở thư mục gốc | Copy từ [`.env.example`](../../.env.example) rồi điền giá trị |
+| File `.env` ở thư mục gốc | Copy từ [`.env.example`](../../.env.example) rồi điền giá trị; compose tự đọc vì nằm cạnh |
 
 ## 3. Quy trình chạy
 
@@ -44,7 +44,8 @@ mvn clean install
 mvn compile jib:dockerBuild
 
 # 4. Chạy
-docker compose up -d
+docker compose up -d                       # chỉ BE
+docker compose --profile full up -d --build   # BE + frontend (cần repo ../frontend)
 
 # 5. Theo dõi
 docker compose ps
@@ -56,14 +57,17 @@ Bước 2 bắt buộc chạy **từ thư mục gốc**: các service phụ thu�
 Dừng / dọn:
 
 ```bash
-docker compose down            # dừng, giữ dữ liệu MySQL
-docker compose down -v         # dừng và XOÁ volume mysql-data (mất toàn bộ DB)
+docker compose down                      # dừng stack BE, giữ dữ liệu MySQL
+docker compose --profile full down       # dừng cả frontend (nếu chạy với profile full)
+docker compose --profile "*" down -v     # dừng tất cả và XOÁ volume mysql-data (mất toàn bộ DB)
 ```
+> **Lưu ý**: Nếu bạn khởi động bằng `--profile full`, lệnh `docker compose down` thông thường sẽ **không** dừng container `frontend`. Hãy thêm `--profile full` (hoặc `--profile "*"`) khi `down`.
+
 
 Sau khi lên, kiểm tra:
 
 - Eureka dashboard: <http://localhost:8761> — phải thấy đủ service đăng ký.
-- Gateway: <http://localhost:5000/actuator/health>.
+- Web (chỉ khi `--profile full`): <http://localhost:5173>. Gateway: <http://localhost:5000/actuator/health>.
 - MySQL từ host: `localhost:3307`, user `root`.
 
 ## 4. Jib
@@ -118,7 +122,7 @@ Biến điều khiển chính compose (đặt trong `.env` hoặc shell):
 - Image `mysql:8.4`, một instance chứa **9 database** (database-per-service vẫn giữ nguyên về mặt logic): `airline`, `airline_user`, `airline_flight`, `airline_location`, `airline_pricing`, `airline_seat`, `airline_ancillary`, `airline_booking`, `airline_payment`.
 - [`docker/mysql/init.sql`](../../docker/mysql/init.sql) tạo database bằng `CREATE DATABASE IF NOT EXISTS`. Hibernate (`ddl-auto: update`) chỉ tạo **bảng**, không tạo database.
 - Script trong `docker-entrypoint-initdb.d` **chỉ chạy lần đầu** khi volume trống. Thêm service mới có database mới → sửa `init.sql` rồi `docker compose down -v` (mất dữ liệu), hoặc tạo database thủ công qua `docker compose exec mysql mysql -uroot -p`.
-- Dữ liệu lưu ở volume `mysql-data`, sống sót qua `docker compose down`.
+- Dữ liệu lưu ở volume `mysql-data`, sống sót qua `down` (không kèm `-v`).
 - Publish ra host ở `3307` (không phải 3306) để không đụng MySQL cài sẵn trên máy.
 - Khoá chính lưu `binary(16)`; query tay phải bọc `BIN_TO_UUID(id)` / `UUID_TO_BIN('...')`.
 
@@ -145,13 +149,24 @@ service-registry ─┤        (started)
 | Service restart liên tục, log `Communications link failure` | MySQL chưa healthy hoặc sai `MYSQL_ROOT_PASSWORD`. Nếu đã đổi password sau lần khởi tạo đầu: `docker compose down -v` |
 | `Unknown database 'airline_xxx'` | Volume cũ được tạo trước khi `init.sql` có database đó → `down -v` hoặc tạo tay |
 | Gateway trả 503 / không tìm thấy service | Service chưa đăng ký xong Eureka; xem <http://localhost:8761> |
-| Port 5000/8761/3307 đã bị chiếm | Đổi phần bên trái của `ports:` trong compose |
-| Sửa code mà container vẫn chạy bản cũ | Chạy lại `mvn compile jib:dockerBuild` rồi `docker compose up -d` (compose không tự build) |
+| Port 5173/5000/8761/3307 đã bị chiếm | Đổi phần bên trái của `ports:` trong compose |
+| Sửa code mà container vẫn chạy bản cũ | Chạy lại `mvn compile jib:dockerBuild` rồi `docker compose up -d` (image BE do Jib build, compose không tự build; riêng `frontend` thêm `--profile full --build`) |
 
 ## 9. Giới hạn hiện tại
 
 - Compose chỉ phục vụ **dev/demo**: mật khẩu MySQL mặc định `123456`, `ddl-auto: update`. Không dùng nguyên trạng cho production.
 - Image dùng tag `SNAPSHOT`, chưa push lên registry, chưa có CI/CD.
 - Chưa healthcheck cho Eureka và các service nghiệp vụ.
+- Frontend build bằng `Dockerfile` riêng, `VITE_*` nhúng lúc build nên đổi biến phải `--build` lại.
 - Chưa có config server; mọi cấu hình đi qua env của compose.
 - Mới xác nhận `docker compose config` hợp lệ; chưa chạy thử `docker compose up` đầy đủ.
+
+## 10. Dev chỉ cần MySQL
+
+Chạy service từ IDE (`application.yaml` trỏ `localhost:3306`, root/`123456`) thì chỉ cần bật MySQL:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+Dev frontend chạy `npm run dev` trên máy host (HMR) và gọi gateway `:5000`, không cần profile `full`.
