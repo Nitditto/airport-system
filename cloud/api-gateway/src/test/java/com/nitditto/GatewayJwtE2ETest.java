@@ -64,7 +64,8 @@ class GatewayJwtE2ETest {
   @DynamicPropertySource
   static void registerDownstream(final DynamicPropertyRegistry registry) {
     final String uri = "http://localhost:" + DOWNSTREAM.getAddress().getPort();
-    for (final String service : List.of("user-service", "airline-core-service", "location-service")) {
+    for (final String service : List.of("user-service", "airline-core-service", "location-service",
+        "flight-ops-service", "pricing-service", "seat-service")) {
       registry.add("spring.cloud.discovery.client.simple.instances." + service + "[0].uri",
           () -> uri);
     }
@@ -433,6 +434,96 @@ class GatewayJwtE2ETest {
       assertThat(forwarded.headers("X-User-Id")).isEmpty();
       assertThat(forwarded.headers("X-User-Roles")).isEmpty();
       assertThat(forwarded.headers("X-User-Email")).isEmpty();
+    }
+  }
+
+  @Nested
+  @DisplayName("public reads (guest flight search)")
+  class PublicReads {
+
+    private static final String SPOOFED = "00000000-0000-0000-0000-0000000000aa";
+
+    @Test
+    void airportsList_isForwardedWithoutToken_andStripsSpoofedIdentity() throws Exception {
+      final HttpResponse<String> response = send("GET", "/api/airports", null,
+          Map.of("X-User-Id", SPOOFED, "X-User-Roles", ROLE_ADMIN), null);
+
+      assertThat(response.statusCode()).isEqualTo(200);
+      assertThat(RECEIVED).hasSize(1);
+      assertThat(RECEIVED.get(0).headers("X-User-Id")).isEmpty();
+      assertThat(RECEIVED.get(0).headers("X-User-Roles")).isEmpty();
+    }
+
+    @Test
+    void flightInstanceSearch_cabinClassesByAircraft_andFareSearch_areForwardedWithoutToken() throws Exception {
+      assertThat(send("GET", "/api/flight-instances/search?onDate=2027-01-01", null, Map.of(), null)
+          .statusCode()).isEqualTo(200);
+      assertThat(send("GET", "/api/cabin-classes/aircraft/" + UUID.randomUUID(), null, Map.of(), null)
+          .statusCode()).isEqualTo(200);
+      assertThat(send("POST", "/api/fares/search?cabinClassId=" + UUID.randomUUID(), null, Map.of(), "[]")
+          .statusCode()).isEqualTo(200);
+      assertThat(RECEIVED).hasSize(3);
+    }
+
+    @Test
+    void writesOnPublicPaths_stillRequireAuthentication() throws Exception {
+      assertThat(send("POST", "/api/airports", null, Map.of(), "{}").statusCode()).isEqualTo(401);
+      assertThat(send("DELETE", "/api/airports/" + UUID.randomUUID(), null, Map.of(), null).statusCode())
+          .isEqualTo(401);
+      assertThat(send("POST", "/api/flight-instances/search", null, Map.of(), "{}").statusCode())
+          .isEqualTo(401);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void neighbouringPaths_remainProtected() throws Exception {
+      for (final String path : List.of("/api/flight-instances", "/api/flight-instances/" + UUID.randomUUID(),
+          "/api/cities", "/api/cabin-classes", "/api/cabin-classes/aircraft/" + UUID.randomUUID() + "/name/FIRST",
+          "/api/fares", "/api/airports/../users/me")) {
+        assertThat(send("GET", path, null, Map.of(), null).statusCode()).as(path).isEqualTo(401);
+      }
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void invalidTokenOnPublicRoute_isIgnored_notRejected() throws Exception {
+      final HttpResponse<String> response = send("GET", "/api/airports", "not-a-jwt", Map.of(), null);
+
+      assertThat(response.statusCode()).isEqualTo(200);
+      assertThat(RECEIVED.get(0).headers("X-User-Id")).isEmpty();
+    }
+  }
+
+  @Nested
+  @DisplayName("seat hold (customer-facing writes)")
+  class SeatHold {
+
+    @Test
+    void userRole_canHoldAndReleaseSeats_andGatewayInjectsIdentity() throws Exception {
+      final UUID userId = UUID.randomUUID();
+      final String token = token(userId, ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/seat-instances/hold", token, Map.of(), "{}").statusCode()).isEqualTo(200);
+      assertThat(send("POST", "/api/seat-instances/release", token, Map.of(), "{}").statusCode()).isEqualTo(200);
+
+      assertThat(RECEIVED).hasSize(2);
+      assertThat(RECEIVED.get(0).headers("X-User-Id")).containsExactly(userId.toString());
+    }
+
+    @Test
+    void userRole_cannotCallInternalConfirmOrFree() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/seat-instances/confirm-booked", token, Map.of(), "{}").statusCode())
+          .isEqualTo(403);
+      assertThat(send("POST", "/api/seat-instances/free", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void holdWithoutToken_isRejected() throws Exception {
+      assertThat(send("POST", "/api/seat-instances/hold", null, Map.of(), "{}").statusCode()).isEqualTo(401);
+      assertThat(RECEIVED).isEmpty();
     }
   }
 
