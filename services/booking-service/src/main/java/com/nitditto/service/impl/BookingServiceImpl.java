@@ -101,9 +101,7 @@ public class BookingServiceImpl implements BookingService {
         enrichTickets(this.ticketService.generateTicketsForBooking(booking.getId(), passengers), booking, passengers);
 
         final double totalPrice = this.calculateTotalPrice(request, booking, seatInstanceIds);
-        final PaymentGateway gateway = request.getPaymentGateway() != null
-                ? request.getPaymentGateway()
-                : PaymentGateway.VNPAY;
+        final PaymentGateway gateway = request.getPaymentGateway();
 
         final PaymentInitiateRequest paymentInitiateRequest = PaymentInitiateRequest.builder()
                 .userId(userId)
