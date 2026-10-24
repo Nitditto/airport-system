@@ -65,7 +65,7 @@ class GatewayJwtE2ETest {
   static void registerDownstream(final DynamicPropertyRegistry registry) {
     final String uri = "http://localhost:" + DOWNSTREAM.getAddress().getPort();
     for (final String service : List.of("user-service", "airline-core-service", "location-service",
-        "flight-ops-service", "pricing-service", "seat-service")) {
+        "flight-ops-service", "pricing-service", "seat-service", "payment-service")) {
       registry.add("spring.cloud.discovery.client.simple.instances." + service + "[0].uri",
           () -> uri);
     }
@@ -524,6 +524,35 @@ class GatewayJwtE2ETest {
     void holdWithoutToken_isRejected() throws Exception {
       assertThat(send("POST", "/api/seat-instances/hold", null, Map.of(), "{}").statusCode()).isEqualTo(401);
       assertThat(RECEIVED).isEmpty();
+    }
+  }
+
+  @Nested
+  class PaymentInitiate {
+
+    @Test
+    void userRole_cannotInitiatePaymentDirectly_soAmountCannotBeForged() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/payments/initiate", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("POST", "/api/payments/Initiate/", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("POST", "/api/payments/initiate;x=1", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void userRole_canStillVerifyAndListOwnPayments() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/payments/verify", token, Map.of(), "{}").statusCode()).isEqualTo(200);
+      assertThat(send("GET", "/api/payments", token, Map.of(), null).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void admin_canInitiatePayment() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_ADMIN, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/payments/initiate", token, Map.of(), "{}").statusCode()).isEqualTo(200);
     }
   }
 

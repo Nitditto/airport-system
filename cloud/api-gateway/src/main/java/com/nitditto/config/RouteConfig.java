@@ -42,6 +42,10 @@ public class RouteConfig {
     // Thao tác ghi mà khách hàng (mọi người dùng đăng nhập) được phép: giữ/nhả ghế của chính mình.
     // confirm-booked và free (nội bộ, booking-service gọi) cố ý KHÔNG nằm đây nên chỉ ADMIN/OWNER gọi được qua gateway.
     private static final Pattern CUSTOMER_WRITE_PATH = Pattern.compile("^/api/seat-instances/(hold|release)/?$");
+    // payment-service /initiate nhận userId và amount từ body nên chỉ booking-service (Feign nội bộ, không qua gateway)
+    // được gọi; qua gateway chỉ ADMIN. So khớp theo chuỗi con (không phân biệt hoa thường) để đường dẫn biến thể
+    // như /api/payments/./initiate hay /api/payments/initiate;x cũng không lọt.
+    private static final String INTERNAL_PAYMENT_SEGMENT = "initiate";
     private static final Pattern AIRLINE_LISTING_PATH = Pattern.compile("^/api/airlines/?$");
 
     /**
@@ -130,7 +134,7 @@ public class RouteConfig {
 
     @Bean
     public RouterFunction<ServerResponse> paymentServiceRoutes() {
-        return this.route("payment-service-routes", "payment-service", this.authenticated(ANY_AUTHENTICATED),
+        return this.route("payment-service-routes", "payment-service", this::paymentAccess,
                 "/api/payments/**");
     }
 
@@ -160,6 +164,16 @@ public class RouteConfig {
 
     private UnaryOperator<ServerRequest> authenticated(final UserRole... writeRoles) {
         return request -> this.secured(request, writeRoles);
+    }
+
+    /** Thanh toán: đăng nhập là đủ, trừ lệnh khởi tạo thanh toán (nội bộ) chỉ dành cho ADMIN. */
+    private ServerRequest paymentAccess(final ServerRequest request) {
+        final ServerRequest authenticated = this.secured(request, ANY_AUTHENTICATED);
+        if (HttpMethod.POST.equals(authenticated.method())
+                && authenticated.path().toLowerCase(java.util.Locale.ROOT).contains(INTERNAL_PAYMENT_SEGMENT)) {
+            return this.requireAnyRole(authenticated, ADMIN);
+        }
+        return authenticated;
     }
 
     /** Danh sách toàn bộ hãng (kèm trạng thái quản trị) chỉ dành cho admin; còn lại theo quy tắc ghi chung. */
