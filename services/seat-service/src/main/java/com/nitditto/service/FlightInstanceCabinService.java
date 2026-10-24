@@ -15,7 +15,9 @@ public interface FlightInstanceCabinService {
 
   Page<FlightInstanceCabinResponse> getByFlightInstanceId(UUID flightInstanceId, Pageable pageable);
 
-  FlightInstanceCabinResponse getByFlightInstanceIdAndCabinClassId(UUID flightInstanceId, UUID cabinClassId);
+  // requesterId (có thể null): ghế đang bị NGƯỜI KHÁC giữ chỗ được trả về với status HELD.
+  FlightInstanceCabinResponse getByFlightInstanceIdAndCabinClassId(UUID flightInstanceId, UUID cabinClassId,
+      UUID requesterId);
 
   FlightInstanceCabinResponse updateFlightInstanceCabin(UUID id, FlightInstanceCabinRequest request);
 
