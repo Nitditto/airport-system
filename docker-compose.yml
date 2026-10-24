@@ -63,7 +63,7 @@ services:
     container_name: airline-api-gateway
     environment:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       EUREKA_URL: http://service-registry:8761/eureka/
     ports:
       - "5000:5000"
