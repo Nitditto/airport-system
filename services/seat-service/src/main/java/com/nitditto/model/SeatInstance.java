@@ -1,5 +1,6 @@
 package com.nitditto.model;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import com.nitditto.entity.BaseEntity;
@@ -69,6 +70,14 @@ public class SeatInstance extends BaseEntity {
     private Double premiumSuperCharge;
 
     private UUID flightScheduleId;
+
+    // Giữ chỗ tạm thời (TTL). Ghế "đang bị giữ" khi heldUntil còn ở tương lai; hết hạn thì tự coi như trống
+    // (kiểm tra lúc đọc/ghi, không cần job dọn dẹp).
+    @Column(name = "held_by", columnDefinition = "binary(16)")
+    private UUID heldBy;
+
+    @Column(name = "held_until")
+    private Instant heldUntil;
 
     @Version
     @Column(name = "version")
