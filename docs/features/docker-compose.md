@@ -19,9 +19,9 @@ Trang này mô tả cách đóng gói toàn bộ hệ thống thành container v
                   └─────────────────────────────────────────────────────────────┘
 ```
 
-- **11 container BE + 1 MySQL** (+ `frontend` nginx khi bật profile `full`): `service-registry`, `api-gateway` và 9 service nghiệp vụ (`user`, `airline-core`, `flight-ops`, `location`, `pricing`, `seat`, `ancillary`, `booking`, `payment`).
+- **11 container BE + 1 MySQL + 1 Kafka** (+ `frontend` nginx khi bật profile `full`): `service-registry`, `api-gateway` và 9 service nghiệp vụ (`user`, `airline-core`, `flight-ops`, `location`, `pricing`, `seat`, `ancillary`, `booking`, `payment`).
 - Image **không viết Dockerfile** — build bằng [Jib](https://github.com/GoogleContainerTools/jib) trực tiếp từ Maven. Chỉ goal `jib:dockerBuild` cần Docker daemon.
-- Chỉ `api-gateway`, `service-registry` và `mysql` publish port ra máy host (thêm `frontend` :5173 nếu bật profile `full`; nginx của nó proxy `/auth`, `/api` sang gateway nên không cần CORS). Các service nghiệp vụ chỉ truy cập được trong mạng compose (qua gateway hoặc Feign + Eureka).
+- Chỉ `api-gateway`, `service-registry`, `mysql` và `kafka` (`127.0.0.1:9092`) publish port ra máy host (thêm `frontend` :5173 nếu bật profile `full`; nginx của nó proxy `/auth`, `/api` sang gateway nên không cần CORS). Các service nghiệp vụ chỉ truy cập được trong mạng compose (qua gateway hoặc Feign + Eureka).
 
 ## 2. Điều kiện cần
 
@@ -170,3 +170,14 @@ docker compose -f docker-compose.dev.yml up -d
 ```
 
 Dev frontend chạy `npm run dev` trên máy host (HMR) và gọi gateway `:5000`, không cần profile `full`.
+
+## 11. Kafka
+
+- Image `apache/kafka:4.1.1`, chế độ **KRaft** một node (vừa broker vừa controller, không cần ZooKeeper).
+- Compose đầy đủ có **hai listener**: container gọi `kafka:29092` (`INTERNAL`), app chạy trên máy host gọi `localhost:9092` (`EXTERNAL`). Cần tách vì địa chỉ advertised là địa chỉ client sẽ kết nối lại — để `localhost:9092` thì container khác không tới được Kafka.
+- `flight-ops`, `seat`, `booking`, `payment` nhận sẵn `SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092`. Biến này chỉ có tác dụng sau khi service thêm `spring-kafka`; hiện BE chưa có code Kafka nào.
+- `docker-compose.dev.yml` có Kafka một listener `localhost:9092`; service chạy từ IDE đặt `spring.kafka.bootstrap-servers: localhost:9092`.
+- Replication factor và `min.isr` đều bằng 1 vì chỉ có một node (để mặc định 3 Kafka sẽ lỗi). `KAFKA_AUTO_CREATE_TOPICS_ENABLE=true` để topic tự tạo khi producer gửi lần đầu.
+- Dữ liệu lưu ở named volume `kafka-data` (dev: `kafka-dev-data`) mount thẳng vào `/var/lib/kafka/data`, trùng `KAFKA_LOG_DIRS`. Topic và offset sống sót qua `docker compose down`; `down -v` xoá cả Kafka lẫn MySQL.
+- Volume giữ `meta.properties` (node id, cluster id). Đổi `KAFKA_NODE_ID` sau khi đã có dữ liệu thì Kafka không khởi động được — khi đó `down -v` rồi chạy lại.
+- Xem log: `docker compose logs -f kafka`, chờ dòng `Kafka Server started`; hoặc `docker compose ps` thấy `healthy`.
