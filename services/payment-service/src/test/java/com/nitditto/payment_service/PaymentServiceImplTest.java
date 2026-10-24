@@ -55,6 +55,7 @@ class PaymentServiceImplTest {
   @BeforeEach
   void setUp() {
     final VNPayService vnPayService = new VNPayService();
+    ReflectionTestUtils.setField(vnPayService, "vnpTmnCode", "TESTTMN");
     ReflectionTestUtils.setField(vnPayService, "vnpHashSecret", SECRET);
     this.service = new PaymentServiceImpl(this.paymentRepository, this.razorpayService, vnPayService,
         this.eventPublisher);

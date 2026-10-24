@@ -1,5 +1,6 @@
 package com.nitditto.service.gateway;
 
+import com.nitditto.exception.BusinessException;
 import com.nitditto.model.Payment;
 import com.nitditto.payload.response.PaymentLinkResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +41,15 @@ public class VNPayService {
     private static final DateTimeFormatter VNP_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final ZoneId VIETNAM_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
+    private boolean isConfigured() {
+        return this.vnpTmnCode != null && !this.vnpTmnCode.isBlank()
+                && this.vnpHashSecret != null && !this.vnpHashSecret.isBlank();
+    }
+
     public PaymentLinkResponse createPaymentLink(final Payment payment, final String ipAddress) {
+        if (!this.isConfigured()) {
+            throw new BusinessException("VNPay is not configured: set VNPAY_TMN_CODE and VNPAY_HASH_SECRET");
+        }
         final long amount = BigDecimal.valueOf(payment.getAmount())
                 .multiply(BigDecimal.valueOf(100))
                 .setScale(0, RoundingMode.HALF_UP)
@@ -98,6 +107,10 @@ public class VNPayService {
 
     public boolean verifySignature(final Map<String, String> fields, final String secureHash) {
         if (secureHash == null || secureHash.isBlank() || fields == null) {
+            return false;
+        }
+        if (!this.isConfigured()) {
+            log.warn("VNPay signature rejected: VNPAY_TMN_CODE / VNPAY_HASH_SECRET are not configured");
             return false;
         }
 
