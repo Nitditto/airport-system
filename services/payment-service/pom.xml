@@ -31,6 +31,18 @@
         </dependency>
 
         <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+
+        <!-- Client mặc định của Feign (HttpURLConnection) không hỗ trợ PATCH nên BookingClient.confirmPayment sẽ lỗi
+             "Invalid HTTP method: PATCH"; Apache HttpClient 5 hỗ trợ đủ các method. Version do BOM quản lý. -->
+        <dependency>
+            <groupId>io.github.openfeign</groupId>
+            <artifactId>feign-hc5</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
             <scope>runtime</scope>
