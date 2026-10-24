@@ -18,12 +18,9 @@ public class FareMapper {
             return null;
         }
 
-        Double calculatedPrice = request.getCurrentPrice();
-        if (calculatedPrice == null) {
-            final double taxes = request.getTaxesAndFees() != null ? request.getTaxesAndFees() : 0.0;
-            final double fees = request.getAirlineFees() != null ? request.getAirlineFees() : 0.0;
-            calculatedPrice = request.getBaseFare() + taxes + fees;
-        }
+        // currentPrice là phần điều chỉnh/khuyến mãi CỘNG THÊM vào giá (xem Fare.getTotalPrice), nên mặc định 0.
+        // Trước đây mặc định bằng base + thuế + phí khiến tổng tiền bị tính gấp đôi.
+        final Double calculatedPrice = request.getCurrentPrice() != null ? request.getCurrentPrice() : 0.0;
 
         SeatBenefits seatBenefits = SeatBenefits.builder()
                 .extraSeatSpace(bool(request.getExtraSeatSpace()))
