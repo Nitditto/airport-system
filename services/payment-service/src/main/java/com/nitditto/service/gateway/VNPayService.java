@@ -41,7 +41,7 @@ public class VNPayService {
     private static final DateTimeFormatter VNP_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final ZoneId VIETNAM_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
-    private boolean isConfigured() {
+    public boolean isConfigured() {
         return this.vnpTmnCode != null && !this.vnpTmnCode.isBlank()
                 && this.vnpHashSecret != null && !this.vnpHashSecret.isBlank();
     }

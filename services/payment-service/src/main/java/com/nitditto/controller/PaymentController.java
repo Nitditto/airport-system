@@ -4,6 +4,7 @@ import com.nitditto.payload.dto.PaymentDTO;
 import com.nitditto.payload.request.PaymentInitiateRequest;
 import com.nitditto.payload.request.PaymentVerifyRequest;
 import com.nitditto.payload.response.ApiResponse;
+import com.nitditto.payload.response.PaymentGatewayResponse;
 import com.nitditto.payload.response.PaymentInitiateResponse;
 import com.nitditto.service.PaymentService;
 
@@ -33,6 +34,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class PaymentController {
 
     private final PaymentService paymentService;
+
+    @GetMapping("/gateways")
+    public ResponseEntity<ApiResponse<List<PaymentGatewayResponse>>> getAvailableGateways() {
+        return ResponseEntity.ok(ApiResponse.success(this.paymentService.getAvailableGateways()));
+    }
 
     @PostMapping("/initiate")
     public ResponseEntity<ApiResponse<PaymentInitiateResponse>> initiatePayment(

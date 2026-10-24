@@ -3,6 +3,7 @@ package com.nitditto.service;
 import com.nitditto.payload.dto.PaymentDTO;
 import com.nitditto.payload.request.PaymentInitiateRequest;
 import com.nitditto.payload.request.PaymentVerifyRequest;
+import com.nitditto.payload.response.PaymentGatewayResponse;
 import com.nitditto.payload.response.PaymentInitiateResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,4 +23,6 @@ public interface PaymentService {
     Map<UUID, PaymentDTO> getPaymentsByBookingIds(List<UUID> bookingIds);
 
     PaymentDTO checkPaymentVNPay(Map<String, String> allParams);
+
+    List<PaymentGatewayResponse> getAvailableGateways();
 }

@@ -1,6 +1,7 @@
 package com.nitditto.service.impl;
 
 import com.nitditto.enums.PaymentGateway;
+import com.nitditto.payload.response.PaymentGatewayResponse;
 import com.nitditto.enums.PaymentStatus;
 import com.nitditto.event.PaymentSucceededEvent;
 import com.nitditto.exception.BusinessException;
@@ -46,6 +47,15 @@ public class PaymentServiceImpl implements PaymentService {
     private final RazorpayService razorpayService;
     private final VNPayService vnPayService;
     private final ApplicationEventPublisher eventPublisher;
+
+    @Override
+    public List<PaymentGatewayResponse> getAvailableGateways() {
+        return List.of(
+                PaymentGatewayResponse.builder().code(PaymentGateway.RAZORPAY).name("Razorpay")
+                        .enabled(this.razorpayService.isConfigured()).build(),
+                PaymentGatewayResponse.builder().code(PaymentGateway.VNPAY).name("VNPay")
+                        .enabled(this.vnPayService.isConfigured()).build());
+    }
 
     @Override
     @Transactional

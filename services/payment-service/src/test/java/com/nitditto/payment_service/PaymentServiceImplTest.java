@@ -2,13 +2,16 @@ package com.nitditto.payment_service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.nitditto.enums.PaymentGateway;
 import com.nitditto.enums.PaymentStatus;
+import com.nitditto.payload.response.PaymentGatewayResponse;
 import com.nitditto.event.PaymentSucceededEvent;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.model.Payment;
@@ -63,6 +66,15 @@ class PaymentServiceImplTest {
     this.payment = Payment.builder().userId(UUID.randomUUID()).bookingId(this.bookingId).amount(250.0)
         .status(PaymentStatus.PENDING).build();
     this.payment.setId(UUID.randomUUID());
+  }
+
+  @Test
+  void getAvailableGateways_reflectsWhichGatewaysAreConfigured() {
+    when(this.razorpayService.isConfigured()).thenReturn(false);
+
+    assertThat(this.service.getAvailableGateways())
+        .extracting(PaymentGatewayResponse::getCode, PaymentGatewayResponse::isEnabled)
+        .containsExactly(tuple(PaymentGateway.RAZORPAY, false), tuple(PaymentGateway.VNPAY, true));
   }
 
   @Test
