@@ -20,6 +20,10 @@ spring:
         order_inserts: true
         order_updates: true
 
+# Thời hạn thanh toán cho booking PENDING (khớp thời hạn giữ ghế và link VNPay 15 phút).
+booking:
+  payment-window-minutes: ${BOOKING_PAYMENT_WINDOW_MINUTES:15}
+
 eureka:
   client:
     register-with-eureka: true

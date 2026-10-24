@@ -50,6 +50,13 @@ public class BookingController {
     return ResponseEntity.ok(ApiResponse.success(this.bookingService.getBookingById(id)));
   }
 
+  // payment-service gọi (qua Eureka, không qua gateway) ngay sau khi xác minh thanh toán thành công. Endpoint tự kiểm tra
+  // lại với payment-service rằng có thanh toán SUCCESS nên kể cả bị gọi từ ngoài cũng không xác nhận được đơn chưa trả tiền.
+  @PatchMapping("/{id}/confirm-payment")
+  public ResponseEntity<ApiResponse<BookingResponse>> confirmPayment(@PathVariable final UUID id) {
+    return ResponseEntity.ok(ApiResponse.success(this.bookingService.confirmPayment(id)));
+  }
+
   @GetMapping("/airline")
   public ResponseEntity<ApiResponse<Page<BookingResponse>>> getBookingsByAirline(
       @RequestParam(required = false) final String search,
