@@ -16,7 +16,7 @@ public interface PaymentService {
 
     PaymentInitiateResponse initiatePayment(PaymentInitiateRequest request);
 
-    PaymentDTO verifyPayment(PaymentVerifyRequest request);
+    PaymentDTO verifyPayment(PaymentVerifyRequest request, UUID callerUserId);
 
     Page<PaymentDTO> getAllPayments(UUID userId, Pageable pageable);
 

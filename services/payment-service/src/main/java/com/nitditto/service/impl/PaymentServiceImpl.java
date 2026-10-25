@@ -1,6 +1,7 @@
 package com.nitditto.service.impl;
 
 import com.nitditto.enums.PaymentGateway;
+import com.nitditto.exception.ForbiddenException;
 import com.nitditto.payload.response.PaymentGatewayResponse;
 import com.nitditto.enums.PaymentStatus;
 import com.nitditto.event.PaymentSucceededEvent;
@@ -112,9 +113,10 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Override
     @Transactional
-    public PaymentDTO verifyPayment(final PaymentVerifyRequest request) {
+    public PaymentDTO verifyPayment(final PaymentVerifyRequest request, final UUID callerUserId) {
         if (request.getGateway() == PaymentGateway.VNPAY || (request.getVnpTxnRef() != null && !request.getVnpTxnRef().isBlank())) {
             final Payment payment = this.findByVnpTxnRef(request.getVnpTxnRef());
+            this.requireOwner(payment, callerUserId);
             // Không có tham số + chữ ký gốc từ VNPay thì không thể chứng minh khách đã trả tiền.
             if (request.getVnpParams() == null || request.getVnpParams().isEmpty()) {
                 throw new BusinessException("Missing VNPay parameters");
@@ -138,6 +140,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         final Payment payment = this.paymentRepository.findById(UUID.fromString(paymentIdFromNotes))
                 .orElseThrow(() -> new ResourceNotFoundException("Payment", "id", paymentIdFromNotes));
+        this.requireOwner(payment, callerUserId);
 
         final String status = paymentDetails.optString("status");
         payment.setProviderPaymentId(request.getRazorpayPaymentId());
@@ -155,6 +158,14 @@ public class PaymentServiceImpl implements PaymentService {
 
         this.paymentRepository.save(payment);
         return PaymentMapper.toDTO(payment);
+    }
+
+    // verify do khách tự gọi qua gateway: chỉ chủ của payment mới được xác nhận, kẻ khác biết mã giao dịch cũng không can thiệp được.
+    private void requireOwner(final Payment payment, final UUID callerUserId) {
+        if (callerUserId == null || !callerUserId.equals(payment.getUserId())) {
+            log.warn("User {} tried to verify payment {} owned by another user", callerUserId, payment.getId());
+            throw new ForbiddenException("You are not allowed to verify this payment");
+        }
     }
 
     @Override

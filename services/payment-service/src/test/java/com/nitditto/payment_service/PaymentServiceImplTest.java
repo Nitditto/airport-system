@@ -14,6 +14,7 @@ import com.nitditto.enums.PaymentStatus;
 import com.nitditto.payload.response.PaymentGatewayResponse;
 import com.nitditto.event.PaymentSucceededEvent;
 import com.nitditto.exception.BusinessException;
+import com.nitditto.exception.ForbiddenException;
 import com.nitditto.model.Payment;
 import com.nitditto.payload.dto.PaymentDTO;
 import com.nitditto.payload.request.PaymentVerifyRequest;
@@ -29,6 +30,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
+import org.json.JSONObject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -159,9 +161,47 @@ class PaymentServiceImplTest {
     final PaymentVerifyRequest request = PaymentVerifyRequest.builder()
         .vnpTxnRef(this.payment.getId().toString()).vnpResponseCode("00").build();
 
-    assertThatThrownBy(() -> this.service.verifyPayment(request)).isInstanceOf(BusinessException.class);
+    assertThatThrownBy(() -> this.service.verifyPayment(request, this.payment.getUserId()))
+        .isInstanceOf(BusinessException.class);
 
     assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+  }
+
+  @Test
+  void verifyPayment_vnpayByAnotherUser_isForbidden_andLeavesThePaymentUntouched() {
+    givenPaymentFound();
+    final PaymentVerifyRequest request = PaymentVerifyRequest.builder()
+        .vnpTxnRef(this.payment.getId().toString()).vnpParams(vnpResult("00", 25000)).build();
+
+    assertThatThrownBy(() -> this.service.verifyPayment(request, UUID.randomUUID()))
+        .isInstanceOf(ForbiddenException.class);
+
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
+  }
+
+  @Test
+  void verifyPayment_razorpayByAnotherUser_isForbidden_evenWithAValidRazorpayPaymentId() throws Exception {
+    givenPaymentFound();
+    givenRazorpayCaptured("pay_stolen");
+    final PaymentVerifyRequest request = PaymentVerifyRequest.builder().razorpayPaymentId("pay_stolen").build();
+
+    assertThatThrownBy(() -> this.service.verifyPayment(request, UUID.randomUUID()))
+        .isInstanceOf(ForbiddenException.class);
+
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
+  }
+
+  @Test
+  void verifyPayment_razorpayByTheOwner_marksTheCapturedPaymentSuccessful() throws Exception {
+    givenPaymentFound();
+    givenRazorpayCaptured("pay_mine");
+    final PaymentVerifyRequest request = PaymentVerifyRequest.builder().razorpayPaymentId("pay_mine").build();
+
+    final PaymentDTO result = this.service.verifyPayment(request, this.payment.getUserId());
+
+    assertThat(result.getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
   }
 
   @Test
@@ -175,6 +215,13 @@ class PaymentServiceImplTest {
     final Map<UUID, PaymentDTO> result = this.service.getPaymentsByBookingIds(List.of(this.bookingId));
 
     assertThat(result.get(this.bookingId).getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
+  }
+
+  private void givenRazorpayCaptured(final String razorpayPaymentId) throws Exception {
+    final JSONObject details = new JSONObject()
+        .put("status", "captured")
+        .put("notes", new JSONObject().put("payment_id", this.payment.getId().toString()));
+    when(this.razorpayService.fetchPaymentDetails(razorpayPaymentId)).thenReturn(details);
   }
 
   private void givenPaymentFound() {

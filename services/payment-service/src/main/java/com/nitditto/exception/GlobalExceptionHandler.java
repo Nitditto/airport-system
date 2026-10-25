@@ -18,6 +18,11 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(ex.getMessage()));
   }
 
+  @ExceptionHandler(ForbiddenException.class)
+  public ResponseEntity<ApiResponse<Void>> handleForbidden(final ForbiddenException ex) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error(ex.getMessage()));
+  }
+
   @ExceptionHandler(BusinessException.class)
   public ResponseEntity<ApiResponse<Void>> handleBusiness(final BusinessException ex) {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(ex.getMessage()));

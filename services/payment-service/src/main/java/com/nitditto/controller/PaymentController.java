@@ -48,8 +48,9 @@ public class PaymentController {
     }
 
     @PostMapping("/verify")
-    public ResponseEntity<ApiResponse<PaymentDTO>> verifyPayment(@Valid @RequestBody final PaymentVerifyRequest request) {
-        final PaymentDTO response = this.paymentService.verifyPayment(request);
+    public ResponseEntity<ApiResponse<PaymentDTO>> verifyPayment(@Valid @RequestBody final PaymentVerifyRequest request,
+            @RequestHeader("X-User-Id") final UUID userId) {
+        final PaymentDTO response = this.paymentService.verifyPayment(request, userId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
