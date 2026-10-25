@@ -81,26 +81,36 @@ class PaymentServiceImplTest {
 
   @Test
   void checkPaymentVNPay_rejectsSuccessResultWithoutSignature_soNobodyCanFakeAPayment() {
-    givenPaymentFound();
     final Map<String, String> params = vnpResult("00", 25000);
     params.remove("vnp_SecureHash");
 
     assertThatThrownBy(() -> this.service.checkPaymentVNPay(params))
-        .isInstanceOf(BusinessException.class).hasMessageContaining("Invalid VNPay signature");
+        .isInstanceOf(BusinessException.class).hasMessageContaining("VNPay result parameters are required");
 
     assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
     verify(this.eventPublisher, never()).publishEvent(any(Object.class));
   }
 
   @Test
-  void checkPaymentVNPay_rejectsTamperedAmount_evenWithAValidLookingSignatureForOtherData() {
-    givenPaymentFound();
+  void checkPaymentVNPay_rejectsAmountTamperedAfterSigning() {
     final Map<String, String> params = vnpResult("00", 25000);
     params.put("vnp_Amount", "100"); // đổi số tiền sau khi ký
 
-    assertThatThrownBy(() -> this.service.checkPaymentVNPay(params)).isInstanceOf(BusinessException.class);
+    assertThatThrownBy(() -> this.service.checkPaymentVNPay(params))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("Invalid VNPay signature");
 
     assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+  }
+
+  @Test
+  void checkPaymentVNPay_rejectsAValidlySignedResultWhoseAmountDiffersFromThePayment() {
+    givenPaymentFound();
+
+    assertThatThrownBy(() -> this.service.checkPaymentVNPay(vnpResult("00", 100)))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("amount does not match");
+
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
   }
 
   @Test
@@ -146,13 +156,27 @@ class PaymentServiceImplTest {
   }
 
   @Test
-  void checkPaymentVNPay_statusLookupWithoutGatewayResult_changesNothing() {
-    givenPaymentFound();
+  void checkPaymentVNPay_statusLookupWithoutGatewayResult_isRejected_andNeverTouchesTheDatabase() {
+    assertThatThrownBy(() -> this.service.checkPaymentVNPay(Map.of("paymentId", this.payment.getId().toString())))
+        .isInstanceOf(BusinessException.class)
+        .hasMessageContaining("VNPay result parameters are required");
+    assertThatThrownBy(() -> this.service.checkPaymentVNPay(Map.of("bookingId", this.bookingId.toString())))
+        .isInstanceOf(BusinessException.class);
 
-    final PaymentDTO result = this.service.checkPaymentVNPay(Map.of("paymentId", this.payment.getId().toString()));
+    verify(this.paymentRepository, never()).findById(any());
+    verify(this.paymentRepository, never()).findByBookingIdIn(any());
+  }
 
-    assertThat(result.getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
-    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
+  @Test
+  void checkPaymentVNPay_withInvalidSignature_isRejectedBeforeAnyLookup_soPaymentsCannotBeProbed() {
+    final Map<String, String> params = new HashMap<>(vnpResult("00", 25000));
+    params.put("vnp_SecureHash", "deadbeef");
+
+    assertThatThrownBy(() -> this.service.checkPaymentVNPay(params))
+        .isInstanceOf(BusinessException.class)
+        .hasMessageContaining("Invalid VNPay signature");
+
+    verify(this.paymentRepository, never()).findById(any());
   }
 
   @Test
