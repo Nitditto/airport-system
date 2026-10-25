@@ -10,6 +10,12 @@ spring:
   application:
     name: payment-service
 
+  cloud:
+    openfeign:
+      httpclient:
+        hc5:
+          enabled: true
+
   datasource:
     url: jdbc:mysql://localhost:3306/airline_payment
     username: root
@@ -31,6 +37,13 @@ razorpay:
     secret: ${RAZORPAY_KEY_SECRET}
   callback:
     base-url: ${RAZORPAY_CALLBACK_BASE_URL:http://localhost:5173}
+
+vnpay:
+  # để trống = tắt VNPay: service vẫn khởi động, nhưng tạo link/xác thực chữ ký VNPay sẽ bị từ chối
+  tmn-code: ${VNPAY_TMN_CODE:}
+  hash-secret: ${VNPAY_HASH_SECRET:}
+  pay-url: ${VNPAY_PAY_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+  return-url: ${VNPAY_RETURN_URL:http://localhost:5173/payment/result}
 
 eureka:
   client:

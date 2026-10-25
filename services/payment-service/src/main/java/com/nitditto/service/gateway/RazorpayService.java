@@ -8,6 +8,7 @@ import com.razorpay.RazorpayClient;
 import com.razorpay.RazorpayException;
 
 import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
+@Slf4j
 @Service
 public class RazorpayService {
 
@@ -31,7 +33,23 @@ public class RazorpayService {
 
     @PostConstruct
     private void init() throws RazorpayException {
+        if (!this.isConfigured()) {
+            log.warn("Razorpay is not configured: RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are empty");
+            return;
+        }
         this.razorpayClient = new RazorpayClient(this.razorpayKeyId, this.razorpaySecret);
+    }
+
+    public boolean isConfigured() {
+        return this.razorpayKeyId != null && !this.razorpayKeyId.isBlank()
+                && this.razorpaySecret != null && !this.razorpaySecret.isBlank();
+    }
+
+    private RazorpayClient client() throws RazorpayException {
+        if (this.razorpayClient == null) {
+            throw new RazorpayException("Razorpay is not configured: set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET");
+        }
+        return this.razorpayClient;
     }
 
     public PaymentLinkResponse createPaymentLink(final UserDTO user, final Payment payment) throws RazorpayException {
@@ -73,7 +91,7 @@ public class RazorpayService {
         notes.put("user_id", user.getId().toString());
         paymentLinkRequest.put("notes", notes);
 
-        final PaymentLink paymentLink = this.razorpayClient.paymentLink.create(paymentLinkRequest);
+        final PaymentLink paymentLink = this.client().paymentLink.create(paymentLinkRequest);
         final String paymentLinkId = paymentLink.get("id");
         final String paymentLinkUrl = paymentLink.get("short_url");
 
@@ -84,7 +102,7 @@ public class RazorpayService {
     }
 
     public JSONObject fetchPaymentDetails(final String razorpayPaymentId) throws RazorpayException {
-        final com.razorpay.Payment payment = this.razorpayClient.payments.fetch(razorpayPaymentId);
+        final com.razorpay.Payment payment = this.client().payments.fetch(razorpayPaymentId);
         return payment.toJson();
     }
 }

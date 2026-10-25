@@ -4,6 +4,7 @@ import com.nitditto.payload.dto.PaymentDTO;
 import com.nitditto.payload.request.PaymentInitiateRequest;
 import com.nitditto.payload.request.PaymentVerifyRequest;
 import com.nitditto.payload.response.ApiResponse;
+import com.nitditto.payload.response.PaymentGatewayResponse;
 import com.nitditto.payload.response.PaymentInitiateResponse;
 import com.nitditto.service.PaymentService;
 
@@ -34,6 +35,11 @@ public class PaymentController {
 
     private final PaymentService paymentService;
 
+    @GetMapping("/gateways")
+    public ResponseEntity<ApiResponse<List<PaymentGatewayResponse>>> getAvailableGateways() {
+        return ResponseEntity.ok(ApiResponse.success(this.paymentService.getAvailableGateways()));
+    }
+
     @PostMapping("/initiate")
     public ResponseEntity<ApiResponse<PaymentInitiateResponse>> initiatePayment(
             @Valid @RequestBody final PaymentInitiateRequest request) {
@@ -42,8 +48,16 @@ public class PaymentController {
     }
 
     @PostMapping("/verify")
-    public ResponseEntity<ApiResponse<PaymentDTO>> verifyPayment(@Valid @RequestBody final PaymentVerifyRequest request) {
-        final PaymentDTO response = this.paymentService.verifyPayment(request);
+    public ResponseEntity<ApiResponse<PaymentDTO>> verifyPayment(@Valid @RequestBody final PaymentVerifyRequest request,
+            @RequestHeader("X-User-Id") final UUID userId) {
+        final PaymentDTO response = this.paymentService.verifyPayment(request, userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @GetMapping("/check-payment-vnpay")
+    public ResponseEntity<ApiResponse<PaymentDTO>> checkPaymentVNPay(
+            @RequestParam final Map<String, String> allParams) {
+        final PaymentDTO response = this.paymentService.checkPaymentVNPay(allParams);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

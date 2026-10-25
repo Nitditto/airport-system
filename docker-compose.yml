@@ -167,6 +167,11 @@ services:
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
       RAZORPAY_CALLBACK_BASE_URL: ${RAZORPAY_CALLBACK_BASE_URL:-http://localhost:${FRONTEND_PORT:-5173}}
+      # Để trống = tắt VNPay (payment-service vẫn chạy, Razorpay không bị ảnh hưởng); điền vào .env để bật.
+      VNPAY_TMN_CODE: ${VNPAY_TMN_CODE:-}
+      VNPAY_HASH_SECRET: ${VNPAY_HASH_SECRET:-}
+      VNPAY_PAY_URL: ${VNPAY_PAY_URL:-https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+      VNPAY_RETURN_URL: ${VNPAY_RETURN_URL:-http://localhost:${FRONTEND_PORT:-5173}/payment/result}
     depends_on: *depends
 
   frontend:
