@@ -541,6 +541,15 @@ class GatewayJwtE2ETest {
     }
 
     @Test
+    void userRole_cannotLookUpOtherPeoplesPaymentsByBookingIds() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/payments/batch-by-ids", token, Map.of(), "[]").statusCode()).isEqualTo(403);
+      assertThat(send("POST", "/api/payments/Batch-By-Ids/", token, Map.of(), "[]").statusCode()).isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
     void userRole_canStillVerifyAndListOwnPayments() throws Exception {
       final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
 
@@ -553,6 +562,7 @@ class GatewayJwtE2ETest {
       final String token = token(UUID.randomUUID(), ROLE_ADMIN, SECRET, 60_000);
 
       assertThat(send("POST", "/api/payments/initiate", token, Map.of(), "{}").statusCode()).isEqualTo(200);
+      assertThat(send("POST", "/api/payments/batch-by-ids", token, Map.of(), "[]").statusCode()).isEqualTo(200);
     }
   }
 

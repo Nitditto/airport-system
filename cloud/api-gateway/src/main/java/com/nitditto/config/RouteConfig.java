@@ -42,10 +42,10 @@ public class RouteConfig {
     // Thao tác ghi mà khách hàng (mọi người dùng đăng nhập) được phép: giữ/nhả ghế của chính mình.
     // confirm-booked và free (nội bộ, booking-service gọi) cố ý KHÔNG nằm đây nên chỉ ADMIN/OWNER gọi được qua gateway.
     private static final Pattern CUSTOMER_WRITE_PATH = Pattern.compile("^/api/seat-instances/(hold|release)/?$");
-    // payment-service /initiate nhận userId và amount từ body nên chỉ booking-service (Feign nội bộ, không qua gateway)
-    // được gọi; qua gateway chỉ ADMIN. So khớp theo chuỗi con (không phân biệt hoa thường) để đường dẫn biến thể
-    // như /api/payments/./initiate hay /api/payments/initiate;x cũng không lọt.
-    private static final String INTERNAL_PAYMENT_SEGMENT = "initiate";
+    // payment-service /initiate (nhận userId và amount từ body) và /batch-by-ids (tra payment của booking bất kỳ) chỉ
+    // booking-service gọi qua Feign nội bộ, không qua gateway; qua gateway chỉ ADMIN. So khớp theo chuỗi con (không
+    // phân biệt hoa thường) để đường dẫn biến thể như /api/payments/./initiate hay /initiate;x cũng không lọt.
+    private static final List<String> INTERNAL_PAYMENT_SEGMENTS = List.of("initiate", "batch-by-ids");
     private static final Pattern AIRLINE_LISTING_PATH = Pattern.compile("^/api/airlines/?$");
 
     /**
@@ -166,11 +166,12 @@ public class RouteConfig {
         return request -> this.secured(request, writeRoles);
     }
 
-    /** Thanh toán: đăng nhập là đủ, trừ lệnh khởi tạo thanh toán (nội bộ) chỉ dành cho ADMIN. */
+    /** Thanh toán: đăng nhập là đủ, trừ các lệnh nội bộ (khởi tạo thanh toán, tra theo danh sách booking) chỉ dành cho ADMIN. */
     private ServerRequest paymentAccess(final ServerRequest request) {
         final ServerRequest authenticated = this.secured(request, ANY_AUTHENTICATED);
+        final String path = authenticated.path().toLowerCase(java.util.Locale.ROOT);
         if (HttpMethod.POST.equals(authenticated.method())
-                && authenticated.path().toLowerCase(java.util.Locale.ROOT).contains(INTERNAL_PAYMENT_SEGMENT)) {
+                && INTERNAL_PAYMENT_SEGMENTS.stream().anyMatch(path::contains)) {
             return this.requireAnyRole(authenticated, ADMIN);
         }
         return authenticated;
