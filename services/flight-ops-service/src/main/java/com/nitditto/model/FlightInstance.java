@@ -24,7 +24,9 @@ import lombok.Setter;
         indexes = {
                 @Index(name = "idx_flight_instance_airline_departure",
                         columnList = "airline_id, departure_date_time"),
-                @Index(name = "idx_flight_instance_flight", columnList = "flight_id")
+                @Index(name = "idx_flight_instance_flight", columnList = "flight_id"),
+                @Index(name = "idx_flight_instance_route_departure",
+                        columnList = "departure_airport_id, arrival_airport_id, departure_date_time")
         }
 )
 @Getter

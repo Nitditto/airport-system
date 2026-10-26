@@ -16,16 +16,20 @@ import com.nitditto.repository.FlightRepository;
 import com.nitditto.service.FlightInstanceService;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +38,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class FlightInstanceServiceImpl implements FlightInstanceService {
+
+    private static final int MAX_PUBLIC_PAGE_SIZE = 100;
 
     private final FlightRepository flightRepository;
     private final FlightInstanceRepository flightInstanceRepository;
@@ -133,6 +139,84 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
                 .stream().collect(Collectors.toMap(Flight::getId, Function.identity()));
 
         return page.map(fi -> this.convertToFlightInstanceResponse(fi, flightById.get(fi.getFlightId())));
+    }
+
+    @Override
+    public Page<FlightInstanceResponse> searchPublic(final UUID departureAirportId, final UUID arrivalAirportId,
+                                                     final LocalDate onDate, final int passengers,
+                                                     final Pageable pageable) {
+        // Endpoint công khai: chặn size quá lớn để một request không kéo cả bảng.
+        final Pageable safePageable = PageRequest.of(pageable.getPageNumber(),
+                Math.min(pageable.getPageSize(), MAX_PUBLIC_PAGE_SIZE), pageable.getSort());
+
+        // Giờ khởi hành lưu theo giờ địa phương của sân bay đi, nên "đã cất cánh chưa" phải so với giờ hiện
+        // tại ở múi giờ đó, không phải múi giờ của server/container (thường là UTC). Sân bay không tồn tại
+        // thì lời gọi này ném 404 luôn.
+        final AirportResponse departureAirport = this.locationClient.getAirportById(departureAirportId).getData();
+        final ZoneId zone = departureAirport.getTimeZone() != null
+                ? departureAirport.getTimeZone() : ZoneId.systemDefault();
+
+        final Page<FlightInstance> page = this.flightInstanceRepository.searchOpenForSale(departureAirportId,
+                arrivalAirportId, onDate.atStartOfDay(), onDate.plusDays(1).atStartOfDay(),
+                LocalDateTime.now(zone), Math.max(1, passengers), safePageable);
+        if (page.isEmpty()) {
+            return Page.empty(safePageable);
+        }
+
+        // Số lời gọi cố định, không phụ thuộc số chuyến (CLAUDE.md §7): mọi chuyến trong kết quả cùng
+        // cặp sân bay nên chỉ cần 2 lần tra sân bay; hãng và máy bay tra bằng batch-by-ids.
+        final List<FlightInstance> instances = page.getContent();
+        final Map<UUID, Flight> flightById = this.flightRepository
+                .findAllById(instances.stream().map(FlightInstance::getFlightId).distinct().toList())
+                .stream().collect(Collectors.toMap(Flight::getId, Function.identity()));
+        final Map<UUID, AirlineResponse> airlineById = this.airlineClient.getAirlinesByIds(
+                instances.stream().map(FlightInstance::getAirlineId).filter(Objects::nonNull).distinct().toList())
+                .getData();
+        final Map<UUID, AircraftResponse> aircraftById = this.airlineClient.getAircraftsByIds(
+                flightById.values().stream().map(Flight::getAircraftId).filter(Objects::nonNull).distinct().toList())
+                .getData();
+        final AirportResponse arrivalAirport = this.locationClient.getAirportById(arrivalAirportId).getData();
+
+        return page.map(fi -> {
+            final Flight flight = flightById.get(fi.getFlightId());
+            return FlightInstanceMapper.toResponse(fi, flight,
+                    flight != null ? aircraftById.get(flight.getAircraftId()) : null,
+                    fi.getAirlineId() != null ? airlineById.get(fi.getAirlineId()) : null,
+                    departureAirport, arrivalAirport);
+        });
+    }
+
+    @Override
+    public Map<UUID, FlightInstanceResponse> getByIds(final List<UUID> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        final List<FlightInstance> instances = this.flightInstanceRepository.findAllById(ids.stream().distinct().toList());
+        final Map<UUID, Flight> flightById = this.flightRepository
+                .findAllById(instances.stream().map(FlightInstance::getFlightId).distinct().toList()).stream()
+                .collect(Collectors.toMap(Flight::getId, Function.identity()));
+        final Map<UUID, AirlineResponse> airlineById = this.airlineClient.getAirlinesByIds(
+                instances.stream().map(FlightInstance::getAirlineId).filter(Objects::nonNull).distinct().toList())
+                .getData();
+        final Map<UUID, AircraftResponse> aircraftById = this.airlineClient.getAircraftsByIds(
+                flightById.values().stream().map(Flight::getAircraftId).filter(Objects::nonNull).distinct().toList())
+                .getData();
+
+        // Số sân bay khác nhau rất nhỏ so với số chuyến: tra mỗi sân bay đúng một lần.
+        final Map<UUID, AirportResponse> airportById = new HashMap<>();
+        for (final UUID airportId : instances.stream()
+                .flatMap(fi -> java.util.stream.Stream.of(fi.getDepartureAirportId(), fi.getArrivalAirportId()))
+                .filter(Objects::nonNull).distinct().toList()) {
+            airportById.put(airportId, this.locationClient.getAirportById(airportId).getData());
+        }
+
+        return instances.stream().collect(Collectors.toMap(FlightInstance::getId, fi -> {
+            final Flight flight = flightById.get(fi.getFlightId());
+            return FlightInstanceMapper.toResponse(fi, flight,
+                    flight != null ? aircraftById.get(flight.getAircraftId()) : null,
+                    fi.getAirlineId() != null ? airlineById.get(fi.getAirlineId()) : null,
+                    airportById.get(fi.getDepartureAirportId()), airportById.get(fi.getArrivalAirportId()));
+        }));
     }
 
     @Override

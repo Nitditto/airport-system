@@ -5,11 +5,15 @@ import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.FlightInstanceResponse;
 import com.nitditto.service.FlightInstanceService;
 import jakarta.validation.Valid;
+import com.nitditto.exception.BusinessException;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -28,6 +32,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/flight-instances")
 public class FlightInstanceController {
 
+  private static final int MAX_BATCH_SIZE = 200;
+
   private final FlightInstanceService flightInstanceService;
 
   @PostMapping
@@ -37,6 +43,27 @@ public class FlightInstanceController {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(ApiResponse.success(
             this.flightInstanceService.createFlightInstance(userId, flightInstanceRequest)));
+  }
+
+  // Công khai (gateway cho qua không cần JWT): khai báo trước /{id} để không bị coi là id.
+  @GetMapping("/search")
+  public ResponseEntity<ApiResponse<Page<FlightInstanceResponse>>> search(
+      @RequestParam final UUID departureAirportId,
+      @RequestParam final UUID arrivalAirportId,
+      @RequestParam final LocalDate onDate,
+      @RequestParam(defaultValue = "1") final int passengers,
+      @PageableDefault(size = 50, sort = "departureDateTime") final Pageable pageable) {
+    return ResponseEntity.ok(ApiResponse.success(this.flightInstanceService.searchPublic(
+        departureAirportId, arrivalAirportId, onDate, passengers, pageable)));
+  }
+
+  @PostMapping("/batch-by-ids")
+  public ResponseEntity<ApiResponse<Map<UUID, FlightInstanceResponse>>> getByIds(
+      @RequestBody final List<UUID> ids) {
+    if (ids.size() > MAX_BATCH_SIZE) {
+      throw new BusinessException("Cannot load more than %d flight instances at once".formatted(MAX_BATCH_SIZE));
+    }
+    return ResponseEntity.ok(ApiResponse.success(this.flightInstanceService.getByIds(ids)));
   }
 
   @GetMapping("/{id}")
