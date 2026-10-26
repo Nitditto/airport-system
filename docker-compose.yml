@@ -11,7 +11,7 @@
 #
 # Dev FE thường chạy `npm run dev` trên máy host (HMR) và gọi gateway :5000, không cần profile full.
 #
-# Publish ra host: api-gateway (5000), service-registry (8761), mysql (3307),
+# Publish ra host: api-gateway (5000), service-registry (8761), mysql (3307), kafka (9092, chỉ 127.0.0.1),
 # và frontend (5173) khi bật profile full. Nginx của frontend proxy /auth, /api sang gateway.
 # =============================================================================
 
@@ -23,6 +23,9 @@ x-business-service: &business-service
 
 x-eureka: &eureka
   EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
+
+x-kafka: &kafka
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092   # listener INTERNAL, dành cho container trong mạng compose
 
 x-depends: &depends
   mysql:
@@ -48,6 +51,43 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    networks: [airline]
+
+  # Kafka KRaft một node (broker + controller, không cần ZooKeeper).
+  # Hai listener: container gọi kafka:29092 (INTERNAL), app chạy trên máy host gọi localhost:9092 (EXTERNAL).
+  # Dữ liệu lưu ở volume kafka-data (/var/lib/kafka/data), sống sót qua `down`; `down -v` sẽ xoá.
+  kafka:
+    image: apache/kafka:4.1.1
+    container_name: airline-kafka
+    mem_limit: 1g
+    mem_reservation: 512m
+    cpus: 1.0
+    ports:
+      - "127.0.0.1:9092:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
     networks: [airline]
 
   service-registry:
@@ -101,7 +141,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/flight-ops-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-flight-ops-service
     environment:
-      <<: *eureka
+      <<: [*eureka, *kafka]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_flight
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
     depends_on: *depends
@@ -131,7 +171,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/seat-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-seat-service
     environment:
-      <<: *eureka
+      <<: [*eureka, *kafka]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_seat
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
     depends_on: *depends
@@ -151,7 +191,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/booking-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-booking-service
     environment:
-      <<: *eureka
+      <<: [*eureka, *kafka]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_booking
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
     depends_on: *depends
@@ -161,7 +201,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/payment-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-payment-service
     environment:
-      <<: *eureka
+      <<: [*eureka, *kafka]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_payment
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
@@ -193,6 +233,7 @@ services:
 
 volumes:
   mysql-data:
+  kafka-data:
 
 networks:
   airline:

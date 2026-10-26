@@ -1,8 +1,9 @@
 # =============================================================================
-# DEV INFRASTRUCTURE ONLY — chỉ MySQL, publish ra localhost:3306.
+# DEV INFRASTRUCTURE ONLY — MySQL (localhost:3306) và Kafka (localhost:9092).
 # Dùng khi chạy các service từ IDE (application.yaml trỏ jdbc:mysql://localhost:3306,
 # user root / password 123456, Eureka chạy từ IDE ở localhost:8761).
-# BE không dùng Redis / Kafka / Config Server nên không cần container cho chúng.
+# Service chạy từ IDE kết nối Kafka qua spring.kafka.bootstrap-servers=localhost:9092.
+# BE không dùng Redis / Config Server nên không có container cho chúng.
 #
 # Usage:
 #   docker compose -f docker-compose.dev.yml up -d
@@ -30,5 +31,36 @@ services:
       retries: 10
       start_period: 20s
 
+  # Kafka KRaft một node (broker + controller, không cần ZooKeeper).
+  # advertised listener là localhost:9092 nên chỉ app chạy trên máy host kết nối được.
+  kafka:
+    image: apache/kafka:4.1.1
+    container_name: airline-kafka-dev
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka-dev-data:/var/lib/kafka/data
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
 volumes:
   mysql-dev-data:
+  kafka-dev-data:
