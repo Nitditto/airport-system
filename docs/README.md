@@ -79,8 +79,6 @@ mvn clean package -DskipTests
 | Bạn đang định làm gì | Đọc file nào |
 |---|---|
 | Hiểu luật của dự án (nguồn quy tắc gốc) | [`../CLAUDE.md`](../CLAUDE.md) |
-| Biết dự án đi tới đâu, còn những gì | [`ROADMAP.md`](ROADMAP.md) |
-| Việc refactor còn tồn đọng | [`REFACTOR-BACKLOG.md`](REFACTOR-BACKLOG.md) |
 | **Bắt đầu code một service mới** | [`development/02-new-service-checklist.md`](development/02-new-service-checklist.md) |
 | Viết entity / repository / service / controller | `development/03` → `development/06` |
 | Trước khi mở Pull Request | [`development/08-definition-of-done.md`](development/08-definition-of-done.md) |
