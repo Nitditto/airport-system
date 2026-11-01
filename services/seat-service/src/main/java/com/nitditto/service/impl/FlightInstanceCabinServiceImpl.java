@@ -19,12 +19,15 @@ import com.nitditto.repository.SeatInstanceRepository;
 import com.nitditto.repository.SeatMapRepository;
 import com.nitditto.repository.SeatRepository;
 import com.nitditto.service.FlightInstanceCabinService;
+import com.nitditto.service.SeatHoldPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -41,6 +44,7 @@ public class FlightInstanceCabinServiceImpl implements FlightInstanceCabinServic
     private final SeatMapRepository seatMapRepository;
     private final SeatRepository seatRepository;
     private final SeatInstanceRepository seatInstanceRepository;
+    private final Clock clock;
 
     @Override
     @Transactional
@@ -153,14 +157,36 @@ public class FlightInstanceCabinServiceImpl implements FlightInstanceCabinServic
 
     @Override
     public FlightInstanceCabinResponse getByFlightInstanceIdAndCabinClassId(final UUID flightInstanceId,
-            final UUID cabinClassId) {
+            final UUID cabinClassId, final UUID requesterId) {
         final FlightInstanceCabin flightInstanceCabin = this.flightInstanceCabinRepository
                 .findByFlightInstanceIdAndCabinClassId(flightInstanceId, cabinClassId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "FlightInstanceCabin", "flightInstanceId+cabinClassId",
                         flightInstanceId + "/" + cabinClassId));
 
-        return this.toDetailResponse(flightInstanceCabin);
+        final FlightInstanceCabinResponse response = this.toDetailResponse(flightInstanceCabin);
+        this.overlayHolds(response, flightInstanceCabin.getId(), requesterId);
+        return response;
+    }
+
+    // Ghế đang bị người khác giữ chỗ (chưa hết hạn) hiển thị là HELD để không ai chọn trùng trong lúc họ thanh toán.
+    private void overlayHolds(final FlightInstanceCabinResponse response, final UUID flightInstanceCabinId,
+            final UUID requesterId) {
+        if (response.getSeats() == null) {
+            return;
+        }
+        final Instant now = this.clock.instant();
+        final Map<UUID, SeatInstance> entityById = this.seatInstanceRepository
+                .findByFlightInstanceCabinId(flightInstanceCabinId).stream()
+                .collect(Collectors.toMap(SeatInstance::getId, Function.identity()));
+        for (final var seat : response.getSeats()) {
+            final SeatInstance entity = entityById.get(seat.getId());
+            if (entity != null && seat.getStatus() == SeatAvailabilityStatus.AVAILABLE
+                    && SeatHoldPolicy.isHeldByOther(entity, requesterId, now)) {
+                seat.setStatus(SeatAvailabilityStatus.HELD);
+                seat.setIsAvailable(false);
+            }
+        }
     }
 
     /** 1 FlightInstanceCabin + đầy đủ seat instances (5 query cố định, không phụ thuộc số ghế). */

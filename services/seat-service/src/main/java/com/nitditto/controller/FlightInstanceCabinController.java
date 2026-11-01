@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -54,9 +55,10 @@ public class FlightInstanceCabinController {
 
     @GetMapping("/flight-instance/{flightInstanceId}/cabin-class/{cabinClassId}")
     public ResponseEntity<ApiResponse<FlightInstanceCabinResponse>> getByFlightInstanceIdAndCabinClassId(
-            @PathVariable final UUID flightInstanceId, @PathVariable final UUID cabinClassId) {
-        return ResponseEntity.ok(ApiResponse.success(
-                this.flightInstanceCabinService.getByFlightInstanceIdAndCabinClassId(flightInstanceId, cabinClassId)));
+            @PathVariable final UUID flightInstanceId, @PathVariable final UUID cabinClassId,
+            @RequestHeader(value = "X-User-Id", required = false) final UUID requesterId) {
+        return ResponseEntity.ok(ApiResponse.success(this.flightInstanceCabinService
+                .getByFlightInstanceIdAndCabinClassId(flightInstanceId, cabinClassId, requesterId)));
     }
 
     @PutMapping("/{id}")

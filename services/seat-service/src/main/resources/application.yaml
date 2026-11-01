@@ -20,6 +20,11 @@ spring:
         order_inserts: true
         order_updates: true
 
+# Thời gian giữ ghế tạm thời (phút), khớp với thời hạn link thanh toán 15 phút.
+seat:
+  hold:
+    ttl-minutes: ${SEAT_HOLD_TTL_MINUTES:15}
+
 eureka:
   client:
     register-with-eureka: true
