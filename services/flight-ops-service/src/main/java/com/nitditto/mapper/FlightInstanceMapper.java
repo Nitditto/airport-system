@@ -53,6 +53,9 @@ public class FlightInstanceMapper {
         .id(flightInstance.getId())
         .flightId(flightInstance.getFlightId())
         .flightNumber(flight != null ? flight.getFlightNumber() : null)
+        // FE tra hạng ghế theo aircraftId của chuyến; thiếu trường này thì tìm chuyến lỗi 400 (cabin-classes/aircraft/null).
+        .aircraftId(aircraftResponse != null && aircraftResponse.getId() != null ? aircraftResponse.getId()
+            : (flight != null ? flight.getAircraftId() : null))
         .aircraftModal(aircraftResponse != null ? aircraftResponse.getModel() : null)
         .aircraftCode(aircraftResponse != null ? aircraftResponse.getCode() : null)
         .airlineId(flightInstance.getAirlineId())

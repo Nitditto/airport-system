@@ -24,6 +24,9 @@ public interface AirlineClient {
     @GetMapping("/api/aircrafts/{id}")
     ApiResponse<AircraftResponse> getAircraftById(@PathVariable("id") UUID id);
 
+  @PostMapping("/api/airlines/batch-by-ids")
+  ApiResponse<Map<UUID, AirlineResponse>> getAirlinesByIds(@RequestBody List<UUID> ids);
+
   @PostMapping("/api/aircrafts/batch-by-ids")
   ApiResponse<Map<UUID, AircraftResponse>> getAircraftsByIds(@RequestBody List<UUID> ids);
 
