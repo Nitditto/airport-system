@@ -4,11 +4,12 @@ import com.nitditto.enums.BookingStatus;
 import com.nitditto.model.Booking;
 import com.nitditto.payload.dto.PaymentDTO;
 import com.nitditto.payload.request.BookingRequest;
+import com.nitditto.payload.response.AirportResponse;
 import com.nitditto.payload.response.BookingResponse;
 import com.nitditto.payload.response.FareResponse;
 import com.nitditto.payload.response.FlightInstanceResponse;
-import com.nitditto.payload.response.FlightResponse;
-
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,9 +37,9 @@ public class BookingMapper {
 
     public static BookingResponse toResponse(final Booking booking, final BookingEnrichmentContext context) {
         final FlightInstanceResponse flightInstance = context.flightInstance();
-        final FlightResponse flight = context.flight();
         final FareResponse fare = context.fare();
         final PaymentDTO payment = context.payment();
+        final Boolean upcoming = isUpcoming(flightInstance);
 
         return BookingResponse.builder()
                 .id(booking.getId())
@@ -47,17 +48,14 @@ public class BookingMapper {
 
                 .flightId(booking.getFlightId())
                 .flightNumber(flightInstance != null ? flightInstance.getFlightNumber() : null)
-                // todo: nguồn "flightName" thật (tên hãng/route) sẽ lấy từ flight/airline response
-                // một khi tích hợp flight-ops-service; trước đây bị gán trùng flightNumber, để trống
-                // thay vì lặp lại một giá trị sai.
+                .flightName(flightInstance != null ? flightInstance.getAirlineName() : null)
                 .departureTime(flightInstance != null ? flightInstance.getDepartureDateTime() : null)
                 .arrivalTime(flightInstance != null ? flightInstance.getArrivalDateTime() : null)
                 .flightDuration(flightInstance != null ? flightInstance.getFormatedDuration() : null)
-
-                .departureAirport(flight != null && flight.getDepartureAirport() != null
-                        ? flight.getDepartureAirport().getIataCode() : null)
-                .arrivalAirport(flight != null && flight.getArrivalAirport() != null
-                        ? flight.getArrivalAirport().getIataCode() : null)
+                .departureAirport(iata(flightInstance != null ? flightInstance.getDepartureAirport() : null))
+                .arrivalAirport(iata(flightInstance != null ? flightInstance.getArrivalAirport() : null))
+                .isUpcoming(upcoming)
+                .isPast(upcoming != null ? !upcoming : null)
 
                 .status(booking.getBookingStatus())
                 .bookingDate(booking.getCreatedAt())
@@ -78,9 +76,25 @@ public class BookingMapper {
                 .fareBaseFare(fare != null ? fare.getBaseFare() : null)
                 .fareTaxesAndFees(fare != null ? fare.getTaxesAndFees() : null)
                 .fareAirlineFees(fare != null ? fare.getAirlineFees() : null)
-                .totalAmount(fare != null ? fare.getTotalPrice() : null)
+                // Số tiền đã thanh toán/được yêu cầu thanh toán là nguồn chính xác nhất cho tổng đơn.
+                .totalAmount(payment != null ? payment.getAmount() : null)
 
                 .contactInfo(booking.getContactInfo())
                 .build();
+    }
+
+    private static String iata(final AirportResponse airport) {
+        return airport != null ? airport.getIataCode() : null;
+    }
+
+    // Giờ bay là giờ địa phương của sân bay đi nên so với "bây giờ" ở múi giờ đó; không biết giờ bay thì trả null.
+    private static Boolean isUpcoming(final FlightInstanceResponse flightInstance) {
+        if (flightInstance == null || flightInstance.getDepartureDateTime() == null) {
+            return null;
+        }
+        final AirportResponse departure = flightInstance.getDepartureAirport();
+        final ZoneId zone = departure != null && departure.getTimeZone() != null
+                ? departure.getTimeZone() : ZoneId.systemDefault();
+        return flightInstance.getDepartureDateTime().isAfter(LocalDateTime.now(zone));
     }
 }
