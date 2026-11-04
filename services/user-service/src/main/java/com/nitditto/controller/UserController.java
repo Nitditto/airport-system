@@ -1,5 +1,6 @@
 package com.nitditto.controller;
 
+import com.nitditto.enums.UserRole;
 import com.nitditto.payload.dto.UserDTO;
 import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.service.UserService;
@@ -7,6 +8,7 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,7 +30,11 @@ public class UserController {
 
   @GetMapping("/{id}")
   public ResponseEntity<ApiResponse<UserDTO>> getUserById(@PathVariable("id") final UUID id) {
-    return ResponseEntity.ok(ApiResponse.success(this.userService.getUserById(id)));
+    final Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+    final boolean isAdmin = authentication.getAuthorities().stream()
+        .anyMatch(authority -> UserRole.ROLE_SYSTEM_ADMIN.name().equals(authority.getAuthority()));
+    return ResponseEntity.ok(ApiResponse.success(
+        this.userService.getUserById(id, authentication.getName(), isAdmin)));
   }
 
   @GetMapping

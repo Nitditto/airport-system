@@ -9,6 +9,7 @@ import com.nitditto.service.UserService;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,9 +30,12 @@ public class UserServiceImpl implements UserService {
   }
 
   @Override
-  public UserDTO getUserById(final UUID id) {
+  public UserDTO getUserById(final UUID id, final String requesterEmail, final boolean requesterIsAdmin) {
     final User user = this.userRepository.findById(id)
         .orElseThrow(() -> new ResourceNotFoundException("User", "id", id));
+    if (!requesterIsAdmin && (requesterEmail == null || !requesterEmail.equalsIgnoreCase(user.getEmail()))) {
+      throw new AccessDeniedException("Not allowed to read another user's profile");
+    }
     return UserMapper.toDTO(user);
   }
 
