@@ -136,9 +136,8 @@ public class BookingServiceImpl implements BookingService {
 
     private PaymentInitiateResponse initiatePayment(final BookingRequest request, final UUID userId,
             final Booking booking, final double totalPrice) {
-        final PaymentGateway gateway = request.getPaymentGateway() != null
-                ? request.getPaymentGateway()
-                : PaymentGateway.VNPAY;
+        // bắt buộc trong BookingRequest (@NotNull) nên không tự mặc định cổng thanh toán.
+        final PaymentGateway gateway = request.getPaymentGateway();
         final PaymentInitiateRequest paymentInitiateRequest = PaymentInitiateRequest.builder()
                 .userId(userId)
                 .bookingId(booking.getId())
@@ -146,7 +145,7 @@ public class BookingServiceImpl implements BookingService {
                 .paymentGateway(gateway)
                 .description("Payment for booking ID : " + booking.getBookingReference())
                 .build();
-        return this.paymentClient.initiatePayment(paymentInitiateRequest).getData();
+        return this.paymentClient.initiatePayment(paymentInitiateRequest).getBody().getData();
     }
 
     // Bắt lỗi ở đây (ngoài proxy) chứ không trong method @Transactional: lỗi commit chỉ lộ ra sau khi method trả về.

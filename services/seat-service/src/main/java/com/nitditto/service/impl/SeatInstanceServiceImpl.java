@@ -49,6 +49,4 @@ public class SeatInstanceServiceImpl implements SeatInstanceService {
         si -> SeatInstanceMapper.toResponse(
             new SeatInstanceMapper.SeatInstanceContext(si, seatById.get(si.getSeatId()), null, null))));
   }
-
-
 }

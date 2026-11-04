@@ -49,7 +49,7 @@ import org.springframework.test.web.servlet.MvcResult;
 class BookingIdempotencyE2ETest {
 
   private static final String BODY = """
-      {"flightId":"%s","flightInstanceId":"%s","cabinClassType":"ECONOMY","fareId":"%s",
+      {"flightId":"%s","flightInstanceId":"%s","cabinClassType":"ECONOMY","fareId":"%s","paymentGateway":"VNPAY",
        "passengers":[{"firstName":"An","lastName":"Nguyen","email":"an@test.vn","phone":"0900000001",
                       "dateOfBirth":"1995-01-01","gender":"MALE","seatInstanceId":"%s"}]}
       """;

@@ -2,6 +2,7 @@ package com.nitditto.payment_service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -13,6 +14,9 @@ import com.nitditto.enums.PaymentStatus;
 import com.nitditto.event.PaymentFailedEvent;
 import com.nitditto.event.PaymentSucceededEvent;
 import com.nitditto.exception.BusinessException;
+import com.nitditto.enums.PaymentGateway;
+import com.nitditto.payload.response.PaymentGatewayResponse;
+import com.nitditto.exception.ForbiddenException;
 import com.nitditto.model.Payment;
 import com.nitditto.payload.dto.PaymentDTO;
 import com.nitditto.payload.request.PaymentVerifyRequest;
@@ -28,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
+import org.json.JSONObject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -59,6 +64,7 @@ class PaymentServiceImplTest {
   @BeforeEach
   void setUp() {
     final VNPayService vnPayService = new VNPayService();
+    ReflectionTestUtils.setField(vnPayService, "vnpTmnCode", "TESTTMN");
     ReflectionTestUtils.setField(vnPayService, "vnpHashSecret", SECRET);
     this.service = new PaymentServiceImpl(this.paymentRepository, this.razorpayService, vnPayService,
         this.eventPublisher, this.userClient);
@@ -69,27 +75,46 @@ class PaymentServiceImplTest {
   }
 
   @Test
+  void getAvailableGateways_reflectsWhichGatewaysAreConfigured() {
+    when(this.razorpayService.isConfigured()).thenReturn(false);
+
+    assertThat(this.service.getAvailableGateways())
+        .extracting(PaymentGatewayResponse::getCode, PaymentGatewayResponse::isEnabled)
+        .containsExactly(tuple(PaymentGateway.RAZORPAY, false), tuple(PaymentGateway.VNPAY, true));
+  }
+
+  @Test
   void checkPaymentVNPay_rejectsSuccessResultWithoutSignature_soNobodyCanFakeAPayment() {
-    givenPaymentFound();
     final Map<String, String> params = vnpResult("00", 25000);
     params.remove("vnp_SecureHash");
 
     assertThatThrownBy(() -> this.service.checkPaymentVNPay(params))
-        .isInstanceOf(BusinessException.class).hasMessageContaining("Invalid VNPay signature");
+        .isInstanceOf(BusinessException.class).hasMessageContaining("VNPay result parameters are required");
 
     assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
     verify(this.eventPublisher, never()).publishEvent(any(Object.class));
   }
 
   @Test
-  void checkPaymentVNPay_rejectsTamperedAmount_evenWithAValidLookingSignatureForOtherData() {
-    givenPaymentFound();
+  void checkPaymentVNPay_rejectsAmountTamperedAfterSigning() {
     final Map<String, String> params = vnpResult("00", 25000);
     params.put("vnp_Amount", "100"); // đổi số tiền sau khi ký
 
-    assertThatThrownBy(() -> this.service.checkPaymentVNPay(params)).isInstanceOf(BusinessException.class);
+    assertThatThrownBy(() -> this.service.checkPaymentVNPay(params))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("Invalid VNPay signature");
 
     assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+  }
+
+  @Test
+  void checkPaymentVNPay_rejectsAValidlySignedResultWhoseAmountDiffersFromThePayment() {
+    givenPaymentFound();
+
+    assertThatThrownBy(() -> this.service.checkPaymentVNPay(vnpResult("00", 100)))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("amount does not match");
+
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
   }
 
   @Test
@@ -147,13 +172,27 @@ class PaymentServiceImplTest {
   }
 
   @Test
-  void checkPaymentVNPay_statusLookupWithoutGatewayResult_changesNothing() {
-    givenPaymentFound();
+  void checkPaymentVNPay_statusLookupWithoutGatewayResult_isRejected_andNeverTouchesTheDatabase() {
+    assertThatThrownBy(() -> this.service.checkPaymentVNPay(Map.of("paymentId", this.payment.getId().toString())))
+        .isInstanceOf(BusinessException.class)
+        .hasMessageContaining("VNPay result parameters are required");
+    assertThatThrownBy(() -> this.service.checkPaymentVNPay(Map.of("bookingId", this.bookingId.toString())))
+        .isInstanceOf(BusinessException.class);
 
-    final PaymentDTO result = this.service.checkPaymentVNPay(Map.of("paymentId", this.payment.getId().toString()));
+    verify(this.paymentRepository, never()).findById(any());
+    verify(this.paymentRepository, never()).findByBookingIdIn(any());
+  }
 
-    assertThat(result.getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
-    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
+  @Test
+  void checkPaymentVNPay_withInvalidSignature_isRejectedBeforeAnyLookup_soPaymentsCannotBeProbed() {
+    final Map<String, String> params = new HashMap<>(vnpResult("00", 25000));
+    params.put("vnp_SecureHash", "deadbeef");
+
+    assertThatThrownBy(() -> this.service.checkPaymentVNPay(params))
+        .isInstanceOf(BusinessException.class)
+        .hasMessageContaining("Invalid VNPay signature");
+
+    verify(this.paymentRepository, never()).findById(any());
   }
 
   @Test
@@ -162,9 +201,47 @@ class PaymentServiceImplTest {
     final PaymentVerifyRequest request = PaymentVerifyRequest.builder()
         .vnpTxnRef(this.payment.getId().toString()).vnpResponseCode("00").build();
 
-    assertThatThrownBy(() -> this.service.verifyPayment(request)).isInstanceOf(BusinessException.class);
+    assertThatThrownBy(() -> this.service.verifyPayment(request, this.payment.getUserId()))
+        .isInstanceOf(BusinessException.class);
 
     assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+  }
+
+  @Test
+  void verifyPayment_vnpayByAnotherUser_isForbidden_andLeavesThePaymentUntouched() {
+    givenPaymentFound();
+    final PaymentVerifyRequest request = PaymentVerifyRequest.builder()
+        .vnpTxnRef(this.payment.getId().toString()).vnpParams(vnpResult("00", 25000)).build();
+
+    assertThatThrownBy(() -> this.service.verifyPayment(request, UUID.randomUUID()))
+        .isInstanceOf(ForbiddenException.class);
+
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
+  }
+
+  @Test
+  void verifyPayment_razorpayByAnotherUser_isForbidden_evenWithAValidRazorpayPaymentId() throws Exception {
+    givenPaymentFound();
+    givenRazorpayCaptured("pay_stolen");
+    final PaymentVerifyRequest request = PaymentVerifyRequest.builder().razorpayPaymentId("pay_stolen").build();
+
+    assertThatThrownBy(() -> this.service.verifyPayment(request, UUID.randomUUID()))
+        .isInstanceOf(ForbiddenException.class);
+
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
+  }
+
+  @Test
+  void verifyPayment_razorpayByTheOwner_marksTheCapturedPaymentSuccessful() throws Exception {
+    givenPaymentFound();
+    givenRazorpayCaptured("pay_mine");
+    final PaymentVerifyRequest request = PaymentVerifyRequest.builder().razorpayPaymentId("pay_mine").build();
+
+    final PaymentDTO result = this.service.verifyPayment(request, this.payment.getUserId());
+
+    assertThat(result.getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
   }
 
   @Test
@@ -178,6 +255,13 @@ class PaymentServiceImplTest {
     final Map<UUID, PaymentDTO> result = this.service.getPaymentsByBookingIds(List.of(this.bookingId));
 
     assertThat(result.get(this.bookingId).getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
+  }
+
+  private void givenRazorpayCaptured(final String razorpayPaymentId) throws Exception {
+    final JSONObject details = new JSONObject()
+        .put("status", "captured")
+        .put("notes", new JSONObject().put("payment_id", this.payment.getId().toString()));
+    when(this.razorpayService.fetchPaymentDetails(razorpayPaymentId)).thenReturn(details);
   }
 
   private void givenPaymentFound() {

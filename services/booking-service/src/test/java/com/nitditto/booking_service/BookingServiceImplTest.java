@@ -44,6 +44,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.http.ResponseEntity;
 
 @ExtendWith(MockitoExtension.class)
 class BookingServiceImplTest {
@@ -244,7 +245,7 @@ class BookingServiceImplTest {
 
   private void givenPaymentIsInitiated() {
     when(this.paymentClient.initiatePayment(any()))
-        .thenReturn(ApiResponse.success(new PaymentInitiateResponse()));
+        .thenReturn(ResponseEntity.ok(ApiResponse.success(new PaymentInitiateResponse())));
   }
 
   private BookingRequest request(final UUID... seatIds) {

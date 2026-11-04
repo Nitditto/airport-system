@@ -2,6 +2,8 @@ package com.nitditto.service.impl;
 
 import com.nitditto.client.UserClient;
 import com.nitditto.enums.PaymentGateway;
+import com.nitditto.exception.ForbiddenException;
+import com.nitditto.payload.response.PaymentGatewayResponse;
 import com.nitditto.enums.PaymentStatus;
 import com.nitditto.event.PaymentFailedEvent;
 import com.nitditto.event.PaymentSucceededEvent;
@@ -49,6 +51,15 @@ public class PaymentServiceImpl implements PaymentService {
     private final VNPayService vnPayService;
     private final ApplicationEventPublisher eventPublisher;
     private final UserClient userClient;
+
+    @Override
+    public List<PaymentGatewayResponse> getAvailableGateways() {
+        return List.of(
+                PaymentGatewayResponse.builder().code(PaymentGateway.RAZORPAY).name("Razorpay")
+                        .enabled(this.razorpayService.isConfigured()).build(),
+                PaymentGatewayResponse.builder().code(PaymentGateway.VNPAY).name("VNPay")
+                        .enabled(this.vnPayService.isConfigured()).build());
+    }
 
     @Override
     @Transactional
@@ -101,9 +112,10 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Override
     @Transactional
-    public PaymentDTO verifyPayment(final PaymentVerifyRequest request) {
+    public PaymentDTO verifyPayment(final PaymentVerifyRequest request, final UUID callerUserId) {
         if (request.getGateway() == PaymentGateway.VNPAY || (request.getVnpTxnRef() != null && !request.getVnpTxnRef().isBlank())) {
             final Payment payment = this.findByVnpTxnRef(request.getVnpTxnRef());
+            this.requireOwner(payment, callerUserId);
             // Không có tham số + chữ ký gốc từ VNPay thì không thể chứng minh khách đã trả tiền.
             if (request.getVnpParams() == null || request.getVnpParams().isEmpty()) {
                 throw new BusinessException("Missing VNPay parameters");
@@ -127,6 +139,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         final Payment payment = this.paymentRepository.findById(UUID.fromString(paymentIdFromNotes))
                 .orElseThrow(() -> new ResourceNotFoundException("Payment", "id", paymentIdFromNotes));
+        this.requireOwner(payment, callerUserId);
 
         final String status = paymentDetails.optString("status");
         payment.setProviderPaymentId(request.getRazorpayPaymentId());
@@ -143,6 +156,14 @@ public class PaymentServiceImpl implements PaymentService {
 
         this.paymentRepository.save(payment);
         return PaymentMapper.toDTO(payment);
+    }
+
+    // verify do khách tự gọi qua gateway: chỉ chủ của payment mới được xác nhận, kẻ khác biết mã giao dịch cũng không can thiệp được.
+    private void requireOwner(final Payment payment, final UUID callerUserId) {
+        if (callerUserId == null || !callerUserId.equals(payment.getUserId())) {
+            log.warn("User {} tried to verify payment {} owned by another user", callerUserId, payment.getId());
+            throw new ForbiddenException("You are not allowed to verify this payment");
+        }
     }
 
     @Override
@@ -178,13 +199,19 @@ public class PaymentServiceImpl implements PaymentService {
             throw new BusinessException("Missing query parameters for VNPay check");
         }
 
-        final Payment payment = this.findPaymentForVnpayCheck(params);
-
+        // Endpoint công khai nên CHỈ phục vụ kết quả có chữ ký của VNPay: không có kết quả/chữ ký thì không tra cứu
+        // (trước đây hỏi theo paymentId/bookingId trả về cả PaymentDTO cho bất kỳ ai). Kiểm tra chữ ký TRƯỚC khi chạm DB
+        // để không dò được payment nào tồn tại qua mã lỗi 404 so với 400.
         final String responseCode = params.get("vnp_ResponseCode");
-        if (responseCode == null || responseCode.isBlank()) {
-            // Chỉ hỏi trạng thái hiện tại (không kèm kết quả từ cổng): trả về, không đổi gì.
-            return PaymentMapper.toDTO(payment);
+        final String secureHash = params.get("vnp_SecureHash");
+        if (responseCode == null || responseCode.isBlank() || secureHash == null || secureHash.isBlank()) {
+            throw new BusinessException("VNPay result parameters are required");
         }
+        if (!this.vnPayService.verifySignature(onlyVnpFields(params), secureHash)) {
+            throw new BusinessException("Invalid VNPay signature");
+        }
+
+        final Payment payment = this.findByVnpTxnRef(params.get("vnp_TxnRef"));
         return this.processVnpayResult(payment, params);
     }
 
@@ -274,40 +301,6 @@ public class PaymentServiceImpl implements PaymentService {
         } catch (final IllegalArgumentException | NullPointerException ex) {
             throw new BusinessException("Invalid VNPay transaction reference");
         }
-    }
-
-    private Payment findPaymentForVnpayCheck(final Map<String, String> params) {
-        String txnRef = params.get("vnp_TxnRef");
-        if (txnRef == null || txnRef.isBlank()) {
-            txnRef = params.get("paymentId");
-        }
-
-        Payment payment = null;
-        if (txnRef != null && !txnRef.isBlank()) {
-            try {
-                payment = this.paymentRepository.findById(UUID.fromString(txnRef)).orElse(null);
-            } catch (final IllegalArgumentException ignored) {
-            }
-        }
-
-        if (payment == null) {
-            final String bookingIdStr = params.get("bookingId");
-            if (bookingIdStr != null && !bookingIdStr.isBlank()) {
-                try {
-                    final List<Payment> payments = this.paymentRepository
-                            .findByBookingIdIn(List.of(UUID.fromString(bookingIdStr)));
-                    if (!payments.isEmpty()) {
-                        payment = payments.get(payments.size() - 1);
-                    }
-                } catch (final IllegalArgumentException ignored) {
-                }
-            }
-        }
-
-        if (payment == null) {
-            throw new ResourceNotFoundException("Payment", "reference", txnRef != null ? txnRef : params.toString());
-        }
-        return payment;
     }
 
     // Chữ ký VNPay chỉ tính trên các field vnp_*; field khác (paymentId, bookingId...) không được đưa vào.

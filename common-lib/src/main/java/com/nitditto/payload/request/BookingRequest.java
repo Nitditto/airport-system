@@ -44,5 +44,6 @@ public class BookingRequest {
 
     private List<UUID> mealIds;
 
+    @NotNull(message = "Payment gateway is required")
     private PaymentGateway paymentGateway;
 }
