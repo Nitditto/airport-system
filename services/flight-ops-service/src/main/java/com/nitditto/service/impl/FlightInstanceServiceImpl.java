@@ -2,6 +2,7 @@ package com.nitditto.service.impl;
 
 import com.nitditto.client.AirlineClient;
 import com.nitditto.client.LocationClient;
+import com.nitditto.event.FlightInstanceCreatedEvent;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.FlightInstanceMapper;
 import com.nitditto.model.Flight;
@@ -14,10 +15,14 @@ import com.nitditto.payload.response.FlightInstanceResponse;
 import com.nitditto.repository.FlightInstanceRepository;
 import com.nitditto.repository.FlightRepository;
 import com.nitditto.service.FlightInstanceService;
+import com.nitditto.service.integration.ReferenceData;
+import com.nitditto.service.integration.ReferenceDataLoader;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -25,7 +30,9 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,10 +42,15 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class FlightInstanceServiceImpl implements FlightInstanceService {
 
+    private static final int MAX_PUBLIC_PAGE_SIZE = 100;
+
     private final FlightRepository flightRepository;
     private final FlightInstanceRepository flightInstanceRepository;
     private final AirlineClient airlineClient;
     private final LocationClient locationClient;
+    private final ReferenceDataLoader referenceDataLoader;
+    // Event được FlightInstanceEventProducer đẩy lên Kafka sau khi transaction commit.
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -53,12 +65,16 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
         // get aircraft data from airline-core-service
         final AircraftResponse aircraftResponse = this.airlineClient.getAircraftById(flight.getAircraftId()).getData();
 
-        final FlightInstance saved = this.flightInstanceRepository.save(
+        final FlightInstance flightInstance = this.flightInstanceRepository.save(
                 this.toEntity(flightInstanceRequest, flight, aircraftResponse));
 
-        // todo: create seat instances
-        // publish kafka event, seat service consume that and create seat instance
-        return this.convertToFlightInstanceResponse(saved, flight);
+        flightInstance.setTotalSeats(aircraftResponse.getTotalSeats());
+        flightInstance.setAvailableSeats(aircraftResponse.getTotalSeats());
+
+        // seat-service nghe event này để sinh seat instance cho chuyến bay.
+        this.publishCreated(flightInstance, flight);
+
+        return this.convertToFlightInstanceResponse(flightInstance, flight);
     }
 
     @Override
@@ -90,6 +106,17 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
             flightInstances.add(this.toEntity(request, flight, aircraftById.get(flight.getAircraftId())));
         }
         this.flightInstanceRepository.saveAll(flightInstances);
+        for (final FlightInstance flightInstance : flightInstances) {
+            this.publishCreated(flightInstance, flightById.get(flightInstance.getFlightId()));
+        }
+    }
+
+    private void publishCreated(final FlightInstance flightInstance, final Flight flight) {
+        this.eventPublisher.publishEvent(FlightInstanceCreatedEvent.builder()
+                .flightInstanceId(flightInstance.getId())
+                .aircraftId(flight.getAircraftId())
+                .flightId(flight.getId())
+                .build());
     }
 
     private void requireOwnedBy(final Flight flight, final UUID airlineId) {
@@ -116,7 +143,7 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
 
     @Override
     public Page<FlightInstanceResponse> getByAirlineId(final UUID userId, final UUID departureAirportId,
-                                                       final UUID arrivalAirportId, final UUID flightId, final LocalDate onDate, final Pageable pageable) {
+            final UUID arrivalAirportId, final UUID flightId, final LocalDate onDate, final Pageable pageable) {
 
         // fetch by owner id
         AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
@@ -126,19 +153,56 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
         final Page<FlightInstance> page = this.flightInstanceRepository.findByAirlineId(airlineResponse.getId(),
                 departureAirportId, arrivalAirportId, flightId, start, end, pageable);
 
-        // Batch-load Flight cho cả trang thay vì fetch từng cái trong Page.map() (N+1)
-        final List<UUID> flightIds = page.getContent().stream()
-                .map(FlightInstance::getFlightId).distinct().toList();
-        final Map<UUID, Flight> flightById = this.flightRepository.findAllById(flightIds)
-                .stream().collect(Collectors.toMap(Flight::getId, Function.identity()));
+        // Batch-load Flight + dữ liệu tham chiếu cho cả trang thay vì gọi từng chuyến
+        // trong Page.map() (N+1)
+        final Map<UUID, FlightInstanceResponse> responseById = this.toResponses(page.getContent());
+        return page.map(fi -> responseById.get(fi.getId()));
+    }
 
-        return page.map(fi -> this.convertToFlightInstanceResponse(fi, flightById.get(fi.getFlightId())));
+    @Override
+    public Page<FlightInstanceResponse> searchPublic(final UUID departureAirportId, final UUID arrivalAirportId,
+            final LocalDate onDate, final int passengers,
+            final Pageable pageable) {
+        // Endpoint công khai: chặn size quá lớn để một request không kéo cả bảng.
+        final Pageable safePageable = PageRequest.of(pageable.getPageNumber(),
+                Math.min(pageable.getPageSize(), MAX_PUBLIC_PAGE_SIZE), pageable.getSort());
+
+        // Giờ khởi hành lưu theo giờ địa phương của sân bay đi, nên "đã cất cánh chưa"
+        // phải so với giờ hiện
+        // tại ở múi giờ đó, không phải múi giờ của server/container (thường là UTC).
+        // Sân bay không tồn tại
+        // thì lời gọi này ném 404 luôn.
+        final AirportResponse departureAirport = this.locationClient.getAirportById(departureAirportId).getData();
+        final ZoneId zone = departureAirport.getTimeZone() != null
+                ? departureAirport.getTimeZone()
+                : ZoneId.systemDefault();
+
+        final Page<FlightInstance> page = this.flightInstanceRepository.searchOpenForSale(departureAirportId,
+                arrivalAirportId, onDate.atStartOfDay(), onDate.plusDays(1).atStartOfDay(),
+                LocalDateTime.now(zone), Math.max(1, passengers), safePageable);
+        if (page.isEmpty()) {
+            return Page.empty(safePageable);
+        }
+
+        // Số lời gọi cố định, không phụ thuộc số chuyến (CLAUDE.md §7): hãng, máy bay,
+        // sân bay
+        // mỗi loại một lời gọi batch-by-ids.
+        final Map<UUID, FlightInstanceResponse> responseById = this.toResponses(page.getContent());
+        return page.map(fi -> responseById.get(fi.getId()));
+    }
+
+    @Override
+    public Map<UUID, FlightInstanceResponse> getByIds(final List<UUID> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        return this.toResponses(this.flightInstanceRepository.findAllById(ids.stream().distinct().toList()));
     }
 
     @Override
     @Transactional
     public FlightInstanceResponse updateFlightInstance(final UUID id,
-                                                       final FlightInstanceRequest flightInstanceRequest) {
+            final FlightInstanceRequest flightInstanceRequest) {
         final FlightInstance existing = this.flightInstanceRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("FlightInstance", "id", id));
         FlightInstanceMapper.updateEntity(flightInstanceRequest, existing);
@@ -157,31 +221,60 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
     }
 
     private FlightInstanceResponse convertToFlightInstanceResponse(final FlightInstance flightInstance,
-                                                                   final Flight flight) {
+            final Flight flight) {
+        final Map<UUID, Flight> flightById = flight != null ? Map.of(flight.getId(), flight) : Map.of();
+        return this.toResponses(List.of(flightInstance), flightById).get(flightInstance.getId());
+    }
 
-        // service to service communication
-        final AirlineResponse airlineResponse = flightInstance.getAirlineId() != null
-                ? airlineClient.getAirlineById(flightInstance.getAirlineId()).getData()
-                : null;
+    /** Map theo id chuyến, giữ thứ tự đầu vào. Nạp Flight bằng một query IN. */
+    private Map<UUID, FlightInstanceResponse> toResponses(final List<FlightInstance> instances) {
+        if (instances.isEmpty()) {
+            return Map.of();
+        }
+        final List<UUID> flightIds = instances.stream().map(FlightInstance::getFlightId).distinct().toList();
+        final Map<UUID, Flight> flightById = this.flightRepository.findAllById(flightIds).stream()
+                .collect(Collectors.toMap(Flight::getId, Function.identity()));
+        return this.toResponses(instances, flightById);
+    }
 
-        final UUID depId = flightInstance.getDepartureAirportId() != null
-                ? flightInstance.getDepartureAirportId()
-                : (flight != null ? flight.getDepartureAirportId() : null);
-        final UUID arrId = flightInstance.getArrivalAirportId() != null
-                ? flightInstance.getArrivalAirportId()
-                : (flight != null ? flight.getArrivalAirportId() : null);
+    private Map<UUID, FlightInstanceResponse> toResponses(final List<FlightInstance> instances,
+            final Map<UUID, Flight> flightById) {
+        final List<UUID> airlineIds = new ArrayList<>(instances.size());
+        final List<UUID> aircraftIds = new ArrayList<>(instances.size());
+        final List<UUID> airportIds = new ArrayList<>(instances.size() * 2);
+        for (final FlightInstance instance : instances) {
+            final Flight flight = flightById.get(instance.getFlightId());
+            airlineIds.add(instance.getAirlineId());
+            aircraftIds.add(flight != null ? flight.getAircraftId() : null);
+            airportIds.add(departureAirportId(instance, flight));
+            airportIds.add(arrivalAirportId(instance, flight));
+        }
+        final ReferenceData referenceData = this.referenceDataLoader.load(airlineIds, aircraftIds, airportIds);
 
-        final AirportResponse departureAirport = depId != null
-                ? locationClient.getAirportById(depId).getData()
-                : null;
-        final AirportResponse arrivalAirport = arrId != null
-                ? locationClient.getAirportById(arrId).getData()
-                : null;
-        final AircraftResponse aircraftResponse = flight != null && flight.getAircraftId() != null
-                ? airlineClient.getAircraftById(flight.getAircraftId()).getData()
-                : null;
+        final Map<UUID, FlightInstanceResponse> responses = new LinkedHashMap<>(instances.size());
+        for (final FlightInstance instance : instances) {
+            final Flight flight = flightById.get(instance.getFlightId());
+            responses.put(instance.getId(), FlightInstanceMapper.toResponse(instance, flight,
+                    referenceData.aircraft(flight != null ? flight.getAircraftId() : null),
+                    referenceData.airline(instance.getAirlineId()),
+                    referenceData.airport(departureAirportId(instance, flight)),
+                    referenceData.airport(arrivalAirportId(instance, flight))));
+        }
+        return responses;
+    }
 
-        return FlightInstanceMapper.toResponse(flightInstance, flight, aircraftResponse, airlineResponse,
-                departureAirport, arrivalAirport);
+    /** Chuyến cũ có thể chưa lưu sân bay riêng — khi đó lấy theo tuyến bay gốc. */
+    private static UUID departureAirportId(final FlightInstance instance, final Flight flight) {
+        if (instance.getDepartureAirportId() != null) {
+            return instance.getDepartureAirportId();
+        }
+        return flight != null ? flight.getDepartureAirportId() : null;
+    }
+
+    private static UUID arrivalAirportId(final FlightInstance instance, final Flight flight) {
+        if (instance.getArrivalAirportId() != null) {
+            return instance.getArrivalAirportId();
+        }
+        return flight != null ? flight.getArrivalAirportId() : null;
     }
 }

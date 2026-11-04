@@ -53,7 +53,8 @@ public class FlightSchedule extends BaseEntity {
   private LocalDate endDate;
 
   @Convert(converter = DayOfWeekSetConverter.class)
-  @Column(name = "operating_days", length = 32)
+  // 7 ngày viết đầy đủ ("MONDAY,TUESDAY,...") dài 55 ký tự; length = 32 làm lịch bay hằng ngày bị "Data too long".
+  @Column(name = "operating_days", length = 80)
   @Builder.Default
   private Set<DayOfWeek> operatingDays = new HashSet<>();
 

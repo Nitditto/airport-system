@@ -28,5 +28,25 @@ public interface FlightInstanceRepository extends JpaRepository<FlightInstance, 
       @Param("dayEnd") LocalDateTime dayEnd,
       Pageable pageable);
 
+  // Tìm cho khách: chỉ chuyến còn mở bán, đủ chỗ cho số khách, chưa cất cánh, khởi hành trong khoảng [dayStart, dayEnd).
+  @Query("""
+          select fi from FlightInstance fi
+          where fi.departureAirportId = :departureAirportId
+          and fi.arrivalAirportId = :arrivalAirportId
+          and fi.departureDateTime >= :dayStart
+          and fi.departureDateTime < :dayEnd
+          and fi.departureDateTime > :now
+          and fi.status = com.nitditto.enums.FlightStatus.SCHEDULED
+          and fi.isActive = true
+          and fi.availableSeats >= :passengers
+      """)
+  Page<FlightInstance> searchOpenForSale(@Param("departureAirportId") UUID departureAirportId,
+      @Param("arrivalAirportId") UUID arrivalAirportId,
+      @Param("dayStart") LocalDateTime dayStart,
+      @Param("dayEnd") LocalDateTime dayEnd,
+      @Param("now") LocalDateTime now,
+      @Param("passengers") int passengers,
+      Pageable pageable);
+
   boolean existsByFlightId(UUID flightId);
 }

@@ -1,7 +1,6 @@
 package com.nitditto.service.impl;
 
 import com.nitditto.client.AirlineClient;
-import com.nitditto.client.LocationClient;
 import com.nitditto.enums.FlightStatus;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
@@ -17,6 +16,8 @@ import com.nitditto.repository.FlightRepository;
 import com.nitditto.repository.FlightScheduleRepository;
 import com.nitditto.service.FlightInstanceService;
 import com.nitditto.service.FlightScheduleService;
+import com.nitditto.service.integration.ReferenceData;
+import com.nitditto.service.integration.ReferenceDataLoader;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -41,8 +42,8 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
     private final FlightRepository flightRepository;
     private final FlightScheduleRepository flightScheduleRepository;
     private final FlightInstanceService flightInstanceService;
-    private final LocationClient locationClient;
     private final AirlineClient airlineClient;
+    private final ReferenceDataLoader referenceDataLoader;
 
     @Transactional(rollbackFor = Exception.class)
     @Override
@@ -144,24 +145,29 @@ public class FlightScheduleServiceImpl implements FlightScheduleService {
         final Map<UUID, Flight> flightById = this.flightRepository.findAllById(flightIds)
                 .stream().collect(Collectors.toMap(Flight::getId, Function.identity()));
 
+        // Một lời gọi batch cho mọi sân bay của danh sách (CLAUDE.md §7)
+        final List<UUID> airportIds = new ArrayList<>(schedules.size() * 2);
+        for (final FlightSchedule schedule : schedules) {
+            airportIds.add(schedule.getDepartureAirportId());
+            airportIds.add(schedule.getArrivalAirportId());
+        }
+        final ReferenceData referenceData = this.referenceDataLoader.load(List.of(), List.of(), airportIds);
+
         final List<FlightScheduleResponse> responses = new ArrayList<>(schedules.size());
         for (final FlightSchedule schedule : schedules) {
-            // todo: service to service communication - Airport thật cần gọi
-            // location-service
-            final AirportResponse departure = AirportResponse.builder().id(schedule.getDepartureAirportId()).build();
-            final AirportResponse arrival = AirportResponse.builder().id(schedule.getArrivalAirportId()).build();
-            responses.add(FlightScheduleMapper.toResponse(
-                    schedule, flightById.get(schedule.getFlightId()), arrival, departure));
+            responses.add(FlightScheduleMapper.toResponse(schedule, flightById.get(schedule.getFlightId()),
+                    airportOrIdOnly(referenceData, schedule.getArrivalAirportId()),
+                    airportOrIdOnly(referenceData, schedule.getDepartureAirportId())));
         }
         return responses;
     }
 
-    private FlightScheduleResponse convertToFlightScheduleResponse(FlightSchedule flightSchedule) {
-        // fetch actual airport data from airline core service
-        final AirportResponse departureAirport = locationClient.getAirportById(flightSchedule.getDepartureAirportId()).getData();
-        final AirportResponse arrivalAirport = locationClient.getAirportById(flightSchedule.getArrivalAirportId()).getData();
-
-        return FlightScheduleMapper.toResponse(flightSchedule, null, arrivalAirport, departureAirport);
-
+    /** Giữ hành vi cũ khi location-service không còn sân bay đó: vẫn trả id để FE không mất liên kết. */
+    private static AirportResponse airportOrIdOnly(final ReferenceData referenceData, final UUID airportId) {
+        final AirportResponse airport = referenceData.airport(airportId);
+        if (airport != null || airportId == null) {
+            return airport;
+        }
+        return AirportResponse.builder().id(airportId).build();
     }
 }
