@@ -45,6 +45,11 @@ public class FlightInstanceCabin extends BaseEntity {
     private Integer bookedSeats = 0;
 
     @Column(nullable = false)
+    /**
+     * KHÔNG dùng để tính tiền vé: giá vé lấy từ pricing-service (Fare), booking chỉ cộng thêm premiumSuperCharge của
+     * ghế. Các cột giá ở cabin (baseFare, taxesAndFees, airlineFees, currentPrice) chỉ mang tính tham khảo; cabin sinh
+     * tự động từ FlightInstanceCreatedEvent có baseFare = 0.
+     */
     private Double baseFare;
 
     @Builder.Default

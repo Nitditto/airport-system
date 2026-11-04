@@ -1,6 +1,7 @@
 package com.nitditto.service.impl;
 
 import com.nitditto.enums.SeatAvailabilityStatus;
+import com.nitditto.config.SeatPricingProperties;
 import com.nitditto.enums.SeatType;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
@@ -19,18 +20,23 @@ import com.nitditto.repository.SeatInstanceRepository;
 import com.nitditto.repository.SeatMapRepository;
 import com.nitditto.repository.SeatRepository;
 import com.nitditto.service.FlightInstanceCabinService;
+import com.nitditto.service.SeatHoldPolicy;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -41,6 +47,8 @@ public class FlightInstanceCabinServiceImpl implements FlightInstanceCabinServic
     private final SeatMapRepository seatMapRepository;
     private final SeatRepository seatRepository;
     private final SeatInstanceRepository seatInstanceRepository;
+    private final Clock clock;
+    private final SeatPricingProperties pricingProperties;
 
     @Override
     @Transactional
@@ -88,6 +96,47 @@ public class FlightInstanceCabinServiceImpl implements FlightInstanceCabinServic
                 savedFlightInstanceCabin, cabinClass, seatMap, seatInstances, seatById));
     }
 
+    // KHÔNG phải giá vé: giá vé lấy từ pricing-service (Fare). Cột base_fare là NOT NULL nên cabin sinh tự động đặt 0.
+    private static final double AUTO_GENERATED_BASE_FARE = 0.0;
+
+    @Override
+    @Transactional
+    public int generateForFlightInstance(final UUID flightInstanceId, final UUID flightId, final UUID aircraftId) {
+        int created = 0;
+        for (final CabinClass cabinClass : this.cabinClassRepository.findByAircraftId(aircraftId)) {
+            if (this.flightInstanceCabinRepository.existsByFlightInstanceIdAndCabinClassId(
+                    flightInstanceId, cabinClass.getId())) {
+                continue;
+            }
+            final SeatMap seatMap = this.seatMapRepository.findByCabinClassId(cabinClass.getId()).orElse(null);
+            if (seatMap == null) {
+                log.warn("Skip cabinClass {} of flightInstance {}: no seat map configured",
+                        cabinClass.getId(), flightInstanceId);
+                continue;
+            }
+            final List<Seat> seats = this.seatRepository.findBySeatMapId(seatMap.getId());
+            if (seats.isEmpty()) {
+                log.warn("Skip cabinClass {} of flightInstance {}: seat map {} has no seats",
+                        cabinClass.getId(), flightInstanceId, seatMap.getId());
+                continue;
+            }
+            final double window = this.pricingProperties.defaultWindowSurcharge();
+            final double aisle = this.pricingProperties.defaultAisleSurcharge();
+            final FlightInstanceCabin savedCabin = this.flightInstanceCabinRepository.save(FlightInstanceCabin.builder()
+                    .flightInstanceId(flightInstanceId)
+                    .cabinClassId(cabinClass.getId())
+                    .totalSeats(seats.size())
+                    .bookedSeats(0)
+                    .baseFare(AUTO_GENERATED_BASE_FARE)
+                    .windowSurcharge(window)
+                    .aisleSurcharge(aisle)
+                    .isActive(true)
+                    .build());
+            created += this.generateSeatInstances(savedCabin, flightId, seatMap, seats, window, aisle).size();
+        }
+        return created;
+    }
+
     private List<SeatInstance> generateSeatInstances(final FlightInstanceCabin flightInstanceCabin,
             final UUID flightId, final SeatMap seatMap, final List<Seat> seats,
             final Double windowSurcharge, final Double aisleSurcharge) {
@@ -95,8 +144,7 @@ public class FlightInstanceCabinServiceImpl implements FlightInstanceCabinServic
 
         final List<SeatInstance> seatInstances = seats.stream()
                 .map(seat -> {
-                    final double premiumSuperCharge = getPremiumSuperCharge(
-                            seat.getSeatType(), windowSurcharge, aisleSurcharge);
+                    final double premiumSuperCharge = this.resolveSurcharge(seat, windowSurcharge, aisleSurcharge);
                     return SeatInstance.builder()
                             .flightId(flightId)
                             .flightInstanceId(flightInstanceCabin.getFlightInstanceId())
@@ -116,12 +164,23 @@ public class FlightInstanceCabinServiceImpl implements FlightInstanceCabinServic
         return seatInstances;
     }
 
-    private static double getPremiumSuperCharge(final SeatType seatType, final Double windowSurcharge,
-            final Double aisleSurcharge) {
-        if (seatType == null) return 0.0;
+    /**
+     * Phụ thu chọn chỗ (seat fee) của một ghế, theo thứ tự ưu tiên:
+     * 1) giá riêng cấu hình trên ghế mẫu (Seat.premiumSuperCharge);
+     * 2) phụ thu theo loại ghế WINDOW/AISLE truyền vào (null thì lấy mặc định seat.pricing.* trong application.yaml);
+     * 3) còn lại 0.
+     */
+    private double resolveSurcharge(final Seat seat, final Double windowSurcharge, final Double aisleSurcharge) {
+        if (seat.getPremiumSuperCharge() != null) {
+            return seat.getPremiumSuperCharge();
+        }
+        final SeatType seatType = seat.getSeatType();
+        if (seatType == null) {
+            return 0.0;
+        }
         return switch (seatType) {
-            case WINDOW -> windowSurcharge != null ? windowSurcharge : 0.0;
-            case AISLE -> aisleSurcharge != null ? aisleSurcharge : 0.0;
+            case WINDOW -> windowSurcharge != null ? windowSurcharge : this.pricingProperties.defaultWindowSurcharge();
+            case AISLE -> aisleSurcharge != null ? aisleSurcharge : this.pricingProperties.defaultAisleSurcharge();
             default -> 0.0;
         };
     }
@@ -153,14 +212,36 @@ public class FlightInstanceCabinServiceImpl implements FlightInstanceCabinServic
 
     @Override
     public FlightInstanceCabinResponse getByFlightInstanceIdAndCabinClassId(final UUID flightInstanceId,
-            final UUID cabinClassId) {
+            final UUID cabinClassId, final UUID requesterId) {
         final FlightInstanceCabin flightInstanceCabin = this.flightInstanceCabinRepository
                 .findByFlightInstanceIdAndCabinClassId(flightInstanceId, cabinClassId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "FlightInstanceCabin", "flightInstanceId+cabinClassId",
                         flightInstanceId + "/" + cabinClassId));
 
-        return this.toDetailResponse(flightInstanceCabin);
+        final FlightInstanceCabinResponse response = this.toDetailResponse(flightInstanceCabin);
+        this.overlayHolds(response, flightInstanceCabin.getId(), requesterId);
+        return response;
+    }
+
+    // Ghế đang bị người khác giữ chỗ (chưa hết hạn) hiển thị là HELD để không ai chọn trùng trong lúc họ thanh toán.
+    private void overlayHolds(final FlightInstanceCabinResponse response, final UUID flightInstanceCabinId,
+            final UUID requesterId) {
+        if (response.getSeats() == null) {
+            return;
+        }
+        final Instant now = this.clock.instant();
+        final Map<UUID, SeatInstance> entityById = this.seatInstanceRepository
+                .findByFlightInstanceCabinId(flightInstanceCabinId).stream()
+                .collect(Collectors.toMap(SeatInstance::getId, Function.identity()));
+        for (final var seat : response.getSeats()) {
+            final SeatInstance entity = entityById.get(seat.getId());
+            if (entity != null && seat.getStatus() == SeatAvailabilityStatus.AVAILABLE
+                    && SeatHoldPolicy.isHeldByOther(entity, requesterId, now)) {
+                seat.setStatus(SeatAvailabilityStatus.HELD);
+                seat.setIsAvailable(false);
+            }
+        }
     }
 
     /** 1 FlightInstanceCabin + đầy đủ seat instances (5 query cố định, không phụ thuộc số ghế). */
