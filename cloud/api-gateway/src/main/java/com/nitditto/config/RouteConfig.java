@@ -16,6 +16,7 @@ import org.springframework.web.servlet.function.ServerRequest;
 import org.springframework.web.servlet.function.ServerResponse;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
@@ -38,7 +39,25 @@ public class RouteConfig {
 
     // POST nhưng bản chất là đọc (CLAUDE.md §6): không được coi là thao tác ghi
     private static final Pattern BATCH_READ_PATH = Pattern.compile("^/api/[^/]+/batch-by-ids/?$");
+    // Thao tác ghi mà khách hàng (mọi người dùng đăng nhập) được phép: giữ/nhả ghế của chính mình.
+    // confirm-booked và free (nội bộ, booking-service gọi) cố ý KHÔNG nằm đây nên chỉ ADMIN/OWNER gọi được qua gateway.
+    private static final Pattern CUSTOMER_WRITE_PATH = Pattern.compile("^/api/seat-instances/(hold|release)/?$");
     private static final Pattern AIRLINE_LISTING_PATH = Pattern.compile("^/api/airlines/?$");
+
+    /**
+     * Endpoint đọc dành cho khách chưa đăng nhập (tìm chuyến bay trên trang chủ). Danh sách này cố ý
+     * hẹp và khai báo tường minh: thêm đường dẫn mới là một quyết định bảo mật, không phải mặc định.
+     * POST /api/fares/search là POST nhưng chỉ tra giá (không ghi), giống ngoại lệ batch-by-ids.
+     */
+    private static final List<PublicRead> PUBLIC_READS = List.of(
+            new PublicRead(HttpMethod.GET, Pattern.compile("^/api/airports(/[^/]+|/city/[^/]+)?/?$")),
+            new PublicRead(HttpMethod.GET, Pattern.compile("^/api/flight-instances/search/?$")),
+            new PublicRead(HttpMethod.GET, Pattern.compile("^/api/cabin-classes/aircraft/[^/]+/?$")),
+            new PublicRead(HttpMethod.POST, Pattern.compile("^/api/fares/search/?$")),
+            new PublicRead(HttpMethod.GET, Pattern.compile("^/api/payments/check-payment-vnpay/?$")));
+
+    private record PublicRead(HttpMethod method, Pattern path) {
+    }
 
     private static final UserRole[] ADMIN = {UserRole.ROLE_SYSTEM_ADMIN};
     private static final UserRole[] ADMIN_OR_OWNER = {UserRole.ROLE_SYSTEM_ADMIN, UserRole.ROLE_AIRLINE_OWNER};
@@ -121,9 +140,22 @@ public class RouteConfig {
         for (final String path : paths) {
             builder.route(RequestPredicates.path(path), HandlerFunctions.http());
         }
-        return builder.before(access)
+        return builder.before(request -> this.isPublicRead(request)
+                        ? this.stripIdentityHeaders(request)
+                        : access.apply(request))
                 .filter(LoadBalancerFilterFunctions.lb(serviceId))
                 .build();
+    }
+
+    private boolean isPublicRead(final ServerRequest request) {
+        // Đường dẫn chưa chuẩn hoá (../, //, %2e) có thể khớp luật công khai ở gateway nhưng được service
+        // phía sau chuẩn hoá thành đường dẫn khác, nên không bao giờ coi là public.
+        final String path = request.path();
+        if (path.contains("..") || path.contains("//") || path.contains("%")) {
+            return false;
+        }
+        return PUBLIC_READS.stream().anyMatch(rule -> rule.method().equals(request.method())
+                && rule.path().matcher(request.path()).matches());
     }
 
     private UnaryOperator<ServerRequest> authenticated(final UserRole... writeRoles) {
@@ -151,7 +183,9 @@ public class RouteConfig {
 
     private boolean isWrite(final ServerRequest request) {
         return WRITE_METHODS.contains(request.method())
-                && !(HttpMethod.POST.equals(request.method()) && BATCH_READ_PATH.matcher(request.path()).matches());
+                && !(HttpMethod.POST.equals(request.method())
+                && (BATCH_READ_PATH.matcher(request.path()).matches()
+                || CUSTOMER_WRITE_PATH.matcher(request.path()).matches()));
     }
 
     private ServerRequest jwtAuthFilter(final ServerRequest request) {
