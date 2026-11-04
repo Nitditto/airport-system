@@ -99,7 +99,7 @@ mvn -pl services/pricing-service test -Dtest=ClassName#methodName
 mvn clean package -DskipTests
 
 # Docker
-mvn clean install && mvn compile jib:dockerBuild    # build image nitditto/<artifactId>:<version>
+mvn package jib:dockerBuild -DskipTests    # build image nitditto/<artifactId>:<version> (KHÔNG dùng compile: image thiếu common-lib)
 docker compose up -d                                # full stack (cần .env có JWT_SECRET, VNPAY_*)
 docker compose -f docker-compose.dev.yml up -d      # chỉ MySQL + Kafka, service chạy từ IDE
 ```
