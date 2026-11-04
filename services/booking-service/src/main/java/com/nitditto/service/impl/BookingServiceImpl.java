@@ -35,6 +35,7 @@ import com.nitditto.service.TicketService;
 import com.nitditto.service.integration.FareIntegrationService;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -124,8 +125,11 @@ public class BookingServiceImpl implements BookingService {
     private double calculateTotalPrice(final BookingRequest request, final List<UUID> seatInstanceIds) {
         final Double farePerPassenger = this.fareIntegrationService.calculateFareTotal(request.getFareId());
         final Double seatPrice = this.seatClient.calculateSeatPrice(seatInstanceIds);
-        final Double ancillaryPrice = this.ancillaryClient.calculateAncillariesPrice(request.getAncillaryIds()).getData();
-        final Double mealPrice = this.ancillaryClient.calculateMealPrice(request.getMealIds()).getData();
+        // ancillaryIds/mealIds là optional trong BookingRequest; Feign không cho body null (IllegalArgumentException -> 500).
+        final Double ancillaryPrice = this.ancillaryClient.calculateAncillariesPrice(
+                Objects.requireNonNullElse(request.getAncillaryIds(), List.of())).getData();
+        final Double mealPrice = this.ancillaryClient.calculateMealPrice(
+                Objects.requireNonNullElse(request.getMealIds(), List.of())).getData();
         return BookingPriceCalculator.total(farePerPassenger, request.getPassengers().size(), seatPrice,
                 ancillaryPrice, mealPrice);
     }

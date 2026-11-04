@@ -199,6 +199,21 @@ class BookingServiceImplTest {
   }
 
   @Test
+  void createBooking_treatsMissingAncillaryAndMealLists_asEmpty() {
+    givenFlightAndPrices(100.0, 0.0);
+    givenBookingIsCreated();
+    givenPaymentIsInitiated();
+    final BookingRequest request = request(this.seatA);
+    request.setAncillaryIds(null);
+    request.setMealIds(null);
+
+    this.service.createBooking(request, this.userId);
+
+    verify(this.ancillaryClient).calculateAncillariesPrice(List.of());
+    verify(this.ancillaryClient).calculateMealPrice(List.of());
+  }
+
+  @Test
   void createBooking_rejectsTwoPassengersOnTheSameSeat() {
     assertThatThrownBy(() -> this.service.createBooking(request(this.seatA, this.seatA), this.userId))
         .isInstanceOf(BusinessException.class).hasMessageContaining("different seat");
