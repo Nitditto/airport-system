@@ -103,7 +103,7 @@ services:
     container_name: airline-api-gateway
     environment:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       EUREKA_URL: http://service-registry:8761/eureka/
     ports:
       - "5000:5000"
@@ -207,6 +207,11 @@ services:
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
       RAZORPAY_CALLBACK_BASE_URL: ${RAZORPAY_CALLBACK_BASE_URL:-http://localhost:${FRONTEND_PORT:-5173}}
+      # application.yaml đọc ${VNPAY_*} không có giá trị mặc định cho tmn-code/hash-secret nên container BẮT BUỘC nhận các biến này.
+      VNPAY_TMN_CODE: ${VNPAY_TMN_CODE:?VNPAY_TMN_CODE is required}
+      VNPAY_HASH_SECRET: ${VNPAY_HASH_SECRET:?VNPAY_HASH_SECRET is required}
+      VNPAY_PAY_URL: ${VNPAY_PAY_URL:-https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+      VNPAY_RETURN_URL: ${VNPAY_RETURN_URL:-http://localhost:${FRONTEND_PORT:-5173}/payment/result}
     depends_on: *depends
 
   frontend:
