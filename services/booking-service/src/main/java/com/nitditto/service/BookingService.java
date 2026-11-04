@@ -16,6 +16,9 @@ public interface BookingService {
 
     BookingResponse getBookingById(UUID id);
 
+    /** Xác nhận booking sau khi thanh toán thành công (payment-service gọi); idempotent, tự kiểm tra lại thanh toán. */
+    BookingResponse confirmPayment(UUID id);
+
     Page<BookingResponse> getAllBookingsByAirline(UUID userId, String search, BookingStatus status,
             UUID flightInstanceId, Pageable pageable);
 

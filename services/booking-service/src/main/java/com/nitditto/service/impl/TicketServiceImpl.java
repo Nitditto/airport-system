@@ -70,6 +70,31 @@ public class TicketServiceImpl implements TicketService {
 
     @Override
     @Transactional
+    public void issueTicketsForBooking(final UUID bookingId) {
+        final List<Ticket> tickets = this.ticketRepository.findByBookingId(bookingId);
+        final Instant now = Instant.now();
+        for (final Ticket ticket : tickets) {
+            if (ticket.getTicketStatus() == TicketStatus.BOOKED) {
+                ticket.setIssuedAt(now);
+            }
+        }
+        this.ticketRepository.saveAll(tickets);
+    }
+
+    @Override
+    @Transactional
+    public void expireTicketsForBooking(final UUID bookingId) {
+        final List<Ticket> tickets = this.ticketRepository.findByBookingId(bookingId);
+        for (final Ticket ticket : tickets) {
+            if (ticket.getTicketStatus() == TicketStatus.BOOKED) {
+                ticket.setTicketStatus(TicketStatus.EXPIRED);
+            }
+        }
+        this.ticketRepository.saveAll(tickets);
+    }
+
+    @Override
+    @Transactional
     public void deleteTicketsForBooking(final UUID bookingId) {
         this.ticketRepository.deleteByBookingId(bookingId);
     }

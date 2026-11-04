@@ -15,5 +15,10 @@ public interface TicketService {
 
     void cancelTicketsForBooking(UUID bookingId);
 
+    /** Phát hành vé sau khi thanh toán thành công: vé ở trạng thái BOOKED và cập nhật thời điểm phát hành. */
+    void issueTicketsForBooking(UUID bookingId);
+
+    void expireTicketsForBooking(UUID bookingId);
+
     void deleteTicketsForBooking(UUID bookingId);
 }
