@@ -21,4 +21,5 @@ public interface PaymentService {
 
     Map<UUID, PaymentDTO> getPaymentsByBookingIds(List<UUID> bookingIds);
 
+    PaymentDTO checkPaymentVNPay(Map<String, String> allParams);
 }

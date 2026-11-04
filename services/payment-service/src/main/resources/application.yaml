@@ -10,6 +10,21 @@ spring:
   application:
     name: payment-service
 
+  cloud:
+    openfeign:
+      httpclient:
+        hc5:
+          enabled: true
+      # Gọi confirm-payment chạy trên thread request /verify (sau commit): timeout ngắn để không treo người dùng.
+      client:
+        config:
+          booking-service:
+            connect-timeout: 2000
+            read-timeout: 5000
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}}
+
   datasource:
     url: jdbc:mysql://localhost:3306/airline_payment
     username: root
@@ -25,12 +40,19 @@ spring:
         order_inserts: true
         order_updates: true
 
+
 razorpay:
   api:
     key: ${RAZORPAY_KEY_ID}
     secret: ${RAZORPAY_KEY_SECRET}
   callback:
     base-url: ${RAZORPAY_CALLBACK_BASE_URL:http://localhost:5173}
+
+vnpay:
+  tmn-code: ${VNPAY_TMN_CODE}
+  hash-secret: ${VNPAY_HASH_SECRET}
+  pay-url: ${VNPAY_PAY_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+  return-url: ${VNPAY_RETURN_URL:http://localhost:5173/payment/result}
 
 eureka:
   client:

@@ -47,6 +47,13 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
+    @GetMapping("/check-payment-vnpay")
+    public ResponseEntity<ApiResponse<PaymentDTO>> checkPaymentVNPay(
+            @RequestParam final Map<String, String> allParams) {
+        final PaymentDTO response = this.paymentService.checkPaymentVNPay(allParams);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
     @PostMapping("/batch-by-ids")
     public ResponseEntity<ApiResponse<Map<UUID, PaymentDTO>>> getPaymentsByBookingIds(
             @RequestBody final List<UUID> bookingIds) {
