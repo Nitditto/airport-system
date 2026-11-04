@@ -73,6 +73,10 @@ public class Fare extends BaseEntity {
     @Builder.Default
     private PremiumServiceBenefits premiumServiceBenefits = new PremiumServiceBenefits();
 
+    /**
+     * Giá một hành khách phải trả = giá cơ bản + thuế/phí + phí hãng + {@code currentPrice}.
+     * {@code currentPrice} là phần điều chỉnh/khuyến mãi cộng thêm (mặc định 0), không phải giá ghi đè.
+     */
     public Double getTotalPrice() {
         final double base = this.baseFare != null ? this.baseFare : 0.0;
         final double taxes = this.taxedAndFees != null ? this.taxedAndFees : 0.0;
