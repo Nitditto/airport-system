@@ -13,6 +13,7 @@ import java.util.UUID;
 
 import com.nitditto.embeddable.ContactInfo;
 import com.nitditto.enums.CabinClassType;
+import com.nitditto.enums.PaymentGateway;
 
 @Data
 @Builder
@@ -42,4 +43,6 @@ public class BookingRequest {
     private List<UUID> ancillaryIds;
 
     private List<UUID> mealIds;
+
+    private PaymentGateway paymentGateway;
 }
