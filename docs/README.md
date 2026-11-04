@@ -4,16 +4,18 @@ Hệ thống quản lý hàng không dạng multi-module Maven (`com.nitditto:ai
 repo `Nitditto/airport-system`), tách theo domain thành các microservice độc lập:
 airline core, flight operations, location, pricing, seat, ancillary và user/auth.
 
-Mỗi service có **database riêng** (database-per-service), giao tiếp với nhau bằng
-tham chiếu `UUID` thô + endpoint batch-fetch — chưa có service discovery, config server,
-API gateway hay message broker.
+Mỗi service có **database riêng** (database-per-service), đứng sau `api-gateway` (verify JWT tập trung)
+và đăng ký qua Eureka (`service-registry`). Service gọi nhau bằng OpenFeign với tham chiếu `UUID` thô +
+endpoint batch-fetch. Chưa có config server. Danh sách service, port và quy tắc đầy đủ:
+[`../CLAUDE.md`](../CLAUDE.md).
 
 ## Tech stack
 
 - Java 17 + Spring Boot 4.0.7 + Spring Cloud 2025.1.0
 - MySQL + Spring Data JPA (Hibernate, `ddl-auto: update`)
 - Khóa chính UUIDv7 sinh ở tầng ứng dụng (`BaseEntity` trong `common-lib`)
-- Spring Security + JWT tự viết — chỉ ở `user-service`
+- JWT tự viết — phát hành ở `user-service`, verify ở `api-gateway` (Spring Cloud Gateway Server MVC)
+- Spring Cloud Netflix Eureka, OpenFeign, Kafka (KRaft), Docker Compose + Jib
 - Lombok, Maven multi-module reactor build
 
 ## Các service

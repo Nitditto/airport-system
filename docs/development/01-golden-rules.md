@@ -16,7 +16,7 @@ Nếu chỉ đọc được một trang trong toàn bộ tài liệu này, đọ
 | 8 | **Xoá cha phải tự chặn/xoá con.** Không còn `cascade` để dựa vào. | FK trỏ vào bản ghi không tồn tại |
 | 9 | **Mọi `@RequestBody` phải có `@Valid`.** | Dữ liệu rác vào thẳng DB |
 | 10 | **Mọi endpoint trả dữ liệu phải bọc `ApiResponse<T>`.** (`DELETE` → `204`, không body) | Client phải xử lý 2 format khác nhau |
-| 11 | **Không tin bất cứ gì client gửi để xác định danh tính.** Lấy từ `SecurityContextHolder`. | Ai cũng đọc được dữ liệu người khác |
+| 11 | **Không tin bất cứ gì client gửi để xác định danh tính.** Lấy từ header `X-User-Id` do gateway đặt sau khi verify JWT (riêng `user-service`: `SecurityContextHolder`). Không bao giờ từ body/query. | Ai cũng đọc được dữ liệu người khác |
 | 12 | **Controller/service inject qua interface**, không phải `*ServiceImpl`. | Không thay thế/test được |
 
 ## Bảng annotation bị CẤM tuyệt đối
