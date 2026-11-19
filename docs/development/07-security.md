@@ -1,49 +1,77 @@
 # 07 — Security & Auth
 
-> Hiện thực: `CLAUDE.md` mục "Known Gaps / Nhóm B mục 6".
-> Hiện chỉ `user-service` có Spring Security + JWT. Trang này là chuẩn để áp dụng khi các
-> service khác bắt đầu cần phân quyền.
+> Quy tắc gốc: `CLAUDE.md` §10 (Security & Identity Propagation). Trang này giải thích chi tiết và ví dụ.
+>
+> Mô hình hiện tại: **JWT chỉ được verify ở `api-gateway`**. Gateway gắn danh tính đã xác thực vào header
+> `X-User-Id` / `X-User-Email` / `X-User-Roles` rồi forward. Service nghiệp vụ **không** có Spring Security.
+> Ngoại lệ duy nhất là `user-service` (phát hành JWT, có Spring Security riêng) — §7.2, §7.3 áp dụng cho nó.
 
-## 7.1 — Không bao giờ tin dữ liệu client gửi để xác định danh tính
+## 7.1 — Danh tính chỉ lấy từ nguồn đã được xác thực
 
-Đây là lỗ hổng thật đã tồn tại trong repo và mới được vá.
+```
+Client ─(Bearer JWT)─► api-gateway ── verify chữ ký + hạn ──► SET X-User-* (ghi đè giá trị client tự gửi)
+                                   └─ route public / /auth/** ──► XOÁ mọi X-User-*
+                                                               ─► service nghiệp vụ: tin X-User-*
+```
 
 ```java
-// ❌ SAI — client tự khai "tôi là ai"
-@GetMapping("/profile")
-public ResponseEntity<ApiResponse<UserDTO>> getUserProfile(
-        @RequestHeader("X-User-Email") final String email) {
-    return ResponseEntity.ok(ApiResponse.success(this.userService.getUserByEmail(email)));
+// ❌ SAI — danh tính đến từ dữ liệu client kiểm soát hoàn toàn
+@PostMapping
+public ResponseEntity<ApiResponse<AirlineResponse>> create(@RequestBody @Valid final AirlineRequest request) {
+    return ...this.airlineService.create(request, request.getOwnerId());   // ownerId trong body
+}
+
+@GetMapping("/mine")
+public ... getMine(@RequestParam final UUID userId) { ... }               // userId trong query
+```
+
+```java
+// ✅ ĐÚNG — service nghiệp vụ (đứng sau gateway): đọc header gateway đã đặt
+@PostMapping
+public ResponseEntity<ApiResponse<AirlineResponse>> create(
+        @RequestHeader("X-User-Id") final UUID userId,
+        @RequestBody @Valid final AirlineRequest request) {
+    return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success(this.airlineService.create(request, userId)));
 }
 ```
 
-**Vì sao nguy hiểm:** header do client gửi, server không xác thực gì cả. Bất kỳ user nào
-đã đăng nhập chỉ cần đổi `X-User-Email` thành email người khác là đọc được profile của họ.
-JWT hợp lệ vẫn được gửi kèm, nhưng code **không dùng tới nó** để xác định danh tính.
+```java
+// ✅ ĐÚNG — riêng user-service (có Spring Security): lấy từ SecurityContext
+final String email = SecurityContextHolder.getContext().getAuthentication().getName();
+```
+
+**Vì sao header `X-User-Id` an toàn ở đây:** gateway luôn **`set` (ghi đè)** header sau khi verify JWT
+và **xoá** nó ở route public, nên giá trị client tự gửi không bao giờ tới được service
+(có test `GatewayJwtE2ETest` kiểm chứng). Điều kiện bắt buộc đi kèm:
+
+- Port của service nghiệp vụ **không được publish ra ngoài** (`docker-compose.yml` chỉ publish gateway).
+  Gọi thẳng vào service là bỏ qua toàn bộ lớp xác thực.
+- Không thêm Spring Security / `JwtAuthenticationFilter` vào service nghiệp vụ — trùng lặp và dễ lệch logic
+  với gateway.
+
+**Phân quyền chia hai tầng:**
+
+| Tầng | Câu hỏi | Ở đâu |
+|---|---|---|
+| Role | Ai được gọi route / method này? | `RouteConfig` của gateway |
+| Ownership | Bản ghi này có thuộc người gọi không? | `*ServiceImpl`, so `X-User-Id` với `ownerId`/`userId` |
 
 ```java
-// ✅ ĐÚNG — lấy danh tính từ token đã được server verify chữ ký
-@GetMapping("/profile")
-public ResponseEntity<ApiResponse<UserDTO>> getUserProfile() {
-    final String email = SecurityContextHolder.getContext().getAuthentication().getName();
-    return ResponseEntity.ok(ApiResponse.success(this.userService.getUserByEmail(email)));
+// ✅ Ownership check ở tầng service
+private void requireOwner(final Booking booking, final UUID requesterUserId) {
+    if (!booking.getUserId().equals(requesterUserId)) {
+        throw new BusinessException("You are not allowed to cancel this booking");
+    }
 }
 ```
 
-`JwtAuthenticationFilter` dựng `Authentication` với `principal = email` lấy từ claim của
-token đã verify, nên `getAuthentication().getName()` trả về đúng người gọi và **không thể
-giả mạo**.
+**Gọi service khác thay mặt người dùng:** Feign không tự forward header — truyền tường minh
+`@RequestHeader("X-User-Id") UUID userId` trong signature của client.
 
-**Quy tắc tổng quát:** mọi thông tin dùng để quyết định *"được phép làm gì"* hoặc *"là ai"*
-phải đến từ `SecurityContextHolder`, không bao giờ từ header/body/query do client kiểm soát.
+## 7.2 — Phân quyền theo route trong `user-service`
 
-> **Lưu ý cho service khác:** `airline-core-service` hiện đang nhận `@RequestHeader("X-User-Id")`
-> để xác định chủ sở hữu hãng bay. Pattern này **chỉ an toàn khi đứng sau API Gateway**
-> tự đặt header đó sau khi verify JWT (và gateway phải strip header client gửi lên). Cho tới
-> khi module `cloud/` có Gateway thật, đây vẫn là lỗ hổng cùng loại — đừng nhân bản sang
-> service mới.
-
-## 7.2 — Phân quyền theo route
+> Service nghiệp vụ khác phân quyền theo role ở gateway (`RouteConfig`), không có `SecurityFilterChain`.
 
 ```java
 // ❌ SAI — bật security nhưng mở toàn bộ
@@ -113,8 +141,8 @@ spring:
     password: 123456
 ```
 
-Khi lên môi trường thật: chuyển sang biến môi trường hoặc config server.
-**Tuyệt đối không commit** giá trị thật của DB password hay JWT secret.
+Khi lên môi trường thật: chuyển sang biến môi trường (file `.env`, không commit).
+**Tuyệt đối không commit** giá trị thật của DB password, JWT secret, key VNPay/Razorpay.
 
 Ngoài ra: **không log dữ liệu nhạy cảm** — password, JWT, token, số thẻ.
 
@@ -138,12 +166,18 @@ public ResponseEntity<ApiResponse<Void>> handleUnexpected(final Exception ex) {
 }
 ```
 
+Lỗi Feign cũng vậy: `FeignException.getMessage()` chứa URL nội bộ và body response của service đích.
+Mỗi service có Feign client map `FeignException` → 404 / 503 / 502 với message chung (xem `CLAUDE.md` §8).
+
 ## Checklist security
 
-- [ ] Danh tính lấy từ `SecurityContextHolder`, **không** từ header client gửi
-- [ ] `.anyRequest().authenticated()` là dòng **cuối cùng** trong chuỗi rule
-- [ ] `hasRole("X")` — không tự thêm tiền tố `ROLE_` vào chuỗi truyền vào
-- [ ] `Authentication` dùng constructor **3 tham số** khi sinh JWT
-- [ ] Endpoint trả dữ liệu của nhiều người dùng đã giới hạn theo role
-- [ ] Không commit secret thật; không log password/token
-- [ ] Catch-all handler không trả `ex.getMessage()` ra client
+- [ ] Service nghiệp vụ lấy danh tính qua `@RequestHeader("X-User-Id")`, **không** từ body/query
+- [ ] Không thêm Spring Security / JWT filter vào service nghiệp vụ (chỉ `user-service` có)
+- [ ] Route / endpoint mới đã khai báo trong `RouteConfig` với role đúng; endpoint public là danh sách tường minh
+- [ ] Thao tác sửa/xoá bản ghi có ownership check ở `*ServiceImpl`
+- [ ] Endpoint nội bộ (chỉ service khác gọi) không mở cho nhóm route customer
+- [ ] Không publish port service nghiệp vụ ra ngoài
+- [ ] (`user-service`) `.anyRequest().authenticated()` là dòng **cuối**; `hasRole("X")` không tự thêm `ROLE_`;
+      `Authentication` dùng constructor **3 tham số** khi sinh JWT
+- [ ] Không commit secret thật; không log password/token/secret cổng thanh toán
+- [ ] Catch-all handler và Feign handler không trả `ex.getMessage()` ra client

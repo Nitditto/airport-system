@@ -56,7 +56,8 @@ Nếu số dòng SQL tăng theo số bản ghi trả về thì đang có N+1 —
 
 ### Security
 
-- [ ] Danh tính lấy từ `SecurityContextHolder`, không từ header client
+- [ ] Danh tính lấy từ header `X-User-Id` do gateway đặt (riêng `user-service`: `SecurityContextHolder`), không từ body/query
+- [ ] Route mới đã khai báo trong `RouteConfig` của gateway; thao tác sửa/xoá có ownership check ở service
 - [ ] Không commit secret; không log password/token
 
 ## B. Build & chạy thật
