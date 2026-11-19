@@ -6,6 +6,7 @@ import com.nitditto.payload.response.AirportResponse;
 import com.nitditto.service.AirportService;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -36,6 +37,13 @@ public class AirportController {
   @GetMapping("/{id}")
   public ResponseEntity<ApiResponse<AirportResponse>> getAirportById(@PathVariable final UUID id) {
     return ResponseEntity.ok(ApiResponse.success(this.airportService.getAirportById(id)));
+  }
+
+  /** POST nhưng là thao tác đọc (gateway coi batch-by-ids là đọc) — dùng cho service khác tra nhiều sân bay. */
+  @PostMapping("/batch-by-ids")
+  public ResponseEntity<ApiResponse<Map<UUID, AirportResponse>>> getAirportsByIds(
+      @RequestBody final List<UUID> ids) {
+    return ResponseEntity.ok(ApiResponse.success(this.airportService.getAirportsByIds(ids)));
   }
 
   @GetMapping
