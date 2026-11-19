@@ -9,11 +9,13 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.nitditto.enums.PaymentGateway;
+import com.nitditto.client.UserClient;
 import com.nitditto.enums.PaymentStatus;
-import com.nitditto.payload.response.PaymentGatewayResponse;
+import com.nitditto.event.PaymentFailedEvent;
 import com.nitditto.event.PaymentSucceededEvent;
 import com.nitditto.exception.BusinessException;
+import com.nitditto.enums.PaymentGateway;
+import com.nitditto.payload.response.PaymentGatewayResponse;
 import com.nitditto.exception.ForbiddenException;
 import com.nitditto.model.Payment;
 import com.nitditto.payload.dto.PaymentDTO;
@@ -51,6 +53,8 @@ class PaymentServiceImplTest {
   private RazorpayService razorpayService;
   @Mock
   private ApplicationEventPublisher eventPublisher;
+  @Mock
+  private UserClient userClient;
 
   private PaymentServiceImpl service;
 
@@ -63,7 +67,7 @@ class PaymentServiceImplTest {
     ReflectionTestUtils.setField(vnPayService, "vnpTmnCode", "TESTTMN");
     ReflectionTestUtils.setField(vnPayService, "vnpHashSecret", SECRET);
     this.service = new PaymentServiceImpl(this.paymentRepository, this.razorpayService, vnPayService,
-        this.eventPublisher);
+        this.eventPublisher, this.userClient);
 
     this.payment = Payment.builder().userId(UUID.randomUUID()).bookingId(this.bookingId).amount(250.0)
         .status(PaymentStatus.PENDING).build();
@@ -122,7 +126,13 @@ class PaymentServiceImplTest {
     assertThat(result.getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
     final ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
     verify(this.eventPublisher).publishEvent(captor.capture());
-    assertThat(captor.getValue()).isEqualTo(new PaymentSucceededEvent(this.payment.getId(), this.bookingId));
+    assertThat(captor.getValue()).isInstanceOfSatisfying(PaymentSucceededEvent.class, event -> {
+      assertThat(event.paymentId()).isEqualTo(this.payment.getId());
+      assertThat(event.bookingId()).isEqualTo(this.bookingId);
+      assertThat(event.userId()).isEqualTo(this.payment.getUserId());
+      assertThat(event.amount()).isEqualTo(250.0);
+      assertThat(event.paidAt()).isNotNull();
+    });
   }
 
   @Test
@@ -146,13 +156,19 @@ class PaymentServiceImplTest {
   }
 
   @Test
-  void checkPaymentVNPay_marksFailed_withoutNotifyingBooking_whenSignedResultIsACancel() {
+  void checkPaymentVNPay_marksFailed_andPublishesOnlyFailedEvent_whenSignedResultIsACancel() {
     givenPaymentFound();
 
     final PaymentDTO result = this.service.checkPaymentVNPay(vnpResult("24", 25000));
 
     assertThat(result.getPaymentStatus()).isEqualTo(PaymentStatus.FAILED);
-    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
+    verify(this.eventPublisher, never()).publishEvent(any(PaymentSucceededEvent.class));
+    final ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+    verify(this.eventPublisher).publishEvent(captor.capture());
+    assertThat(captor.getValue()).isInstanceOfSatisfying(PaymentFailedEvent.class, event -> {
+      assertThat(event.bookingId()).isEqualTo(this.bookingId);
+      assertThat(event.paymentId()).isEqualTo(this.payment.getId());
+    });
   }
 
   @Test

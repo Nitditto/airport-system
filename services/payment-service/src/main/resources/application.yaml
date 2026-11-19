@@ -15,6 +15,15 @@ spring:
       httpclient:
         hc5:
           enabled: true
+      # Gọi confirm-payment chạy trên thread request /verify (sau commit): timeout ngắn để không treo người dùng.
+      client:
+        config:
+          booking-service:
+            connect-timeout: 2000
+            read-timeout: 5000
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}}
 
   datasource:
     url: jdbc:mysql://localhost:3306/airline_payment
@@ -30,6 +39,7 @@ spring:
           batch_size: 50
         order_inserts: true
         order_updates: true
+
 
 razorpay:
   api:
@@ -53,3 +63,9 @@ eureka:
       defaultZone: http://localhost:8761/eureka/
   instance:
     prefer-ip-address: true
+
+# Tên topic (CLAUDE.md §9: <domain>.<entity>.<action>, khai ở yaml).
+kafka:
+  topics:
+    payment-transaction-succeeded: payment.transaction.succeeded
+    payment-transaction-failed: payment.transaction.failed
