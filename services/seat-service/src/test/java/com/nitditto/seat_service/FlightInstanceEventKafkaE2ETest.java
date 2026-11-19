@@ -5,8 +5,7 @@ import static org.awaitility.Awaitility.await;
 
 import com.nitditto.enums.CabinClassType;
 import com.nitditto.enums.SeatType;
-import com.nitditto.event.FlightInstanceCreatedEvent;
-import com.nitditto.event.KafkaTopics;
+import com.nitditto.payload.event.FlightInstanceCreatedEvent;
 import com.nitditto.model.CabinClass;
 import com.nitditto.model.Seat;
 import com.nitditto.model.SeatInstance;
@@ -41,10 +40,11 @@ import org.springframework.kafka.test.context.EmbeddedKafka;
     "seat.pricing.default-window-surcharge=1000.0",
     "seat.pricing.default-aisle-surcharge=500.0"
 })
-@EmbeddedKafka(partitions = 1, topics = KafkaTopics.FLIGHT_INSTANCE_CREATED,
+@EmbeddedKafka(partitions = 1, topics = FlightInstanceEventKafkaE2ETest.TOPIC,
     bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 class FlightInstanceEventKafkaE2ETest {
 
+  static final String TOPIC = "flight.instance.created";
   private static final Duration TIMEOUT = Duration.ofSeconds(20);
 
   @Autowired
@@ -91,10 +91,9 @@ class FlightInstanceEventKafkaE2ETest {
   @Test
   void flightInstanceCreated_generatesSeatsWithSurchargePriority_andRedeliveryCreatesNoDuplicates() throws Exception {
     final UUID flightInstanceId = UUID.randomUUID();
-    final FlightInstanceCreatedEvent event = new FlightInstanceCreatedEvent(flightInstanceId, this.aircraftId,
-        UUID.randomUUID());
+    final FlightInstanceCreatedEvent event = FlightInstanceCreatedEvent.of(flightInstanceId, this.aircraftId, UUID.randomUUID());
 
-    this.kafkaTemplate.send(KafkaTopics.FLIGHT_INSTANCE_CREATED, flightInstanceId.toString(), event).get();
+    this.kafkaTemplate.send(TOPIC, flightInstanceId.toString(), event).get();
 
     await().atMost(TIMEOUT).untilAsserted(() ->
         assertThat(this.seatsOf(flightInstanceId)).hasSize(4));
@@ -105,12 +104,11 @@ class FlightInstanceEventKafkaE2ETest {
     assertThat(this.flightInstanceCabinRepository.count()).isEqualTo(1);
 
     // Message tới lại (retry/rebalance): không được sinh thêm dòng nào.
-    this.kafkaTemplate.send(KafkaTopics.FLIGHT_INSTANCE_CREATED, flightInstanceId.toString(), event).get();
+    this.kafkaTemplate.send(TOPIC, flightInstanceId.toString(), event).get();
     final UUID marker = UUID.randomUUID();
-    final FlightInstanceCreatedEvent markerEvent = new FlightInstanceCreatedEvent(marker, this.aircraftId,
-        UUID.randomUUID());
+    final FlightInstanceCreatedEvent markerEvent = FlightInstanceCreatedEvent.of(marker, this.aircraftId, UUID.randomUUID());
     // Cùng partition nên khi marker đã được xử lý thì message lặp ở trước nó chắc chắn đã xử lý xong.
-    this.kafkaTemplate.send(KafkaTopics.FLIGHT_INSTANCE_CREATED, marker.toString(), markerEvent).get();
+    this.kafkaTemplate.send(TOPIC, marker.toString(), markerEvent).get();
     await().atMost(TIMEOUT).untilAsserted(() -> assertThat(this.seatsOf(marker)).hasSize(4));
 
     assertThat(this.seatsOf(flightInstanceId)).hasSize(4);

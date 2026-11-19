@@ -3,6 +3,7 @@ package com.nitditto.event;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
+import com.nitditto.payload.event.FlightInstanceCreatedEvent;
 import com.nitditto.service.FlightInstanceCabinService;
 
 import lombok.RequiredArgsConstructor;
@@ -19,10 +20,11 @@ public class FlightInstanceEventConsumer {
 
   private final FlightInstanceCabinService flightInstanceCabinService;
 
-  @KafkaListener(topics = KafkaTopics.FLIGHT_INSTANCE_CREATED, groupId = "${spring.kafka.consumer.group-id:seat-service-group}")
+  @KafkaListener(topics = "${kafka.topics.flight-instance-created}", groupId = "${spring.application.name}")
   public void handleFlightInstanceCreated(final FlightInstanceCreatedEvent event) {
     final int created = this.flightInstanceCabinService.generateForFlightInstance(
-        event.getFlightInstanceId(), event.getFlightId(), event.getAircraftId());
-    log.info("Created {} seat instances for flightInstanceId={}", created, event.getFlightInstanceId());
+        event.flightInstanceId(), event.flightId(), event.aircraftId());
+    log.info("Created {} seat instances for flightInstanceId={} (eventId={})", created, event.flightInstanceId(),
+        event.eventId());
   }
 }
