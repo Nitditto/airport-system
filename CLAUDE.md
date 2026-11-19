@@ -36,6 +36,7 @@ microservices/
 ├── docker-compose.yml          # Full stack: MySQL + Kafka + Eureka + Gateway + 9 service (+ FE với --profile full)
 ├── docker-compose.dev.yml      # Chỉ hạ tầng (MySQL :3306, Kafka :9092) — chạy service từ IDE
 ├── docker/mysql/init.sql       # Tạo database cho từng service
+├── docker/mysql/migrations/    # Script SQL chạy tay cho DB dev đã tồn tại (xem §17) — KHÔNG mount vào initdb
 ├── common-lib/                 # Shared jar — mọi service phụ thuộc
 │   └── src/main/java/com/nitditto/
 │       ├── entity/             # BaseEntity (@MappedSuperclass)
@@ -496,7 +497,7 @@ private UUID id;
 - UUID sinh ở tầng ứng dụng → Hibernate biết ID trước khi insert → `saveAll()` batch được.
 - Lưu `binary(16)`, không `char(36)`. Query tay trong MySQL: `BIN_TO_UUID(id)` / `UUID_TO_BIN('...')`.
 - **Mọi FK đều `UUID` + `columnDefinition = "binary(16)"`.**
-- `ddl-auto: update` **không đổi được kiểu cột đã có** → đổi kiểu = drop & tạo lại DB dev.
+- `ddl-auto: update` **không đổi được kiểu/độ dài cột đã có** → đổi = drop & tạo lại DB dev, hoặc viết script thủ công nếu phải giữ dữ liệu (§17).
 - **Không** dùng `@Data`/`@EqualsAndHashCode` trên entity. Không override `equals/hashCode` trừ khi thật cần.
 
 ### Naming
@@ -579,6 +580,18 @@ Chỉ 1 service dùng → giữ trong service đó.
 - DB mới phải khai trong `docker/mysql/init.sql`.
 - `ddl-auto: update` chỉ dev. Lên production → Flyway/Liquibase (hỏi trước).
 - **Không** commit credential thật, JWT secret, key cổng thanh toán — dùng biến môi trường + `.env`.
+
+### Migration thủ công (`docker/mysql/migrations/`)
+
+`ddl-auto: update` chỉ thêm bảng/cột/index mới; nó **không** đổi kiểu hay độ dài cột đã có và không sửa dữ liệu cũ. Khi một thay đổi entity cần điều đó **và** phải giữ dữ liệu của DB dev đang có, viết script SQL thủ công thay vì drop DB. DB dev không có dữ liệu cần giữ thì vẫn mặc định drop & tạo lại.
+
+- **Vị trí/tên:** `docker/mysql/migrations/NNN-<mô-tả-kebab>.sql`, `NNN` tăng dần từ `001`. Hiện có `001-fare-current-price.sql`, `002-flight-schedule-operating-days.sql`.
+- **Chạy tay.** Compose chỉ mount `init.sql` vào `/docker-entrypoint-initdb.d`; không công cụ nào tự chạy thư mục này. Đây là giải pháp tạm cho dev, **không thay** Flyway/Liquibase ở production (hỏi trước).
+- **Header comment bắt buộc:** đổi gì và vì sao (nhánh/PR gây ra), chạy trên database nào, DB tạo mới (kể cả sau `docker compose down -v`) có cần chạy không, có idempotent không.
+- **Đúng đích:** `USE <database>;` phải khớp `spring.datasource.url` của service đó. Tên bảng/cột phải là cột Hibernate thực sinh ra (field `taxedAndFees` → cột `taxed_and_fees`); kiểm tra bằng `SHOW CREATE TABLE` thay vì đoán.
+- **Idempotent** (chạy lại không hỏng, vd. `MODIFY COLUMN` về cùng độ dài).
+- **Script sửa dữ liệu:** (1) `SELECT` xem trước đúng các dòng sẽ bị ảnh hưởng; (2) `UPDATE` để **comment**, bọc `START TRANSACTION … COMMIT`, chỉ sửa dòng khớp điều kiện — không `UPDATE` cả bảng; (3) nhắc backup bảng trước khi chạy. ID là `binary(16)`: đọc bằng `BIN_TO_UUID(id)`.
+- **Commit:** đi cùng PR với thay đổi entity gây ra nó. Nếu commit riêng dùng `chore(docker)`.
 
 ---
 
