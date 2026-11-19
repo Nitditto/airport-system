@@ -26,6 +26,7 @@ import com.nitditto.payload.request.BookingRequest;
 import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.BookingResponse;
 import com.nitditto.payload.response.PaymentInitiateResponse;
+import com.nitditto.service.BookingReadAccess;
 import com.nitditto.service.BookingService;
 import com.nitditto.service.IdempotencyService;
 
@@ -51,9 +52,13 @@ public class BookingController {
     return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
   }
 
+  // Chủ booking, chủ hãng bay của booking đó, hoặc admin được xem. X-User-Id / X-User-Roles do gateway ghi đè từ JWT.
   @GetMapping("/{id}")
-  public ResponseEntity<ApiResponse<BookingResponse>> getBookingById(@PathVariable final UUID id) {
-    return ResponseEntity.ok(ApiResponse.success(this.bookingService.getBookingById(id)));
+  public ResponseEntity<ApiResponse<BookingResponse>> getBookingById(@PathVariable final UUID id,
+      @RequestHeader("X-User-Id") final UUID userId,
+      @RequestHeader(value = "X-User-Roles", required = false) final String roles) {
+    return ResponseEntity.ok(ApiResponse.success(
+        this.bookingService.getBookingById(id, userId, BookingReadAccess.hasAdminRole(roles))));
   }
 
   // payment-service gọi (qua Eureka, không qua gateway) ngay sau khi xác minh thanh toán thành công. Endpoint tự kiểm tra
