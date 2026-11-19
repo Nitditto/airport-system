@@ -66,7 +66,7 @@ class BookingServiceReadAccessTest {
     this.givenABookingOwnedBySomeoneElse();
     when(this.airlineClient.getAirlineByOwner(this.stranger)).thenThrow(feignError(404));
 
-    assertThatThrownBy(() -> this.service.getBookingById(this.bookingId, this.stranger))
+    assertThatThrownBy(() -> this.service.getBookingById(this.bookingId, this.stranger, false))
         .isInstanceOf(ForbiddenException.class);
 
     verifyNoInteractions(this.passengerService, this.ticketService, this.bookingEnrichmentService);
@@ -78,7 +78,7 @@ class BookingServiceReadAccessTest {
     final AirlineResponse other = AirlineResponse.builder().id(UUID.randomUUID()).build();
     when(this.airlineClient.getAirlineByOwner(this.stranger)).thenReturn(ApiResponse.success(other));
 
-    assertThatThrownBy(() -> this.service.getBookingById(this.bookingId, this.stranger))
+    assertThatThrownBy(() -> this.service.getBookingById(this.bookingId, this.stranger, false))
         .isInstanceOf(ForbiddenException.class);
 
     verifyNoInteractions(this.passengerService, this.ticketService, this.bookingEnrichmentService);
@@ -89,7 +89,7 @@ class BookingServiceReadAccessTest {
     this.givenABookingOwnedBySomeoneElse();
     when(this.airlineClient.getAirlineByOwner(this.stranger)).thenThrow(feignError(503));
 
-    assertThatThrownBy(() -> this.service.getBookingById(this.bookingId, this.stranger))
+    assertThatThrownBy(() -> this.service.getBookingById(this.bookingId, this.stranger, false))
         .isInstanceOf(FeignException.class)
         .isNotInstanceOf(FeignException.NotFound.class);
 
@@ -97,11 +97,22 @@ class BookingServiceReadAccessTest {
   }
 
   @Test
+  void admin_isNotForbidden_andNoAirlineLookupIsMade() {
+    this.givenABookingOwnedBySomeoneElse();
+
+    // admin qua được bước kiểm tra quyền; việc dựng response (không được mock đầy đủ ở đây) mới là nơi có thể lỗi khác.
+    assertThatThrownBy(() -> this.service.getBookingById(this.bookingId, this.stranger, true))
+        .isNotInstanceOf(ForbiddenException.class);
+
+    verifyNoInteractions(this.airlineClient);
+  }
+
+  @Test
   void unknownBooking_is404_notForbidden() {
     final UUID unknown = UUID.randomUUID();
     when(this.bookingRepository.findById(unknown)).thenReturn(Optional.empty());
 
-    assertThatThrownBy(() -> this.service.getBookingById(unknown, this.stranger))
+    assertThatThrownBy(() -> this.service.getBookingById(unknown, this.stranger, false))
         .isInstanceOf(ResourceNotFoundException.class);
   }
 

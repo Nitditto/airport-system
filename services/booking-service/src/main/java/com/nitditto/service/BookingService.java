@@ -15,10 +15,10 @@ public interface BookingService {
     PaymentInitiateResponse createBooking(BookingRequest request, UUID userId);
 
     /**
-     * Xem một booking. Chỉ chính chủ booking, hoặc chủ hãng bay sở hữu booking đó, được đọc; người khác nhận
+     * Xem một booking. Chỉ chính chủ booking, chủ hãng bay sở hữu booking đó, hoặc admin được đọc; người khác nhận
      * {@code ForbiddenException} (403). Tránh IDOR: id booking không phải bí mật.
      */
-    BookingResponse getBookingById(UUID id, UUID requesterUserId);
+    BookingResponse getBookingById(UUID id, UUID requesterUserId, boolean requesterIsAdmin);
 
     /** Xác nhận booking sau khi thanh toán thành công (payment-service gọi); idempotent, tự kiểm tra lại thanh toán. */
     BookingResponse confirmPayment(UUID id);

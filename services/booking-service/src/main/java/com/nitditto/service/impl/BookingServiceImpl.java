@@ -165,9 +165,10 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
-    public BookingResponse getBookingById(final UUID id, final UUID requesterUserId) {
+    public BookingResponse getBookingById(final UUID id, final UUID requesterUserId, final boolean requesterIsAdmin) {
         final Booking booking = this.findBooking(id);
-        BookingReadAccess.require(booking, requesterUserId, () -> this.airlineIdOwnedBy(requesterUserId));
+        BookingReadAccess.require(booking, requesterUserId, requesterIsAdmin,
+                () -> this.airlineIdOwnedBy(requesterUserId));
         return convertToBookingResponses(List.of(booking)).get(0);
     }
 
