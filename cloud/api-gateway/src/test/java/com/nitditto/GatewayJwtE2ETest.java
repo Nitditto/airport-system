@@ -644,6 +644,26 @@ class GatewayJwtE2ETest {
     }
 
     @Test
+    void readingABooking_forwardsRolesFromTheToken_soACustomerCannotClaimAdminByHeader() throws Exception {
+      // booking-service cho admin đọc mọi booking dựa vào X-User-Roles: gateway phải ghi đè giá trị client tự gửi.
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      send("GET", "/api/bookings/" + UUID.randomUUID(), token, Map.of("X-User-Roles", ROLE_ADMIN), null);
+
+      assertThat(RECEIVED).hasSize(1);
+      assertThat(RECEIVED.get(0).headers("X-User-Roles")).containsExactly(ROLE_USER);
+    }
+
+    @Test
+    void readingABooking_asAdmin_forwardsTheAdminRoleFromTheToken() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_ADMIN, SECRET, 60_000);
+
+      assertThat(send("GET", "/api/bookings/" + UUID.randomUUID(), token, Map.of(), null).statusCode()).isEqualTo(200);
+
+      assertThat(RECEIVED.get(0).headers("X-User-Roles")).containsExactly(ROLE_ADMIN);
+    }
+
+    @Test
     void readingABooking_forwardsTheIdentityFromTheToken_notTheOneTheClientSent() throws Exception {
       // booking-service quyết định quyền đọc bằng X-User-Id: gateway phải ghi đè giá trị client tự gửi.
       final UUID callerId = UUID.randomUUID();
