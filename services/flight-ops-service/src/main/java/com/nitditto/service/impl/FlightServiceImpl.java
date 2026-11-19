@@ -1,22 +1,23 @@
 package com.nitditto.service.impl;
 
 import com.nitditto.client.AirlineClient;
-import com.nitditto.client.LocationClient;
 import com.nitditto.enums.FlightStatus;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.FlightMapper;
 import com.nitditto.model.Flight;
 import com.nitditto.payload.request.FlightRequest;
-import com.nitditto.payload.response.AircraftResponse;
 import com.nitditto.payload.response.AirlineResponse;
-import com.nitditto.payload.response.AirportResponse;
 import com.nitditto.payload.response.FlightResponse;
 import com.nitditto.repository.FlightInstanceRepository;
 import com.nitditto.repository.FlightRepository;
 import com.nitditto.repository.FlightScheduleRepository;
 import com.nitditto.service.FlightService;
+import com.nitditto.service.integration.ReferenceData;
+import com.nitditto.service.integration.ReferenceDataLoader;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import lombok.RequiredArgsConstructor;
@@ -34,7 +35,7 @@ public class FlightServiceImpl implements FlightService {
     private final FlightScheduleRepository flightScheduleRepository;
     private final FlightInstanceRepository flightInstanceRepository;
     private final AirlineClient airlineClient;
-    private final LocationClient locationClient;
+    private final ReferenceDataLoader referenceDataLoader;
 
     @Transactional
     @Override
@@ -56,12 +57,15 @@ public class FlightServiceImpl implements FlightService {
     public Page<FlightResponse> getFlightsByAirline(final UUID userId, final UUID departureAirportId,
                                                     final UUID arrivalAirportId, final Pageable pageable) {
         // todo: watch airlineId
-        // todo: N+1 qua Feign - cần batch-by-ids cho AirlineClient/LocationClient
-        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
-        return this.flightRepository.findByAirlineId(airlineResponse.getId(),
+        final AirlineResponse airlineResponse = this.airlineClient.getAirlineByOwner(userId).getData();
+        final Page<Flight> page = this.flightRepository.findByAirlineId(airlineResponse.getId(),
                 departureAirportId,
                 arrivalAirportId,
-                pageable).map(this::convertToFLightResponse);
+                pageable);
+        // Một lần nạp batch cho cả trang thay vì 4 lời gọi Feign mỗi chuyến (CLAUDE.md §7);
+        // trang rỗng thì loader không gọi service nào.
+        final ReferenceData referenceData = this.loadReferenceData(page.getContent());
+        return page.map(flight -> toResponse(flight, referenceData));
     }
 
     @Override
@@ -114,16 +118,27 @@ public class FlightServiceImpl implements FlightService {
     }
 
     private FlightResponse convertToFLightResponse(final Flight flight) {
-        final AircraftResponse aircraftResponse = this.airlineClient.getAircraftById(flight.getAircraftId()).getData();
-        final AirlineResponse airlineResponse = this.airlineClient.getAirlineById(flight.getAirlineId()).getData();
-        return this.buildFlightResponse(flight, aircraftResponse, airlineResponse);
+        return toResponse(flight, this.loadReferenceData(List.of(flight)));
     }
 
-    private FlightResponse buildFlightResponse(final Flight flight, final AircraftResponse aircraftResponse,
-                                               final AirlineResponse airlineResponse) {
-        final AirportResponse departureAirport = locationClient.getAirportById(flight.getDepartureAirportId()).getData();
-        final AirportResponse arrivalAirport = locationClient.getAirportById(flight.getArrivalAirportId()).getData();
-        return FlightMapper.toResponse(flight, aircraftResponse, airlineResponse, departureAirport,
-                arrivalAirport);
+    private ReferenceData loadReferenceData(final List<Flight> flights) {
+        final List<UUID> airlineIds = new ArrayList<>(flights.size());
+        final List<UUID> aircraftIds = new ArrayList<>(flights.size());
+        final List<UUID> airportIds = new ArrayList<>(flights.size() * 2);
+        for (final Flight flight : flights) {
+            airlineIds.add(flight.getAirlineId());
+            aircraftIds.add(flight.getAircraftId());
+            airportIds.add(flight.getDepartureAirportId());
+            airportIds.add(flight.getArrivalAirportId());
+        }
+        return this.referenceDataLoader.load(airlineIds, aircraftIds, airportIds);
+    }
+
+    private static FlightResponse toResponse(final Flight flight, final ReferenceData referenceData) {
+        return FlightMapper.toResponse(flight,
+                referenceData.aircraft(flight.getAircraftId()),
+                referenceData.airline(flight.getAirlineId()),
+                referenceData.airport(flight.getDepartureAirportId()),
+                referenceData.airport(flight.getArrivalAirportId()));
     }
 }

@@ -1,9 +1,11 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.client.UserClient;
 import com.nitditto.enums.PaymentGateway;
 import com.nitditto.exception.ForbiddenException;
 import com.nitditto.payload.response.PaymentGatewayResponse;
 import com.nitditto.enums.PaymentStatus;
+import com.nitditto.event.PaymentFailedEvent;
 import com.nitditto.event.PaymentSucceededEvent;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
@@ -48,6 +50,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final RazorpayService razorpayService;
     private final VNPayService vnPayService;
     private final ApplicationEventPublisher eventPublisher;
+    private final UserClient userClient;
 
     @Override
     public List<PaymentGatewayResponse> getAvailableGateways() {
@@ -81,11 +84,7 @@ public class PaymentServiceImpl implements PaymentService {
             payment.setProviderCreateDate(paymentLink.getCreateDate());
         } else if (request.getPaymentGateway() == PaymentGateway.RAZORPAY) {
             // todo: thay bằng gọi user-service thật (RestClient/WebClient) khi có; hiện đang stub
-            final UserDTO user = new UserDTO();
-            user.setId(request.getUserId());
-            user.setFullName("Nitditto");
-            user.setEmail("nitditto@gmail.com");
-            user.setPhone("0987654321");
+            final UserDTO user = this.userClient.getUserById(request.getUserId()).getBody().getData();
 
             try {
                 paymentLink = this.razorpayService.createPaymentLink(user, payment);
@@ -149,8 +148,7 @@ public class PaymentServiceImpl implements PaymentService {
         if ("captured".equalsIgnoreCase(status)) {
             this.markSuccess(payment, request.getRazorpayPaymentId());
         } else if ("failed".equalsIgnoreCase(status) && payment.getStatus() != PaymentStatus.SUCCESS) {
-            payment.setStatus(PaymentStatus.FAILED);
-            payment.setFailureReason(paymentDetails.optString("error_description", "Payment verification failed"));
+            this.markFailed(payment, paymentDetails.optString("error_description", "Payment verification failed"));
             log.warn("Payment {} failed for bookingId={}: {}", payment.getId(), payment.getBookingId(), payment.getFailureReason());
         } else {
             // created/authorized: Razorpay chưa xử lý xong, giữ nguyên PENDING để client retry verify
@@ -245,8 +243,7 @@ public class PaymentServiceImpl implements PaymentService {
         if ("00".equals(responseCode)) {
             this.markSuccess(payment, transactionNo);
         } else {
-            payment.setStatus(PaymentStatus.FAILED);
-            payment.setFailureReason(getVNPayErrorMessage(responseCode));
+            this.markFailed(payment, getVNPayErrorMessage(responseCode));
             log.warn("VNPay: Payment {} is FAILED with code: {}", payment.getId(), responseCode);
         }
         this.paymentRepository.save(payment);
@@ -263,7 +260,7 @@ public class PaymentServiceImpl implements PaymentService {
         }
     }
 
-    // Chuyển sang SUCCESS và báo booking-service SAU KHI commit; gọi lặp lại (đã SUCCESS) thì không báo thêm.
+    // Chuyển sang SUCCESS; sau commit PaymentOutcomePublisher báo booking (Kafka rồi HTTP); gọi lặp lại (đã SUCCESS) thì không báo thêm.
     private void markSuccess(final Payment payment, final String transactionId) {
         if (payment.getStatus() == PaymentStatus.SUCCESS) {
             return;
@@ -274,7 +271,22 @@ public class PaymentServiceImpl implements PaymentService {
         }
         payment.setPaidAt(LocalDateTime.now());
         log.info("Payment {} captured successfully for bookingId={}", payment.getId(), payment.getBookingId());
-        this.eventPublisher.publishEvent(new PaymentSucceededEvent(payment.getId(), payment.getBookingId()));
+        this.eventPublisher.publishEvent(new PaymentSucceededEvent(payment.getId(), payment.getBookingId(),
+                payment.getUserId(), payment.getAmount(), payment.getTransactionId(), payment.getProviderPaymentId(),
+                payment.getPaidAt()));
+    }
+
+    // Chuyển sang FAILED và phát PaymentFailedEvent (đẩy lên Kafka SAU KHI commit). Không ai nhả ghế ở đây: booking-service
+    // là bên duy nhất chốt/nhả ghế, ghế đang giữ tự hết hạn theo TTL.
+    // Gọi lặp lại khi đã FAILED thì không phát thêm.
+    private void markFailed(final Payment payment, final String reason) {
+        if (payment.getStatus() == PaymentStatus.FAILED) {
+            return;
+        }
+        payment.setStatus(PaymentStatus.FAILED);
+        payment.setFailureReason(reason);
+        this.eventPublisher.publishEvent(new PaymentFailedEvent(payment.getId(), payment.getBookingId(),
+                payment.getUserId(), payment.getAmount(), payment.getTransactionId(), reason));
     }
 
     private Payment findByVnpTxnRef(final String txnRef) {
