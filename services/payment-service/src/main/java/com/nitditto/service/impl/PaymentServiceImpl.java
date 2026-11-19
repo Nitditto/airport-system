@@ -78,6 +78,7 @@ public class PaymentServiceImpl implements PaymentService {
         final PaymentLinkResponse paymentLink;
         if (request.getPaymentGateway() == PaymentGateway.VNPAY) {
             paymentLink = this.vnPayService.createPaymentLink(payment, "127.0.0.1");
+            payment.setProviderCreateDate(paymentLink.getCreateDate());
         } else if (request.getPaymentGateway() == PaymentGateway.RAZORPAY) {
             // todo: thay bằng gọi user-service thật (RestClient/WebClient) khi có; hiện đang stub
             final UserDTO user = new UserDTO();
