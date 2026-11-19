@@ -15,8 +15,6 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.support.serializer.JsonSerializer;
 
-import com.nitditto.event.KafkaTopics;
-
 @Configuration
 public class KafkaProducerConfig {
 
@@ -51,12 +49,14 @@ public class KafkaProducerConfig {
   }
 
   @Bean
-  public NewTopic paymentCompletedTopic() {
-    return TopicBuilder.name(KafkaTopics.PAYMENT_COMPLETED).partitions(TOPIC_PARTITIONS).replicas(TOPIC_REPLICAS).build();
+  public NewTopic paymentTransactionSucceededTopic(
+      @Value("${kafka.topics.payment-transaction-succeeded}") final String topic) {
+    return TopicBuilder.name(topic).partitions(TOPIC_PARTITIONS).replicas(TOPIC_REPLICAS).build();
   }
 
   @Bean
-  public NewTopic paymentFailedTopic() {
-    return TopicBuilder.name(KafkaTopics.PAYMENT_FAILED).partitions(TOPIC_PARTITIONS).replicas(TOPIC_REPLICAS).build();
+  public NewTopic paymentTransactionFailedTopic(
+      @Value("${kafka.topics.payment-transaction-failed}") final String topic) {
+    return TopicBuilder.name(topic).partitions(TOPIC_PARTITIONS).replicas(TOPIC_REPLICAS).build();
   }
 }

@@ -1,5 +1,6 @@
 package com.nitditto.payment_service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -10,8 +11,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nitditto.client.BookingClient;
-import com.nitditto.event.KafkaTopics;
-import com.nitditto.event.PaymentCompletedEvent;
+import com.nitditto.payload.event.PaymentTransactionFailedEvent;
+import com.nitditto.payload.event.PaymentTransactionSucceededEvent;
 import com.nitditto.event.PaymentFailedEvent;
 import com.nitditto.event.PaymentOutcomePublisher;
 import com.nitditto.event.PaymentSucceededEvent;
@@ -21,6 +22,7 @@ import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -29,6 +31,9 @@ import org.springframework.kafka.support.SendResult;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentOutcomePublisherTest {
+
+  private static final String SUCCEEDED = "payment.transaction.succeeded";
+  private static final String FAILED = "payment.transaction.failed";
 
   @Mock
   private KafkaTemplate<String, Object> kafkaTemplate;
@@ -43,7 +48,7 @@ class PaymentOutcomePublisherTest {
 
   @BeforeEach
   void setUp() {
-    this.publisher = new PaymentOutcomePublisher(this.kafkaTemplate, this.bookingClient);
+    this.publisher = new PaymentOutcomePublisher(this.kafkaTemplate, this.bookingClient, SUCCEEDED, FAILED);
   }
 
   @Test
@@ -53,8 +58,8 @@ class PaymentOutcomePublisherTest {
     this.publisher.onSucceeded(this.succeeded);
 
     final InOrder order = inOrder(this.kafkaTemplate, this.bookingClient);
-    order.verify(this.kafkaTemplate).send(eq(KafkaTopics.PAYMENT_COMPLETED), eq(this.bookingId.toString()),
-        any(PaymentCompletedEvent.class));
+    order.verify(this.kafkaTemplate).send(eq(SUCCEEDED), eq(this.bookingId.toString()),
+        any(PaymentTransactionSucceededEvent.class));
     order.verify(this.bookingClient).confirmPayment(this.bookingId);
   }
 
@@ -79,12 +84,19 @@ class PaymentOutcomePublisherTest {
   @Test
   void onFailed_onlyPublishesKafka_neverConfirmsBooking() {
     when(this.kafkaTemplate.send(anyString(), anyString(), any())).thenReturn(pending());
-    final PaymentFailedEvent failed = PaymentFailedEvent.builder()
-        .paymentId(UUID.randomUUID()).bookingId(this.bookingId).failureReason("cancelled").build();
+    final PaymentFailedEvent failed = new PaymentFailedEvent(UUID.randomUUID(), this.bookingId, UUID.randomUUID(),
+        250.0, null, "cancelled");
 
     this.publisher.onFailed(failed);
 
-    verify(this.kafkaTemplate).send(KafkaTopics.PAYMENT_FAILED, this.bookingId.toString(), failed);
+    final ArgumentCaptor<Object> sent = ArgumentCaptor.forClass(Object.class);
+    verify(this.kafkaTemplate).send(eq(FAILED), eq(this.bookingId.toString()), sent.capture());
+    assertThat(sent.getValue()).isInstanceOfSatisfying(PaymentTransactionFailedEvent.class, e -> {
+      assertThat(e.eventId()).isNotNull();
+      assertThat(e.occurredAt()).isNotNull();
+      assertThat(e.paymentId()).isEqualTo(failed.paymentId());
+      assertThat(e.failureReason()).isEqualTo("cancelled");
+    });
     verify(this.bookingClient, never()).confirmPayment(any());
   }
 

@@ -63,3 +63,9 @@ eureka:
       defaultZone: http://localhost:8761/eureka/
   instance:
     prefer-ip-address: true
+
+# Tên topic (CLAUDE.md §9: <domain>.<entity>.<action>, khai ở yaml).
+kafka:
+  topics:
+    payment-transaction-succeeded: payment.transaction.succeeded
+    payment-transaction-failed: payment.transaction.failed

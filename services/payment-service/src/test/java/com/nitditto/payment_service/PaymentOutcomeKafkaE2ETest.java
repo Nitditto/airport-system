@@ -10,7 +10,6 @@ import static org.mockito.Mockito.verify;
 import com.nitditto.client.BookingClient;
 import com.nitditto.enums.PaymentGateway;
 import com.nitditto.enums.PaymentStatus;
-import com.nitditto.event.KafkaTopics;
 import com.nitditto.model.Payment;
 import com.nitditto.payload.dto.PaymentDTO;
 import com.nitditto.repository.PaymentRepository;
@@ -53,10 +52,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
     "razorpay.api.key=rzp_test_dummy",
     "razorpay.api.secret=dummy"
 })
-@EmbeddedKafka(partitions = 3, topics = {KafkaTopics.PAYMENT_COMPLETED, KafkaTopics.PAYMENT_FAILED},
+@EmbeddedKafka(partitions = 3, topics = {PaymentOutcomeKafkaE2ETest.SUCCEEDED, PaymentOutcomeKafkaE2ETest.FAILED},
     bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 class PaymentOutcomeKafkaE2ETest {
 
+  static final String SUCCEEDED = "payment.transaction.succeeded";
+  static final String FAILED = "payment.transaction.failed";
   static final String SECRET = "kafka-e2e-hash-secret";
   private static final Duration TIMEOUT = Duration.ofSeconds(15);
 
@@ -79,7 +80,7 @@ class PaymentOutcomeKafkaE2ETest {
     props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
     props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
     this.consumer = new KafkaConsumer<>(props);
-    this.consumer.subscribe(List.of(KafkaTopics.PAYMENT_COMPLETED, KafkaTopics.PAYMENT_FAILED));
+    this.consumer.subscribe(List.of(SUCCEEDED, FAILED));
   }
 
   @AfterEach
@@ -95,15 +96,16 @@ class PaymentOutcomeKafkaE2ETest {
     final PaymentDTO result = this.paymentService.checkPaymentVNPay(vnpResult(payment, "00"));
 
     assertThat(result.getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
-    final ConsumerRecord<String, String> record = this.awaitRecord(KafkaTopics.PAYMENT_COMPLETED, payment);
+    final ConsumerRecord<String, String> record = this.awaitRecord(SUCCEEDED, payment);
     assertThat(record.key()).isEqualTo(payment.getBookingId().toString());
     assertThat(record.value())
         .contains(payment.getId().toString())
         .contains(payment.getBookingId().toString())
-        .contains("14000001");
+        .contains("14000001")
+        .contains("\"eventId\"").contains("\"occurredAt\"");
     // header __TypeId__ cho consumer JsonDeserializer phía booking-service
     assertThat(new String(record.headers().lastHeader("__TypeId__").value(), StandardCharsets.UTF_8))
-        .isEqualTo("com.nitditto.event.PaymentCompletedEvent");
+        .isEqualTo("com.nitditto.payload.event.PaymentTransactionSucceededEvent");
     verify(this.bookingClient, timeout(5000)).confirmPayment(payment.getBookingId());
   }
 
@@ -114,7 +116,7 @@ class PaymentOutcomeKafkaE2ETest {
     this.paymentService.checkPaymentVNPay(vnpResult(payment, "00"));
     this.paymentService.checkPaymentVNPay(vnpResult(payment, "00"));
 
-    this.awaitRecord(KafkaTopics.PAYMENT_COMPLETED, payment);
+    this.awaitRecord(SUCCEEDED, payment);
     assertThat(this.recordsFor(payment, Duration.ofSeconds(3))).isZero();
     verify(this.bookingClient, timeout(5000).times(1)).confirmPayment(payment.getBookingId());
   }
@@ -126,7 +128,7 @@ class PaymentOutcomeKafkaE2ETest {
     final PaymentDTO result = this.paymentService.checkPaymentVNPay(vnpResult(payment, "24"));
 
     assertThat(result.getPaymentStatus()).isEqualTo(PaymentStatus.FAILED);
-    final ConsumerRecord<String, String> record = this.awaitRecord(KafkaTopics.PAYMENT_FAILED, payment);
+    final ConsumerRecord<String, String> record = this.awaitRecord(FAILED, payment);
     assertThat(record.key()).isEqualTo(payment.getBookingId().toString());
     assertThat(record.value()).contains(payment.getId().toString());
     Thread.sleep(1000);
@@ -142,7 +144,7 @@ class PaymentOutcomeKafkaE2ETest {
     final PaymentDTO result = this.paymentService.checkPaymentVNPay(vnpResult(payment, "00"));
 
     assertThat(result.getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
-    assertThat(this.awaitRecord(KafkaTopics.PAYMENT_COMPLETED, payment).key()).isEqualTo(payment.getBookingId().toString());
+    assertThat(this.awaitRecord(SUCCEEDED, payment).key()).isEqualTo(payment.getBookingId().toString());
     assertThat(this.paymentRepository.findById(payment.getId()).orElseThrow().getStatus())
         .isEqualTo(PaymentStatus.SUCCESS);
     final InOrder order = inOrder(this.bookingClient);

@@ -275,7 +275,8 @@ public class PaymentServiceImpl implements PaymentService {
                 payment.getPaidAt()));
     }
 
-    // Chuyển sang FAILED và phát PaymentFailedEvent (đẩy lên Kafka SAU KHI commit) để seat-service nhả ghế đang giữ.
+    // Chuyển sang FAILED và phát PaymentFailedEvent (đẩy lên Kafka SAU KHI commit). Không ai nhả ghế ở đây: booking-service
+    // là bên duy nhất chốt/nhả ghế, ghế đang giữ tự hết hạn theo TTL.
     // Gọi lặp lại khi đã FAILED thì không phát thêm.
     private void markFailed(final Payment payment, final String reason) {
         if (payment.getStatus() == PaymentStatus.FAILED) {
@@ -283,15 +284,8 @@ public class PaymentServiceImpl implements PaymentService {
         }
         payment.setStatus(PaymentStatus.FAILED);
         payment.setFailureReason(reason);
-        this.eventPublisher.publishEvent(PaymentFailedEvent.builder()
-                .paymentId(payment.getId())
-                .bookingId(payment.getBookingId())
-                .userId(payment.getUserId())
-                .amount(payment.getAmount())
-                .transactionId(payment.getTransactionId())
-                .failureReason(reason)
-                .failedAt(LocalDateTime.now())
-                .build());
+        this.eventPublisher.publishEvent(new PaymentFailedEvent(payment.getId(), payment.getBookingId(),
+                payment.getUserId(), payment.getAmount(), payment.getTransactionId(), reason));
     }
 
     private Payment findByVnpTxnRef(final String txnRef) {

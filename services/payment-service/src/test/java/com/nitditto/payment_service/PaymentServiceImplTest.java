@@ -166,8 +166,8 @@ class PaymentServiceImplTest {
     final ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
     verify(this.eventPublisher).publishEvent(captor.capture());
     assertThat(captor.getValue()).isInstanceOfSatisfying(PaymentFailedEvent.class, event -> {
-      assertThat(event.getBookingId()).isEqualTo(this.bookingId);
-      assertThat(event.getPaymentId()).isEqualTo(this.payment.getId());
+      assertThat(event.bookingId()).isEqualTo(this.bookingId);
+      assertThat(event.paymentId()).isEqualTo(this.payment.getId());
     });
   }
 
