@@ -27,6 +27,7 @@ import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.BookingResponse;
 import com.nitditto.payload.response.PaymentInitiateResponse;
 import com.nitditto.service.BookingService;
+import com.nitditto.service.IdempotencyService;
 
 import jakarta.validation.Valid;
 
@@ -36,13 +37,18 @@ import jakarta.validation.Valid;
 public class BookingController {
 
   private final BookingService bookingService;
+  private final IdempotencyService idempotencyService;
 
   @PostMapping
   public ResponseEntity<ApiResponse<PaymentInitiateResponse>> createBooking(
       @RequestHeader("X-User-Id") final UUID userId,
+      @RequestHeader(value = "Idempotency-Key", required = false) final String idempotencyKey,
       @Valid @RequestBody final BookingRequest bookingRequest) {
-    return ResponseEntity.status(HttpStatus.CREATED)
-        .body(ApiResponse.success(this.bookingService.createBooking(bookingRequest, userId)));
+    // Cùng Idempotency-Key + cùng body: trả lại đúng kết quả lần đầu (vẫn 201), không giữ ghế/tạo booking lần nữa.
+    final PaymentInitiateResponse response = this.idempotencyService.execute(userId, idempotencyKey,
+        bookingRequest, PaymentInitiateResponse.class,
+        () -> this.bookingService.createBooking(bookingRequest, userId));
+    return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
   }
 
   @GetMapping("/{id}")

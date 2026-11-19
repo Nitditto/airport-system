@@ -29,6 +29,12 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(ex.getMessage()));
   }
 
+  // 409: request trước cùng Idempotency-Key còn đang chạy; 422: key đã dùng cho một request khác.
+  @ExceptionHandler(IdempotencyConflictException.class)
+  public ResponseEntity<ApiResponse<Void>> handleIdempotencyConflict(final IdempotencyConflictException ex) {
+    return ResponseEntity.status(ex.getStatus()).body(ApiResponse.error(ex.getMessage()));
+  }
+
   @ExceptionHandler(MethodArgumentNotValidException.class)
   public ResponseEntity<ApiResponse<Void>> handleValidation(final MethodArgumentNotValidException ex) {
     final String message = ex.getBindingResult().getFieldErrors().stream()
