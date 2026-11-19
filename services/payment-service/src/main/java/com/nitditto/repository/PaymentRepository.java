@@ -20,6 +20,21 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     java.util.Optional<Payment> findFirstByBookingIdAndProviderAndStatusOrderByCreatedAtDesc(UUID bookingId,
             com.nitditto.enums.PaymentGateway provider, PaymentStatus status);
 
+    /**
+     * Payment còn chờ kết quả cần đối soát với cổng: tạo trong khoảng [from, to] và chưa hỏi gần đây. Hỏi lâu chưa hỏi trước
+     * để payment "không rõ" không làm các payment khác bị đói lượt.
+     */
+    @org.springframework.data.jpa.repository.Query("select p from Payment p where p.provider = :provider "
+            + "and p.status = :status and p.createdAt >= :from and p.createdAt <= :to "
+            + "and (p.lastReconciledAt is null or p.lastReconciledAt < :askedBefore) "
+            + "order by p.lastReconciledAt asc, p.createdAt asc")
+    List<Payment> findReconcilable(@org.springframework.data.repository.query.Param("provider") com.nitditto.enums.PaymentGateway provider,
+            @org.springframework.data.repository.query.Param("status") PaymentStatus status,
+            @org.springframework.data.repository.query.Param("from") java.time.Instant from,
+            @org.springframework.data.repository.query.Param("to") java.time.Instant to,
+            @org.springframework.data.repository.query.Param("askedBefore") java.time.Instant askedBefore,
+            Pageable pageable);
+
     List<Payment> findByBookingIdIn(List<UUID> bookingIds);
 
     Page<Payment> findByUserId(UUID userId, Pageable pageable);

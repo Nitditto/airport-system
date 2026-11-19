@@ -16,6 +16,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -29,7 +30,8 @@ import java.util.UUID;
         @UniqueConstraint(name = "uk_payment_paid_booking", columnNames = "paid_booking_id")
 }, indexes = {
         @Index(name = "idx_payment_booking_status", columnList = "booking_id, status"),
-        @Index(name = "idx_payment_user", columnList = "user_id")
+        @Index(name = "idx_payment_user", columnList = "user_id"),
+        @Index(name = "idx_payment_status_created", columnList = "status, created_at")
 })
 @Entity
 public class Payment extends BaseEntity {
@@ -80,5 +82,9 @@ public class Payment extends BaseEntity {
      */
     @Column(name = "paid_booking_id", columnDefinition = "binary(16)")
     private UUID paidBookingId;
+
+    /** Lần gần nhất job đối soát tra cứu payment này ở cổng thanh toán: để không hỏi lại dồn dập. */
+    @Column(name = "last_reconciled_at")
+    private Instant lastReconciledAt;
 
 }
