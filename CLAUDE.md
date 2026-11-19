@@ -353,7 +353,7 @@ Project có **hai loại event**, không được lẫn:
 | Phạm vi | Trong một service, cùng JVM | Giữa các service |
 | Cơ chế | `ApplicationEventPublisher` + `@TransactionalEventListener` | `KafkaTemplate` + `@KafkaListener` |
 | Đặt ở | `event/` của service | `common-lib/payload/event/` nếu ≥ 2 service dùng, ngược lại `event/` của producer |
-| Ví dụ | `PaymentSucceededEvent` (payment-service) | — |
+| Ví dụ | `PaymentSucceededEvent`, `PaymentFailedEvent` (payment-service) | `PaymentTransactionSucceededEvent` → `payment.transaction.succeeded`, `FlightInstanceCreatedEvent` → `flight.instance.created` |
 
 ### Domain event nội bộ
 
