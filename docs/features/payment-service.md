@@ -262,6 +262,12 @@ chưa có luồng refund (xem §10) — giữ nguyên trong enum cho tương lai
   Đây là công việc riêng, không nằm trong scope "initiate + verify + publish" ban đầu — liệt kê
   ở §11 như việc kế tiếp, khớp `ROADMAP.md` §12.7 ("Testing Payment flows... refund").
 
+## Một payment thành công cho mỗi booking, và `initiate` idempotent
+
+- **`initiate` gọi lặp** (bấm đúp, retry, nhiều tab) cho cùng booking, cùng người, cùng cổng, cùng số tiền: trả lại link của payment `PENDING` cũ nếu tạo chưa quá 10 phút (link VNPay sống 15 phút), không tạo payment mới. Quá 10 phút thì tạo payment và link mới. Link lưu ở `payments.checkout_url`.
+- **Chặn thu hai lần:** `payments.paid_booking_id` (unique, chỉ gán khi `SUCCESS`, `NULL` ở các dòng còn lại) để MySQL bảo đảm một booking chỉ có một payment thành công kể cả khi hai kết quả về song song. Nếu code thấy booking đã có payment `SUCCESS`/`REFUNDED` khác thì payment mới về được ghi là `DUPLICATE` (khách đã bị trừ tiền, không phát event, không đụng booking) và có log `ERROR`; **admin hoàn tay** vì module refund chỉ hoàn payment trả tiền chính của booking.
+- Còn thiếu: hai `initiate` song song hoàn toàn đồng thời vẫn có thể tạo hai payment `PENDING` (lớp ngoài là `Idempotency-Key` của booking); chưa có endpoint liệt kê/hoàn `DUPLICATE`; chưa có IPN nên khách trả mà đóng tab vẫn phụ thuộc việc quay lại trang kết quả.
+
 ## 11. Việc cần làm (bám ROADMAP Section 12)
 
 **Ở `payment-service` (module mới):**
