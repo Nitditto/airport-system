@@ -2,6 +2,7 @@ package com.nitditto.service.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -18,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -63,6 +65,8 @@ class VNPayRefundServiceTest {
     final String expectedHash = VNPayService.hmacSHA512(SECRET, expectedInput);
     this.server.expect(requestTo(URL)).andExpect(method(HttpMethod.POST))
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+        // Content-Length rõ ràng (không chunked): xem VNPayRefundService.refund
+        .andExpect(header(HttpHeaders.CONTENT_LENGTH, org.hamcrest.Matchers.not(org.hamcrest.Matchers.emptyOrNullString())))
         .andExpect(jsonPath("$.vnp_Command").value("refund"))
         .andExpect(jsonPath("$.vnp_TransactionType").value("03"))
         .andExpect(jsonPath("$.vnp_Amount").value("105000000"))

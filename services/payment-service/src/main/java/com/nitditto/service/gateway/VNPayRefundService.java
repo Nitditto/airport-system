@@ -1,6 +1,7 @@
 package com.nitditto.service.gateway;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.ZoneId;
@@ -8,6 +9,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -95,7 +97,10 @@ public class VNPayRefundService {
     final Map<String, String> body = this.buildRequest(command);
     final Map<String, Object> response;
     try {
-      response = this.restClient.post().uri(this.refundUrl).contentType(MediaType.APPLICATION_JSON).body(body)
+      // Gửi MẢNG BYTE đã serialize để có Content-Length rõ ràng. Để RestClient tự ghi Map thì thân được gửi theo khối
+      // (chunked, không có Content-Length): máy chủ không hỗ trợ chunked đọc ra thân rỗng (E2E bắt được lỗi này).
+      final byte[] json = new JSONObject(body).toString().getBytes(StandardCharsets.UTF_8);
+      response = this.restClient.post().uri(this.refundUrl).contentType(MediaType.APPLICATION_JSON).body(json)
           .retrieve().body(JSON_MAP);
     } catch (final RuntimeException ex) {
       log.error("VNPay refund call failed for txnRef={} requestId={}: {}", command.txnRef(), command.requestId(),
