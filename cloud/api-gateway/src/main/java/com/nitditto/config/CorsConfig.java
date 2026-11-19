@@ -25,7 +25,8 @@ public class CorsConfig {
         final CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins.stream().filter(origin -> !origin.isBlank()).toList());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE));
+        // Idempotency-Key: FE gửi khi tạo booking; thiếu ở đây thì preflight chặn header và trình duyệt không gửi được.
+        configuration.setAllowedHeaders(List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE, "Idempotency-Key"));
         // JWT đi qua header Authorization, không dùng cookie
         configuration.setAllowCredentials(false);
         configuration.setMaxAge(3600L);
