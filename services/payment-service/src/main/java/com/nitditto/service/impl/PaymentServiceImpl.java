@@ -32,6 +32,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
@@ -51,6 +53,10 @@ public class PaymentServiceImpl implements PaymentService {
     private final VNPayService vnPayService;
     private final ApplicationEventPublisher eventPublisher;
     private final UserClient userClient;
+    private final Clock clock;
+
+    // Link VNPay hết hạn sau 15 phút: chỉ trả lại link cũ khi khách còn dư thời gian để dùng nó.
+    private static final Duration REUSE_WINDOW = Duration.ofMinutes(10);
 
     @Override
     public List<PaymentGatewayResponse> getAvailableGateways() {
@@ -65,8 +71,13 @@ public class PaymentServiceImpl implements PaymentService {
     @Transactional
     public PaymentInitiateResponse initiatePayment(final PaymentInitiateRequest request) {
         log.info("Initiating payment for bookingId={}, userId={}, gateway={}", request.getBookingId(), request.getUserId(), request.getPaymentGateway());
-        if (this.paymentRepository.existsByBookingIdAndStatus(request.getBookingId(), PaymentStatus.SUCCESS)) {
+        if (!this.paymentRepository.findByBookingIdAndStatusIn(request.getBookingId(),
+                List.of(PaymentStatus.SUCCESS, PaymentStatus.REFUNDED)).isEmpty()) {
             throw new BusinessException("Booking already has a successful payment: " + request.getBookingId());
+        }
+        final PaymentInitiateResponse reused = this.reusablePendingPayment(request);
+        if (reused != null) {
+            return reused;
         }
 
         Payment payment = Payment.builder()
@@ -97,6 +108,7 @@ public class PaymentServiceImpl implements PaymentService {
         }
 
         payment.setProviderPaymentId(paymentLink.getPaymentLinkId());
+        payment.setCheckoutUrl(paymentLink.getPaymentLinkUrl());
         this.paymentRepository.save(payment);
 
         return PaymentInitiateResponse.builder()
@@ -108,6 +120,33 @@ public class PaymentServiceImpl implements PaymentService {
                 .checkoutUrl(paymentLink.getPaymentLinkUrl())
                 .success(true)
                 .message("Payment initiated successfully")
+                .build();
+    }
+
+    /**
+     * `initiate` gọi lặp (bấm đúp, retry, nhiều tab) cho cùng booking: trả lại link còn hạn thay vì tạo thêm payment, để
+     * khách không có hai link cùng trả được. Chỉ tái dùng khi cùng người, cùng cổng, cùng số tiền.
+     */
+    private PaymentInitiateResponse reusablePendingPayment(final PaymentInitiateRequest request) {
+        final Payment pending = this.paymentRepository.findFirstByBookingIdAndProviderAndStatusOrderByCreatedAtDesc(
+                request.getBookingId(), request.getPaymentGateway(), PaymentStatus.PENDING).orElse(null);
+        if (pending == null || pending.getCheckoutUrl() == null || pending.getCheckoutUrl().isBlank()
+                || !request.getUserId().equals(pending.getUserId())
+                || !java.util.Objects.equals(request.getAmount(), pending.getAmount())
+                || pending.getCreatedAt() == null
+                || !pending.getCreatedAt().plus(REUSE_WINDOW).isAfter(this.clock.instant())) {
+            return null;
+        }
+        log.info("Reusing pending paymentId={} for bookingId={}", pending.getId(), pending.getBookingId());
+        return PaymentInitiateResponse.builder()
+                .paymentId(pending.getId())
+                .paymentGateway(pending.getProvider())
+                .amount(pending.getAmount())
+                .description(request.getDescription())
+                .providerReferenceId(pending.getProviderPaymentId())
+                .checkoutUrl(pending.getCheckoutUrl())
+                .success(true)
+                .message("Existing payment link reused")
                 .build();
     }
 
@@ -262,10 +301,26 @@ public class PaymentServiceImpl implements PaymentService {
 
     // Chuyển sang SUCCESS; sau commit PaymentOutcomePublisher báo booking (Kafka rồi HTTP); gọi lặp lại (đã SUCCESS) thì không báo thêm.
     private void markSuccess(final Payment payment, final String transactionId) {
-        if (payment.getStatus() == PaymentStatus.SUCCESS) {
+        if (payment.getStatus() == PaymentStatus.SUCCESS || payment.getStatus() == PaymentStatus.DUPLICATE) {
+            return;
+        }
+        final Payment alreadyPaid = this.paymentRepository.findByBookingIdAndStatusIn(payment.getBookingId(),
+                List.of(PaymentStatus.SUCCESS, PaymentStatus.REFUNDED)).stream()
+                .filter(other -> !other.getId().equals(payment.getId())).findFirst().orElse(null);
+        if (alreadyPaid != null) {
+            // Khách trả lần hai cho booking đã thanh toán (hai link, hai tab...). Tiền ĐÃ bị thu nhưng đây không được là payment
+            // thành công thứ hai: booking/hoàn tiền giả định một payment trả tiền cho mỗi booking. Không phát event, chờ hoàn tay.
+            payment.setStatus(PaymentStatus.DUPLICATE);
+            payment.setTransactionId(transactionId);
+            payment.setPaidAt(LocalDateTime.now());
+            payment.setFailureReason("DUPLICATE PAYMENT: booking already paid by payment " + alreadyPaid.getId()
+                    + "; the customer was charged twice and must be refunded manually");
+            log.error("DUPLICATE payment {} for bookingId={}: already paid by {}; refund it manually", payment.getId(),
+                    payment.getBookingId(), alreadyPaid.getId());
             return;
         }
         payment.setStatus(PaymentStatus.SUCCESS);
+        payment.setPaidBookingId(payment.getBookingId());
         if (transactionId != null && !transactionId.isBlank()) {
             payment.setTransactionId(transactionId);
         }

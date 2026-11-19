@@ -46,6 +46,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 class PaymentServiceImplTest {
 
   private static final String SECRET = "test-hash-secret";
+  private static final java.time.Clock CLOCK = java.time.Clock.fixed(java.time.Instant.parse("2026-11-20T03:00:00Z"),
+      java.time.ZoneOffset.UTC);
 
   @Mock
   private PaymentRepository paymentRepository;
@@ -67,7 +69,7 @@ class PaymentServiceImplTest {
     ReflectionTestUtils.setField(vnPayService, "vnpTmnCode", "TESTTMN");
     ReflectionTestUtils.setField(vnPayService, "vnpHashSecret", SECRET);
     this.service = new PaymentServiceImpl(this.paymentRepository, this.razorpayService, vnPayService,
-        this.eventPublisher, this.userClient);
+        this.eventPublisher, this.userClient, CLOCK);
 
     this.payment = Payment.builder().userId(UUID.randomUUID()).bookingId(this.bookingId).amount(250.0)
         .status(PaymentStatus.PENDING).build();
@@ -262,6 +264,113 @@ class PaymentServiceImplTest {
         .put("status", "captured")
         .put("notes", new JSONObject().put("payment_id", this.payment.getId().toString()));
     when(this.razorpayService.fetchPaymentDetails(razorpayPaymentId)).thenReturn(details);
+  }
+
+  // ---- initiate idempotent + một payment thành công cho mỗi booking ----
+
+  private com.nitditto.payload.request.PaymentInitiateRequest initiateRequest() {
+    return com.nitditto.payload.request.PaymentInitiateRequest.builder().userId(this.payment.getUserId())
+        .bookingId(this.bookingId).paymentGateway(PaymentGateway.VNPAY).amount(250.0).description("d").build();
+  }
+
+  private Payment pendingLink(final java.time.Instant createdAt) {
+    final Payment pending = Payment.builder().userId(this.payment.getUserId()).bookingId(this.bookingId).amount(250.0)
+        .provider(PaymentGateway.VNPAY).status(PaymentStatus.PENDING).checkoutUrl("https://vnpay.test/old-link").build();
+    pending.setId(UUID.randomUUID());
+    pending.setCreatedAt(createdAt);
+    return pending;
+  }
+
+  private void givenPendingFor(final Payment pending) {
+    when(this.paymentRepository.findFirstByBookingIdAndProviderAndStatusOrderByCreatedAtDesc(this.bookingId,
+        PaymentGateway.VNPAY, PaymentStatus.PENDING)).thenReturn(Optional.of(pending));
+  }
+
+  @Test
+  void initiate_calledAgain_returnsTheSameLink_withoutCreatingAnotherPayment() {
+    final Payment pending = pendingLink(CLOCK.instant().minusSeconds(60));
+    givenPendingFor(pending);
+
+    final var response = this.service.initiatePayment(initiateRequest());
+
+    assertThat(response.getPaymentId()).isEqualTo(pending.getId());
+    assertThat(response.getCheckoutUrl()).isEqualTo("https://vnpay.test/old-link");
+    verify(this.paymentRepository, never()).save(any(Payment.class));
+  }
+
+  @Test
+  void initiate_createsANewPayment_whenTheOldLinkIsTooCloseToExpiry() {
+    givenPendingFor(pendingLink(CLOCK.instant().minusSeconds(11 * 60)));
+    when(this.paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
+      final Payment saved = inv.getArgument(0);
+      if (saved.getId() == null) {
+        saved.setId(UUID.randomUUID());
+      }
+      return saved;
+    });
+
+    final var response = this.service.initiatePayment(initiateRequest());
+
+    assertThat(response.getCheckoutUrl()).contains("vnp_SecureHash=").doesNotContain("old-link");
+    final ArgumentCaptor<Payment> saved = ArgumentCaptor.forClass(Payment.class);
+    verify(this.paymentRepository, times(2)).save(saved.capture());
+    assertThat(saved.getAllValues().get(1).getCheckoutUrl()).isEqualTo(response.getCheckoutUrl());
+  }
+
+  @Test
+  void initiate_doesNotReuseALinkForADifferentAmountOrUser() {
+    final Payment pending = pendingLink(CLOCK.instant().minusSeconds(60));
+    pending.setAmount(999.0);
+    givenPendingFor(pending);
+    when(this.paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
+      final Payment saved = inv.getArgument(0);
+      if (saved.getId() == null) {
+        saved.setId(UUID.randomUUID());
+      }
+      return saved;
+    });
+
+    final var response = this.service.initiatePayment(initiateRequest());
+
+    assertThat(response.getPaymentId()).isNotEqualTo(pending.getId());
+  }
+
+  @Test
+  void initiate_isRejected_whenTheBookingIsAlreadyPaid() {
+    final Payment paid = pendingLink(CLOCK.instant());
+    paid.setStatus(PaymentStatus.SUCCESS);
+    when(this.paymentRepository.findByBookingIdAndStatusIn(this.bookingId,
+        List.of(PaymentStatus.SUCCESS, PaymentStatus.REFUNDED))).thenReturn(List.of(paid));
+
+    assertThatThrownBy(() -> this.service.initiatePayment(initiateRequest()))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("already has a successful payment");
+    verify(this.paymentRepository, never()).save(any(Payment.class));
+  }
+
+  @Test
+  void aSuccessfulResult_setsPaidBookingId_soTheDatabaseCanEnforceOnePaymentPerBooking() {
+    givenPaymentFound();
+
+    this.service.checkPaymentVNPay(vnpResult("00", 25000));
+
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+    assertThat(this.payment.getPaidBookingId()).isEqualTo(this.bookingId);
+  }
+
+  @Test
+  void aSecondSuccessfulPaymentForTheSameBooking_isMarkedDuplicate_notSuccess_andNothingIsPublished() {
+    givenPaymentFound();
+    final Payment first = pendingLink(CLOCK.instant());
+    first.setStatus(PaymentStatus.SUCCESS);
+    when(this.paymentRepository.findByBookingIdAndStatusIn(this.bookingId,
+        List.of(PaymentStatus.SUCCESS, PaymentStatus.REFUNDED))).thenReturn(List.of(first));
+
+    final PaymentDTO result = this.service.checkPaymentVNPay(vnpResult("00", 25000));
+
+    assertThat(result.getPaymentStatus()).isEqualTo(PaymentStatus.DUPLICATE);
+    assertThat(this.payment.getPaidBookingId()).isNull();
+    assertThat(this.payment.getFailureReason()).contains("DUPLICATE PAYMENT").contains(first.getId().toString());
+    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
   }
 
   private void givenPaymentFound() {
