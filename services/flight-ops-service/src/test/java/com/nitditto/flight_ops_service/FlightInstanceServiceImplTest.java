@@ -26,6 +26,7 @@ import com.nitditto.payload.response.FlightInstanceResponse;
 import com.nitditto.repository.FlightInstanceRepository;
 import com.nitditto.repository.FlightRepository;
 import com.nitditto.service.impl.FlightInstanceServiceImpl;
+import com.nitditto.service.integration.ReferenceDataLoader;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -33,12 +34,13 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.springframework.context.ApplicationEventPublisher;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -56,7 +58,8 @@ class FlightInstanceServiceImplTest {
   private AirlineClient airlineClient;
   @Mock
   private LocationClient locationClient;
-  @InjectMocks
+  @Mock
+  private ApplicationEventPublisher eventPublisher;
   private FlightInstanceServiceImpl service;
 
   @Captor
@@ -64,6 +67,14 @@ class FlightInstanceServiceImplTest {
 
   private final UUID airlineId = UUID.randomUUID();
   private final UUID aircraftId = UUID.randomUUID();
+
+  @BeforeEach
+  void setUp() {
+    // Loader thật bọc quanh client mock: test đếm đúng số lời gọi HTTP mà service gây ra.
+    this.service = new FlightInstanceServiceImpl(this.flightRepository, this.flightInstanceRepository,
+        this.airlineClient, this.locationClient, new ReferenceDataLoader(this.airlineClient, this.locationClient),
+        this.eventPublisher);
+  }
 
   @Test
   void createFlightInstances_usesOneAircraftLookupAndOneSaveAll_forManyInstances() {
@@ -134,6 +145,9 @@ class FlightInstanceServiceImplTest {
         Map.of(this.aircraftId, AircraftResponse.builder().model("A320").build())));
     when(this.locationClient.getAirportById(any())).thenReturn(
         ApiResponse.success(AirportResponse.builder().build()));
+    when(this.locationClient.getAirportsByIds(any())).thenReturn(ApiResponse.success(Map.of(
+        departureId, AirportResponse.builder().id(departureId).build(),
+        arrivalId, AirportResponse.builder().id(arrivalId).build())));
 
     final Page<FlightInstanceResponse> result = this.service.searchPublic(
         departureId, arrivalId, LocalDate.now().plusDays(1), 2, PageRequest.of(0, 50));
@@ -145,8 +159,41 @@ class FlightInstanceServiceImplTest {
         });
     verify(this.airlineClient, times(1)).getAirlinesByIds(any());
     verify(this.airlineClient, times(1)).getAircraftsByIds(any());
-    verify(this.locationClient, times(2)).getAirportById(any());
+    // 1 lần tra múi giờ sân bay đi + 1 lần batch cho mọi sân bay hiển thị
+    verify(this.locationClient, times(1)).getAirportById(departureId);
+    verify(this.locationClient, times(1)).getAirportsByIds(any());
     verify(this.airlineClient, never()).getAirlineByOwner(any());
+  }
+
+  @Test
+  void getByAirlineId_usesFixedNumberOfRemoteCalls_regardlessOfInstanceCount() {
+    final UUID ownerId = UUID.randomUUID();
+    final UUID departureId = UUID.randomUUID();
+    final UUID arrivalId = UUID.randomUUID();
+    final Flight flight = flight(this.airlineId);
+    final List<FlightInstance> instances = List.of(
+        withId(instance(flight, departureId, arrivalId)), withId(instance(flight, departureId, arrivalId)),
+        withId(instance(flight, departureId, arrivalId)));
+    when(this.airlineClient.getAirlineByOwner(ownerId)).thenReturn(
+        ApiResponse.success(AirlineResponse.builder().id(this.airlineId).build()));
+    when(this.flightInstanceRepository.findByAirlineId(any(), any(), any(), any(), any(), any(), any()))
+        .thenReturn(new PageImpl<>(instances));
+    when(this.flightRepository.findAllById(any())).thenReturn(List.of(flight));
+    when(this.airlineClient.getAirlinesByIds(any())).thenReturn(ApiResponse.success(
+        Map.of(this.airlineId, AirlineResponse.builder().name("SkyAir").build())));
+    when(this.airlineClient.getAircraftsByIds(any())).thenReturn(ApiResponse.success(Map.of()));
+    when(this.locationClient.getAirportsByIds(any())).thenReturn(ApiResponse.success(Map.of()));
+
+    final Page<FlightInstanceResponse> result = this.service.getByAirlineId(
+        ownerId, null, null, null, null, PageRequest.of(0, 20));
+
+    assertThat(result.getContent()).hasSize(3)
+        .allSatisfy(r -> assertThat(r.getAirlineName()).isEqualTo("SkyAir"));
+    verify(this.airlineClient, times(1)).getAirlinesByIds(any());
+    verify(this.airlineClient, times(1)).getAircraftsByIds(any());
+    verify(this.locationClient, times(1)).getAirportsByIds(List.of(departureId, arrivalId));
+    verify(this.airlineClient, never()).getAirlineById(any());
+    verify(this.locationClient, never()).getAirportById(any());
   }
 
   @Test
@@ -198,6 +245,11 @@ class FlightInstanceServiceImplTest {
   private FlightInstance instance(final Flight flight, final UUID departureId, final UUID arrivalId) {
     return FlightInstance.builder().flightId(flight.getId()).airlineId(this.airlineId)
         .departureAirportId(departureId).arrivalAirportId(arrivalId).build();
+  }
+
+  private static FlightInstance withId(final FlightInstance instance) {
+    instance.setId(UUID.randomUUID());
+    return instance;
   }
 
   private Flight flight(final UUID ownerAirlineId) {

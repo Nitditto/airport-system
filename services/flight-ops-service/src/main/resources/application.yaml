@@ -19,6 +19,14 @@ spring:
         order_inserts: true
         order_updates: true
 
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}}
+
+# Tên topic (CLAUDE.md §9: <domain>.<entity>.<action>, khai ở yaml, không hardcode trong code).
+kafka:
+  topics:
+    flight-instance-created: flight.instance.created
+
 eureka:
   client:
     register-with-eureka: true
@@ -27,4 +35,3 @@ eureka:
       defaultZone: http://localhost:8761/eureka/
   instance:
     prefer-ip-address: true
-
