@@ -66,6 +66,7 @@ public class SeatInstance extends BaseEntity {
     @Column(nullable = false)
     private boolean isAvailable = true;
 
+    /** KHÔNG phải giá vé (giá vé lấy từ pricing-service). Phí chọn chỗ thực thu là premiumSuperCharge. */
     private Double fare;
     private Double premiumSuperCharge;
 
