@@ -46,6 +46,9 @@ public class RouteConfig {
     // booking-service gọi qua Feign nội bộ, không qua gateway; qua gateway chỉ ADMIN. So khớp theo chuỗi con (không
     // phân biệt hoa thường) để đường dẫn biến thể như /api/payments/./initiate hay /initiate;x cũng không lọt.
     private static final List<String> INTERNAL_PAYMENT_SEGMENTS = List.of("initiate", "batch-by-ids");
+    // booking-service /{id}/confirm-payment: payment-service gọi qua Eureka (không qua gateway). Response là TOÀN BỘ chi
+    // tiết booking nên cho user thường gọi qua gateway là lộ dữ liệu booking của người khác; qua gateway chỉ ADMIN.
+    private static final List<String> INTERNAL_BOOKING_SEGMENTS = List.of("confirm-payment");
     private static final Pattern AIRLINE_LISTING_PATH = Pattern.compile("^/api/airlines/?$");
 
     /**
@@ -128,7 +131,7 @@ public class RouteConfig {
 
     @Bean
     public RouterFunction<ServerResponse> bookingServiceRoutes() {
-        return this.route("booking-service-routes", "booking-service", this.authenticated(ANY_AUTHENTICATED),
+        return this.route("booking-service-routes", "booking-service", this::bookingAccess,
                 "/api/bookings/**");
     }
 
@@ -179,6 +182,16 @@ public class RouteConfig {
         }
         if (HttpMethod.POST.equals(authenticated.method())
                 && INTERNAL_PAYMENT_SEGMENTS.stream().anyMatch(path::contains)) {
+            return this.requireAnyRole(authenticated, ADMIN);
+        }
+        return authenticated;
+    }
+
+    /** Booking: đăng nhập là đủ (ownership kiểm tra ở service), trừ lệnh nội bộ xác nhận thanh toán chỉ dành cho ADMIN. */
+    private ServerRequest bookingAccess(final ServerRequest request) {
+        final ServerRequest authenticated = this.secured(request, ANY_AUTHENTICATED);
+        final String path = authenticated.path().toLowerCase(java.util.Locale.ROOT);
+        if (INTERNAL_BOOKING_SEGMENTS.stream().anyMatch(path::contains)) {
             return this.requireAnyRole(authenticated, ADMIN);
         }
         return authenticated;
