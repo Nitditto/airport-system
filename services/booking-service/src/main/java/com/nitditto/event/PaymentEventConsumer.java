@@ -1,5 +1,7 @@
 package com.nitditto.event;
 
+import com.nitditto.payload.event.PaymentTransactionFailedEvent;
+import com.nitditto.payload.event.PaymentTransactionSucceededEvent;
 import com.nitditto.service.BookingConfirmationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,17 +24,18 @@ public class PaymentEventConsumer {
 
   private final BookingConfirmationService bookingConfirmationService;
 
-  @KafkaListener(topics = KafkaTopics.PAYMENT_COMPLETED, groupId = "${spring.kafka.consumer.group-id:booking-service-group}")
-  public void handlePaymentCompleted(final PaymentCompletedEvent event) {
-    log.info("Received PaymentCompletedEvent for bookingId={}, paymentId={}", event.getBookingId(), event.getPaymentId());
-    this.bookingConfirmationService.confirmPayment(event.getBookingId());
-    log.info("Booking {} confirmed via Kafka event", event.getBookingId());
+  @KafkaListener(topics = "${kafka.topics.payment-transaction-succeeded}", groupId = "${spring.application.name}")
+  public void handlePaymentSucceeded(final PaymentTransactionSucceededEvent event) {
+    log.info("Received PaymentTransactionSucceededEvent eventId={} bookingId={} paymentId={}", event.eventId(),
+        event.bookingId(), event.paymentId());
+    this.bookingConfirmationService.confirmPayment(event.bookingId());
+    log.info("Booking {} confirmed via Kafka event {}", event.bookingId(), event.eventId());
   }
 
-  @KafkaListener(topics = KafkaTopics.PAYMENT_FAILED, groupId = "${spring.kafka.consumer.group-id:booking-service-group}")
-  public void handlePaymentFailed(final PaymentFailedEvent event) {
+  @KafkaListener(topics = "${kafka.topics.payment-transaction-failed}", groupId = "${spring.application.name}")
+  public void handlePaymentFailed(final PaymentTransactionFailedEvent event) {
     // Không huỷ booking: người dùng còn được thanh toán lại trong thời hạn; booking hết hạn sẽ do expireIfStale xử lý.
-    log.warn("Received PaymentFailedEvent for bookingId={}, paymentId={}, reason={}",
-        event.getBookingId(), event.getPaymentId(), event.getFailureReason());
+    log.warn("Received PaymentTransactionFailedEvent eventId={} bookingId={} paymentId={} reason={}", event.eventId(),
+        event.bookingId(), event.paymentId(), event.failureReason());
   }
 }

@@ -7,9 +7,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nitditto.enums.BookingStatus;
-import com.nitditto.event.KafkaTopics;
-import com.nitditto.event.PaymentCompletedEvent;
-import com.nitditto.event.PaymentFailedEvent;
+import com.nitditto.payload.event.EventIds;
+import com.nitditto.payload.event.PaymentTransactionFailedEvent;
+import com.nitditto.payload.event.PaymentTransactionSucceededEvent;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.service.BookingConfirmationService;
 import java.time.LocalDateTime;
@@ -40,9 +40,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
     "spring.jpa.hibernate.ddl-auto=create-drop",
     "eureka.client.enabled=false"
 })
-@EmbeddedKafka(partitions = 1, topics = {KafkaTopics.PAYMENT_COMPLETED, KafkaTopics.PAYMENT_FAILED},
+@EmbeddedKafka(partitions = 1, topics = {PaymentEventConsumerKafkaE2ETest.SUCCEEDED, PaymentEventConsumerKafkaE2ETest.FAILED},
     bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 class PaymentEventConsumerKafkaE2ETest {
+
+  static final String SUCCEEDED = "payment.transaction.succeeded";
+  static final String FAILED = "payment.transaction.failed";
 
   @Autowired
   private EmbeddedKafkaBroker broker;
@@ -71,7 +74,7 @@ class PaymentEventConsumerKafkaE2ETest {
     final UUID bookingId = UUID.randomUUID();
     when(this.bookingConfirmationService.confirmPayment(bookingId)).thenReturn(BookingStatus.CONFIRMED);
 
-    this.send(KafkaTopics.PAYMENT_COMPLETED, completed(bookingId));
+    this.send(SUCCEEDED, completed(bookingId));
 
     verify(this.bookingConfirmationService, timeout(15_000)).confirmPayment(bookingId);
   }
@@ -84,7 +87,7 @@ class PaymentEventConsumerKafkaE2ETest {
         .thenThrow(new RuntimeException("seat-service unavailable"))
         .thenReturn(BookingStatus.CONFIRMED);
 
-    this.send(KafkaTopics.PAYMENT_COMPLETED, completed(bookingId));
+    this.send(SUCCEEDED, completed(bookingId));
 
     // FixedBackOff(2s, 3 lần): lần 1 lỗi, lần 2 lỗi, lần 3 thành công
     verify(this.bookingConfirmationService, timeout(20_000).times(3)).confirmPayment(bookingId);
@@ -96,7 +99,7 @@ class PaymentEventConsumerKafkaE2ETest {
     when(this.bookingConfirmationService.confirmPayment(bookingId))
         .thenThrow(new BusinessException("Booking is EXPIRED and cannot be confirmed"));
 
-    this.send(KafkaTopics.PAYMENT_COMPLETED, completed(bookingId));
+    this.send(SUCCEEDED, completed(bookingId));
 
     verify(this.bookingConfirmationService, timeout(15_000)).confirmPayment(bookingId);
     // chờ lâu hơn một chu kỳ backoff (2s) để chắc chắn không có lần gọi thứ hai
@@ -109,23 +112,23 @@ class PaymentEventConsumerKafkaE2ETest {
     final UUID marker = UUID.randomUUID();
     when(this.bookingConfirmationService.confirmPayment(marker)).thenReturn(BookingStatus.CONFIRMED);
 
-    this.send(KafkaTopics.PAYMENT_FAILED, PaymentFailedEvent.builder()
-        .paymentId(UUID.randomUUID()).bookingId(bookingId).failureReason("cancelled").build());
-    this.send(KafkaTopics.PAYMENT_COMPLETED, completed(marker));
+    this.send(FAILED, new PaymentTransactionFailedEvent(EventIds.newEventId(), java.time.Instant.now(),
+        UUID.randomUUID(), bookingId, UUID.randomUUID(), 250.0, null, "cancelled"));
+    this.send(SUCCEEDED, completed(marker));
 
     verify(this.bookingConfirmationService, timeout(15_000)).confirmPayment(marker);
     verify(this.bookingConfirmationService, after(2_000).never()).confirmPayment(bookingId);
   }
 
   private void send(final String topic, final Object event) throws Exception {
-    final UUID key = event instanceof PaymentCompletedEvent c ? c.getBookingId()
-        : ((PaymentFailedEvent) event).getBookingId();
+    final UUID key = event instanceof PaymentTransactionSucceededEvent c ? c.bookingId()
+        : ((PaymentTransactionFailedEvent) event).bookingId();
     this.producer.send(topic, key.toString(), event).get();
   }
 
-  private static PaymentCompletedEvent completed(final UUID bookingId) {
-    return PaymentCompletedEvent.builder()
-        .paymentId(UUID.randomUUID()).bookingId(bookingId).userId(UUID.randomUUID()).amount(250.0)
-        .transactionId("14000001").paidAt(LocalDateTime.now()).build();
+  private static PaymentTransactionSucceededEvent completed(final UUID bookingId) {
+    return new PaymentTransactionSucceededEvent(EventIds.newEventId(), java.time.Instant.now(), UUID.randomUUID(),
+        bookingId, UUID.randomUUID(), 250.0, "14000001", null, LocalDateTime.now());
   }
+
 }
