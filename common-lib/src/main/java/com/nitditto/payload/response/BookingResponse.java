@@ -3,6 +3,7 @@ package com.nitditto.payload.response;
 import com.nitditto.embeddable.ContactInfo;
 import com.nitditto.enums.BookingStatus;
 import com.nitditto.enums.PaymentStatus;
+import com.nitditto.enums.RefundStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -64,5 +65,11 @@ public class BookingResponse {
     private Boolean isPast;
 
     private ContactInfo contactInfo;
+
+    // Chỉ có trong response của thao tác huỷ booking (không lưu ở booking; trạng thái thanh toán sau đó xem ở payment).
+    private Double refundAmount;
+    private RefundStatus refundStatus;
+    /** Giải thích số tiền hoàn: vì sao hoàn một phần / không hoàn. */
+    private String refundNote;
 
 }
