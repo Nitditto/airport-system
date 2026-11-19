@@ -51,9 +51,11 @@ public class BookingController {
     return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
   }
 
+  // Chỉ chủ booking hoặc chủ hãng bay của booking đó được xem (kiểm tra ở service bằng X-User-Id do gateway gắn).
   @GetMapping("/{id}")
-  public ResponseEntity<ApiResponse<BookingResponse>> getBookingById(@PathVariable final UUID id) {
-    return ResponseEntity.ok(ApiResponse.success(this.bookingService.getBookingById(id)));
+  public ResponseEntity<ApiResponse<BookingResponse>> getBookingById(@PathVariable final UUID id,
+      @RequestHeader("X-User-Id") final UUID userId) {
+    return ResponseEntity.ok(ApiResponse.success(this.bookingService.getBookingById(id, userId)));
   }
 
   // payment-service gọi (qua Eureka, không qua gateway) ngay sau khi xác minh thanh toán thành công. Endpoint tự kiểm tra

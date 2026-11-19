@@ -30,6 +30,7 @@ import com.nitditto.service.BookingCreationService;
 import com.nitditto.service.BookingEnrichmentService;
 import com.nitditto.service.BookingPriceCalculator;
 import com.nitditto.service.BookingRefundService;
+import com.nitditto.service.BookingReadAccess;
 import com.nitditto.service.BookingService;
 import com.nitditto.service.PassengerService;
 import com.nitditto.service.SeatReservationService;
@@ -42,6 +43,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -163,17 +165,34 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
-    public BookingResponse getBookingById(final UUID id) {
-        final Booking booking = this.bookingRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Booking", "id", id));
+    public BookingResponse getBookingById(final UUID id, final UUID requesterUserId) {
+        final Booking booking = this.findBooking(id);
+        BookingReadAccess.require(booking, requesterUserId, () -> this.airlineIdOwnedBy(requesterUserId));
         return convertToBookingResponses(List.of(booking)).get(0);
+    }
+
+    private Booking findBooking(final UUID id) {
+        return this.bookingRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking", "id", id));
+    }
+
+    // Hãng bay mà user là chủ sở hữu; null nếu user không phải chủ hãng nào (airline-core trả 404). Lỗi khác (service
+    // down...) để nổi lên thành 5xx: không "đoán" quyền khi không xác minh được.
+    private UUID airlineIdOwnedBy(final UUID userId) {
+        try {
+            final AirlineResponse airline = this.airlineClient.getAirlineByOwner(userId).getData();
+            return airline != null ? airline.getId() : null;
+        } catch (final FeignException.NotFound ex) {
+            return null;
+        }
     }
 
     @Override
     public BookingResponse confirmPayment(final UUID id) {
         // Chạy trong transaction riêng và commit trước khi đọc lại, nên bản đọc bên dưới thấy trạng thái mới.
         this.bookingConfirmationService.confirmPayment(id);
-        return this.getBookingById(id);
+        // Lệnh nội bộ (payment-service gọi qua Eureka, gateway chỉ cho ADMIN): không kiểm tra chủ booking ở đây.
+        return convertToBookingResponses(List.of(this.findBooking(id))).get(0);
     }
 
     @Override
