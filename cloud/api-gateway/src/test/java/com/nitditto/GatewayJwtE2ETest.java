@@ -558,6 +558,38 @@ class GatewayJwtE2ETest {
     }
 
     @Test
+    void userRole_cannotCallAnyRefundEndpoint_throughTheGateway() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+      final UUID someRefund = UUID.randomUUID();
+
+      assertThat(send("POST", "/api/payments/refund", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("POST", "/api/payments/Refund/", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("POST", "/api/payments/refund;x=1", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("POST", "/api/payments/refunds/" + someRefund + "/retry", token, Map.of(), null)
+          .statusCode()).isEqualTo(403);
+      // GET danh sách cũng bị chặn: lộ trạng thái hoàn tiền của người khác
+      assertThat(send("GET", "/api/payments/refunds", token, Map.of(), null).statusCode()).isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void airlineOwnerRole_cannotCallRefundEndpoints_either() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_OWNER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/payments/refund", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void admin_canCallRefundEndpoints() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_ADMIN, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/payments/refunds/" + UUID.randomUUID() + "/retry", token, Map.of(), null)
+          .statusCode()).isEqualTo(200);
+      assertThat(send("GET", "/api/payments/refunds", token, Map.of(), null).statusCode()).isEqualTo(200);
+    }
+
+    @Test
     void admin_canInitiatePayment() throws Exception {
       final String token = token(UUID.randomUUID(), ROLE_ADMIN, SECRET, 60_000);
 

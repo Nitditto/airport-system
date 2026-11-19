@@ -44,6 +44,10 @@ vnpay:
   hash-secret: ${VNPAY_HASH_SECRET:}
   pay-url: ${VNPAY_PAY_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
   return-url: ${VNPAY_RETURN_URL:http://localhost:5173/payment/result}
+  # API hoàn tiền (merchant_webapi). Sandbox hạn chế hoàn tiền: cần VNPay mở cho merchant mới dùng được.
+  refund-url: ${VNPAY_REFUND_URL:https://sandbox.vnpayment.vn/merchant_webapi/api/transaction}
+  # Kiểm tra chữ ký phản hồi hoàn tiền; tắt (false) nếu định dạng thực tế của VNPay khác tài liệu và đã đối chiếu thủ công.
+  refund-verify-response: ${VNPAY_REFUND_VERIFY_RESPONSE:true}
 
 eureka:
   client:

@@ -22,6 +22,10 @@ public interface FlightClient {
   ApiResponse<Map<UUID, FlightInstanceResponse>> getFlightInstancesByIds(@RequestBody List<UUID> ids);
 
   @GetMapping("/api/flights/{id}")
-  public ResponseEntity<ApiResponse<FlightResponse>> getFlightById(@PathVariable("id") final UUID id);
+  ApiResponse<FlightResponse> getFlightById(@PathVariable("id") UUID id);
+
+  @GetMapping("/api/flight-instances/{id}")
+  public ResponseEntity<ApiResponse<FlightInstanceResponse>> getFlightInstance(
+      @PathVariable final UUID id);
 
 }

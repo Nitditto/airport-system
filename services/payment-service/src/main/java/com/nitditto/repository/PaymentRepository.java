@@ -13,6 +13,9 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     boolean existsByBookingIdAndStatus(UUID bookingId, PaymentStatus status);
 
+    // Payment đã thu tiền của booking (SUCCESS, hoặc REFUNDED nếu đã hoàn): dùng để hoàn tiền / tra cứu idempotent.
+    List<Payment> findByBookingIdAndStatusIn(UUID bookingId, java.util.Collection<PaymentStatus> statuses);
+
     List<Payment> findByBookingIdIn(List<UUID> bookingIds);
 
     Page<Payment> findByUserId(UUID userId, Pageable pageable);
