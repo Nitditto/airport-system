@@ -8,7 +8,11 @@ public interface UserService {
 
   UserDTO getUserByEmail(String email);
 
-  UserDTO getUserById(UUID id);
+  /**
+   * Trả thông tin user theo id. Chỉ chính chủ (email trong JWT trùng email của user) hoặc SYSTEM_ADMIN được đọc;
+   * người khác nhận AccessDeniedException (403) — chặn IDOR đọc thông tin user khác qua id.
+   */
+  UserDTO getUserById(UUID id, String requesterEmail, boolean requesterIsAdmin);
 
   List<UserDTO> getAllUsers();
 }
