@@ -24,10 +24,12 @@ import com.nitditto.payload.response.PaymentInitiateResponse;
 import com.nitditto.payload.response.TicketResponse;
 import com.nitditto.repository.BookingRepository;
 import com.nitditto.repository.spec.BookingSpecs;
+import com.nitditto.service.BookingCancellationService;
 import com.nitditto.service.BookingConfirmationService;
 import com.nitditto.service.BookingCreationService;
 import com.nitditto.service.BookingEnrichmentService;
 import com.nitditto.service.BookingPriceCalculator;
+import com.nitditto.service.BookingRefundService;
 import com.nitditto.service.BookingService;
 import com.nitditto.service.PassengerService;
 import com.nitditto.service.SeatReservationService;
@@ -69,6 +71,8 @@ public class BookingServiceImpl implements BookingService {
     private final BookingEnrichmentService bookingEnrichmentService;
     private final BookingConfirmationService bookingConfirmationService;
     private final BookingCreationService bookingCreationService;
+    private final BookingRefundService bookingRefundService;
+    private final BookingCancellationService bookingCancellationService;
 
     /**
      * Điều phối đặt vé qua nhiều service — cố ý KHÔNG chạy trong transaction (CLAUDE.md §8): không giữ DB connection
@@ -191,22 +195,41 @@ public class BookingServiceImpl implements BookingService {
         return mapPageToResponses(this.bookingRepository.findByUserId(userId, pageable));
     }
 
+    /**
+     * Huỷ booking — cố ý KHÔNG chạy trong transaction (CLAUDE.md §8): có lời gọi HTTP sang pricing/flight/payment/seat.
+     *
+     * <ol>
+     *   <li>Booking đã xác nhận (đã trả tiền): quyết định số hoàn theo chính sách và nhờ payment-service ghi nhận hoàn
+     *       tiền TRƯỚC khi huỷ. Không ghi nhận được → lỗi, booking giữ nguyên, người dùng thử lại (yêu cầu hoàn là
+     *       idempotent). Vé không đủ điều kiện hoàn thì vẫn huỷ, hoàn 0.</li>
+     *   <li>Đổi trạng thái CANCELLED + huỷ vé trong transaction riêng ({@link BookingCancellationService}).</li>
+     *   <li>Nhả ghế (HTTP, lỗi chỉ ghi log: ghế tự hết hạn giữ).</li>
+     * </ol>
+     * Huỷ lần hai trên booking đã huỷ không làm gì thêm (không hoàn lần hai).
+     */
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public BookingResponse cancelBooking(final UUID id, final UUID requesterUserId) {
         final Booking booking = this.bookingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking", "id", id));
         requireOwner(booking, requesterUserId, "cancel");
         final BookingStatus previous = booking.getBookingStatus();
+        if (previous == BookingStatus.CANCELLED) {
+            return convertToBookingResponses(List.of(booking)).get(0);
+        }
 
-        booking.setBookingStatus(BookingStatus.CANCELLED);
-        final Booking updated = this.bookingRepository.save(booking);
-        this.ticketService.cancelTicketsForBooking(id);
+        final BookingRefundService.Outcome refund = previous == BookingStatus.CONFIRMED
+                ? this.bookingRefundService.refundForCancellation(booking, requesterUserId)
+                : BookingRefundService.Outcome.notApplicable();
+
+        final Booking updated = this.bookingCancellationService.markCancelled(id);
         this.releaseSeatsOf(booking, previous);
 
-        // todo: khi có payment-service, gọi refund/void payment ở đây
-
-        return convertToBookingResponses(List.of(updated)).get(0);
+        final BookingResponse response = convertToBookingResponses(List.of(updated)).get(0);
+        response.setRefundAmount(refund.amount());
+        response.setRefundStatus(refund.status());
+        response.setRefundNote(refund.note());
+        return response;
     }
 
     // Đơn đã xác nhận: ghế đã bán nên phải trả về trống. Đơn còn PENDING: chỉ nhả hold của chính người đặt (ghế có thể

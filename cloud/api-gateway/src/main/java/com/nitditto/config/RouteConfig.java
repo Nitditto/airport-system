@@ -166,10 +166,17 @@ public class RouteConfig {
         return request -> this.secured(request, writeRoles);
     }
 
-    /** Thanh toán: đăng nhập là đủ, trừ các lệnh nội bộ (khởi tạo thanh toán, tra theo danh sách booking) chỉ dành cho ADMIN. */
+    // Hoàn tiền (yêu cầu, retry, danh sách): booking-service gọi qua Feign nội bộ; qua gateway chỉ ADMIN, MỌI method (kể
+    // cả GET danh sách, vì lộ thông tin hoàn tiền của người khác). Khớp theo chuỗi con như INTERNAL_PAYMENT_SEGMENTS.
+    private static final List<String> ADMIN_ONLY_PAYMENT_SEGMENTS = List.of("refund");
+
+    /** Thanh toán: đăng nhập là đủ, trừ các lệnh nội bộ (khởi tạo thanh toán, tra theo danh sách booking, hoàn tiền) chỉ dành cho ADMIN. */
     private ServerRequest paymentAccess(final ServerRequest request) {
         final ServerRequest authenticated = this.secured(request, ANY_AUTHENTICATED);
         final String path = authenticated.path().toLowerCase(java.util.Locale.ROOT);
+        if (ADMIN_ONLY_PAYMENT_SEGMENTS.stream().anyMatch(path::contains)) {
+            return this.requireAnyRole(authenticated, ADMIN);
+        }
         if (HttpMethod.POST.equals(authenticated.method())
                 && INTERNAL_PAYMENT_SEGMENTS.stream().anyMatch(path::contains)) {
             return this.requireAnyRole(authenticated, ADMIN);

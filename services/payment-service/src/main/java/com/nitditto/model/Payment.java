@@ -62,4 +62,8 @@ public class Payment extends BaseEntity {
     @Column(name = "refund_id")
     private String refundId;
 
+    /** vnp_CreateDate gửi lúc tạo link VNPay (yyyyMMddHHmmss, GMT+7): VNPay đòi lại đúng giá trị này khi hoàn tiền. */
+    @Column(name = "provider_create_date", length = 14)
+    private String providerCreateDate;
+
 }

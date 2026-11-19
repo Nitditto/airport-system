@@ -102,6 +102,7 @@ public class VNPayService {
         return PaymentLinkResponse.builder()
                 .paymentLinkId(payment.getId().toString())
                 .paymentLinkUrl(paymentUrl)
+                .createDate(createDate)
                 .build();
     }
 
