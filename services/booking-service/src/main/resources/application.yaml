@@ -20,6 +20,19 @@ spring:
         order_inserts: true
         order_updates: true
 
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}}
+    consumer:
+      group-id: ${spring.application.name}
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: "com.nitditto.payload.event"
+    listener:
+      concurrency: 3
+
 # Thời hạn thanh toán cho booking PENDING (khớp thời hạn giữ ghế và link VNPay 15 phút).
 booking:
   payment-window-minutes: ${BOOKING_PAYMENT_WINDOW_MINUTES:15}
@@ -32,3 +45,9 @@ eureka:
       defaultZone: http://localhost:8761/eureka/
   instance:
     prefer-ip-address: true
+
+# Tên topic (CLAUDE.md §9: <domain>.<entity>.<action>, khai ở yaml).
+kafka:
+  topics:
+    payment-transaction-succeeded: payment.transaction.succeeded
+    payment-transaction-failed: payment.transaction.failed

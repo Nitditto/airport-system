@@ -25,6 +25,7 @@ import com.nitditto.payload.response.TicketResponse;
 import com.nitditto.repository.BookingRepository;
 import com.nitditto.repository.spec.BookingSpecs;
 import com.nitditto.service.BookingConfirmationService;
+import com.nitditto.service.BookingCreationService;
 import com.nitditto.service.BookingEnrichmentService;
 import com.nitditto.service.BookingPriceCalculator;
 import com.nitditto.service.BookingService;
@@ -34,6 +35,7 @@ import com.nitditto.service.TicketService;
 import com.nitditto.service.integration.FareIntegrationService;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -45,6 +47,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
@@ -65,9 +68,22 @@ public class BookingServiceImpl implements BookingService {
     private final SeatReservationService seatReservationService;
     private final BookingEnrichmentService bookingEnrichmentService;
     private final BookingConfirmationService bookingConfirmationService;
+    private final BookingCreationService bookingCreationService;
 
+    /**
+     * Điều phối đặt vé qua nhiều service — cố ý KHÔNG chạy trong transaction (CLAUDE.md §8): không giữ DB connection
+     * trong lúc gọi HTTP, và payment chỉ được tạo SAU KHI booking đã commit.
+     *
+     * <ol>
+     *   <li>Đọc dữ liệu từ service khác (chuyến bay, giá) — chưa ghi gì.</li>
+     *   <li>Giữ ghế — ghế đã bị giữ/đặt thì dừng, chưa tạo gì.</li>
+     *   <li>Ghi booking + hành khách + vé trong transaction riêng ({@link BookingCreationService}).
+     *       Lỗi (kể cả lỗi lúc commit) → nhả ghế.</li>
+     *   <li>Khởi tạo thanh toán. Lỗi → huỷ booking PENDING vừa tạo và nhả ghế.</li>
+     * </ol>
+     */
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PaymentInitiateResponse createBooking(final BookingRequest request, final UUID userId) {
         final List<UUID> seatInstanceIds = request.getPassengers().stream()
                 .map(PassengerRequest::getSeatInstanceId)
@@ -76,52 +92,70 @@ public class BookingServiceImpl implements BookingService {
             throw new BusinessException("Each passenger must be assigned a different seat");
         }
 
-        // Giữ ghế TRƯỚC khi tạo booking: nếu ghế đã bị người khác giữ/đặt thì dừng ngay, không tạo đơn và không thu tiền.
+        final UUID airlineId = this.resolveAirlineId(request.getFlightId());
+        final double totalPrice = this.calculateTotalPrice(request, seatInstanceIds);
+
         this.seatReservationService.hold(userId, seatInstanceIds);
+        final Booking booking;
         try {
-            return this.createBookingAndInitiatePayment(request, userId, seatInstanceIds);
+            booking = this.bookingCreationService.createPending(request, userId, airlineId, seatInstanceIds);
         } catch (final RuntimeException ex) {
+            this.seatReservationService.releaseQuietly(userId, seatInstanceIds);
+            throw ex;
+        }
+
+        try {
+            return this.initiatePayment(request, userId, booking, totalPrice);
+        } catch (final RuntimeException ex) {
+            log.error("Payment initiation failed for booking {}; abandoning it", booking.getBookingReference(), ex);
+            this.abandonQuietly(booking);
             this.seatReservationService.releaseQuietly(userId, seatInstanceIds);
             throw ex;
         }
     }
 
-    private PaymentInitiateResponse createBookingAndInitiatePayment(final BookingRequest request,
-            final UUID userId, final List<UUID> seatInstanceIds) {
-        final String bookingReference = generateBookingReference();
-        final FlightResponse flightResponse = flightClient.getFlightById(request.getFlightId())
-                .getBody().getData();
+    private UUID resolveAirlineId(final UUID flightId) {
+        final FlightResponse flight = this.flightClient.getFlightById(flightId).getData();
+        if (flight == null || flight.getAirline() == null || flight.getAirline().getId() == null) {
+            throw new ResourceNotFoundException("Flight", "id", flightId);
+        }
+        return flight.getAirline().getId();
+    }
 
-        Booking booking = BookingMapper.toEntity(request, userId, bookingReference, seatInstanceIds);
-        booking.setAirlineId(flightResponse.getAirline().getId());
-        booking = this.bookingRepository.saveAndFlush(booking);
+    private double calculateTotalPrice(final BookingRequest request, final List<UUID> seatInstanceIds) {
+        final Double farePerPassenger = this.fareIntegrationService.calculateFareTotal(request.getFareId());
+        final Double seatPrice = this.seatClient.calculateSeatPrice(seatInstanceIds);
+        // ancillaryIds/mealIds là optional trong BookingRequest; Feign không cho body null (IllegalArgumentException -> 500).
+        final Double ancillaryPrice = this.ancillaryClient.calculateAncillariesPrice(
+                Objects.requireNonNullElse(request.getAncillaryIds(), List.of())).getData();
+        final Double mealPrice = this.ancillaryClient.calculateMealPrice(
+                Objects.requireNonNullElse(request.getMealIds(), List.of())).getData();
+        return BookingPriceCalculator.total(farePerPassenger, request.getPassengers().size(), seatPrice,
+                ancillaryPrice, mealPrice);
+    }
 
-        final List<PassengerResponse> passengers = this.passengerService
-                .createPassengers(request.getPassengers(), booking.getId(), userId);
-        enrichTickets(this.ticketService.generateTicketsForBooking(booking.getId(), passengers), booking, passengers);
-
-        final double totalPrice = this.calculateTotalPrice(request, booking, seatInstanceIds);
+    private PaymentInitiateResponse initiatePayment(final BookingRequest request, final UUID userId,
+            final Booking booking, final double totalPrice) {
+        // bắt buộc trong BookingRequest (@NotNull) nên không tự mặc định cổng thanh toán.
         final PaymentGateway gateway = request.getPaymentGateway();
-
         final PaymentInitiateRequest paymentInitiateRequest = PaymentInitiateRequest.builder()
                 .userId(userId)
                 .bookingId(booking.getId())
                 .amount(totalPrice)
                 .paymentGateway(gateway)
-                .description("Payment for booking ID : " + bookingReference)
+                .description("Payment for booking ID : " + booking.getBookingReference())
                 .build();
-
-        return paymentClient.initiatePayment(paymentInitiateRequest).getBody().getData();
+        return this.paymentClient.initiatePayment(paymentInitiateRequest).getBody().getData();
     }
 
-    private double calculateTotalPrice(final BookingRequest request, final Booking booking,
-            final List<UUID> seatInstanceIds) {
-        final Double farePerPassenger = this.fareIntegrationService.calculateFareTotal(request.getFareId());
-        final Double seatPrice = this.seatClient.calculateSeatPrice(seatInstanceIds);
-        final Double ancillaryPrice = this.ancillaryClient.calculateAncillariesPrice(booking.getAncillaryIds()).getData();
-        final Double mealPrice = this.ancillaryClient.calculateMealPrice(booking.getMealIds()).getData();
-        return BookingPriceCalculator.total(farePerPassenger, request.getPassengers().size(), seatPrice,
-                ancillaryPrice, mealPrice);
+    // Bắt lỗi ở đây (ngoài proxy) chứ không trong method @Transactional: lỗi commit chỉ lộ ra sau khi method trả về.
+    private void abandonQuietly(final Booking booking) {
+        try {
+            this.bookingCreationService.abandonPending(booking.getId());
+        } catch (final RuntimeException ex) {
+            log.warn("Could not abandon booking {} (it will expire after the payment window): {}",
+                    booking.getBookingReference(), ex.getMessage());
+        }
     }
 
     @Override
@@ -205,14 +239,6 @@ public class BookingServiceImpl implements BookingService {
         if (!booking.getUserId().equals(requesterUserId)) {
             throw new BusinessException("You are not allowed to " + action + " this booking");
         }
-    }
-
-    private String generateBookingReference() {
-        String bookingReference;
-        do {
-            bookingReference = "BK" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-        } while (this.bookingRepository.existsByBookingReference(bookingReference));
-        return bookingReference;
     }
 
     private Page<BookingResponse> mapPageToResponses(final Page<Booking> page) {
