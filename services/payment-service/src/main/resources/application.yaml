@@ -58,6 +58,19 @@ vnpay:
   refund-url: ${VNPAY_REFUND_URL:https://sandbox.vnpayment.vn/merchant_webapi/api/transaction}
   # Kiểm tra chữ ký phản hồi hoàn tiền; tắt (false) nếu định dạng thực tế của VNPay khác tài liệu và đã đối chiếu thủ công.
   refund-verify-response: ${VNPAY_REFUND_VERIFY_RESPONSE:true}
+  # API tra cứu giao dịch (querydr), cùng endpoint merchant_webapi với hoàn tiền.
+  query-url: ${VNPAY_QUERY_URL:https://sandbox.vnpayment.vn/merchant_webapi/api/transaction}
+  query-verify-response: ${VNPAY_QUERY_VERIFY_RESPONSE:true}
+
+# Job đối soát payment VNPay còn PENDING (xem PendingPaymentReconciler).
+payment:
+  reconcile:
+    enabled: ${PAYMENT_RECONCILE_ENABLED:true}
+    interval-ms: 120000
+    min-age-minutes: 2
+    requery-interval-minutes: 5
+    max-age-hours: 48
+    batch-size: 50
 
 eureka:
   client:

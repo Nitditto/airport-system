@@ -286,6 +286,24 @@ chưa có luồng refund (xem §10) — giữ nguyên trong enum cho tương lai
 - **Cấu hình ở cổng merchant của VNPay:** điền URL IPN công khai trỏ tới gateway, dạng `https://<domain>/api/payments/vnpay-ipn`. Không có URL công khai thì VNPay không gọi được (localhost không dùng được; khi thử cần tunnel như ngrok). Chưa kiểm chứng với VNPay thật.
 - Chưa có: job tra cứu giao dịch chủ động (querydr) cho payment `PENDING` mà IPN cũng không tới.
 
+## Job đối soát payment VNPay (`PendingPaymentReconciler`)
+
+Bù cho trường hợp cả trình duyệt lẫn IPN đều không báo kết quả: cứ 2 phút (cấu hình được) job hỏi VNPay (API `querydr`) về các payment VNPay còn `PENDING`, tạo từ 2 phút đến 48 giờ trước, và chưa được hỏi trong 5 phút gần nhất (hỏi lâu chưa hỏi trước, tối đa 50 payment/lượt). Job **chỉ hỏi cổng, không đoán kết quả**; gọi cổng nằm ngoài transaction DB, mỗi payment áp kết quả trong transaction riêng nên một payment lỗi không chặn các payment khác.
+
+| Kết quả VNPay | Hành động |
+|---|---|
+| Thành công (`vnp_TransactionStatus=00`) và `vnp_Amount` khớp | `SUCCESS` như IPN (phát event, booking được xác nhận) |
+| Thành công nhưng số tiền không khớp | **Không xác nhận**, log `ERROR`, xem tay |
+| Thất bại (`02`) | `FAILED` |
+| Chưa hoàn tất (`01`) hoặc không có giao dịch (mã `91`) | Giữ `PENDING`; sau 30 phút kể từ lúc tạo (link đã hết hạn) thì `FAILED` |
+| Mọi thứ khác (lỗi mạng, sai chữ ký phản hồi, mã lạ, trạng thái `04/05/06/07/09`) | Không đổi gì, log `WARN`, xem ở cổng merchant |
+
+- Cấu hình: `payment.reconcile.enabled` (`PAYMENT_RECONCILE_ENABLED`), `interval-ms`, `min-age-minutes`, `requery-interval-minutes`, `max-age-hours`, `batch-size`; `vnpay.query-url`, `vnpay.query-verify-response` (tắt kiểm chữ ký phản hồi nếu định dạng thực tế khác).
+- Payment `FAILED` do job vẫn được đổi thành `SUCCESS` nếu IPN/trình duyệt báo thành công muộn.
+- **Chưa kiểm chứng với VNPay thật.** Thứ tự trường ký lấy từ tài liệu công khai (trang đó ghi công thức chữ ký phản hồi thiếu một toán tử, cần đối chiếu với sandbox).
+- Một instance payment-service thì an toàn; nhiều instance cùng chạy có thể cùng hỏi một payment, ràng buộc `paid_booking_id` chặn ghi thành công hai lần.
+- Không áp dụng cho Razorpay.
+
 ## 11. Việc cần làm (bám ROADMAP Section 12)
 
 **Ở `payment-service` (module mới):**

@@ -20,6 +20,7 @@ import com.nitditto.payload.response.PaymentLinkResponse;
 import com.nitditto.repository.PaymentRepository;
 import com.nitditto.service.PaymentService;
 import com.nitditto.service.gateway.RazorpayService;
+import com.nitditto.service.gateway.VNPayQueryService;
 import com.nitditto.service.gateway.VNPayService;
 import com.nitditto.service.gateway.VnpayIpnResponse;
 import com.razorpay.RazorpayException;
@@ -58,6 +59,8 @@ public class PaymentServiceImpl implements PaymentService {
 
     // Link VNPay hết hạn sau 15 phút: chỉ trả lại link cũ khi khách còn dư thời gian để dùng nó.
     private static final Duration REUSE_WINDOW = Duration.ofMinutes(10);
+    // Sau chừng này kể từ lúc tạo (link VNPay sống 15 phút) mà VNPay vẫn chưa có giao dịch hoàn tất thì coi là thất bại.
+    private static final Duration RECONCILE_GIVE_UP = Duration.ofMinutes(30);
 
     @Override
     public List<PaymentGatewayResponse> getAvailableGateways() {
@@ -325,6 +328,48 @@ public class PaymentServiceImpl implements PaymentService {
         log.info("VNPay IPN applied to payment {} (bookingId={}, vnp_ResponseCode={})", payment.getId(),
                 payment.getBookingId(), vnpFields.get("vnp_ResponseCode"));
         return VnpayIpnResponse.CONFIRMED;
+    }
+
+    @Override
+    @Transactional
+    public void applyVnpayQuery(final UUID paymentId, final VNPayQueryService.Result result) {
+        final Payment payment = this.paymentRepository.findById(paymentId).orElse(null);
+        if (payment == null || payment.getStatus() != PaymentStatus.PENDING) {
+            return; // IPN hoặc trình duyệt đã chốt trong lúc chờ tra cứu
+        }
+        payment.setLastReconciledAt(this.clock.instant());
+        switch (result.outcome()) {
+            case PAID -> this.confirmPaidByQuery(payment, result);
+            case FAILED -> {
+                this.markFailed(payment, "VNPay reports the transaction failed: " + result.message());
+                log.warn("Reconcile: payment {} is FAILED at VNPay (status={})", payment.getId(), result.transactionStatus());
+            }
+            case NOT_FOUND, IN_PROGRESS -> {
+                // Link thanh toán đã hết hạn mà VNPay vẫn không có giao dịch hoàn tất: khách sẽ không trả được nữa.
+                if (payment.getCreatedAt() != null
+                        && !payment.getCreatedAt().plus(RECONCILE_GIVE_UP).isAfter(this.clock.instant())) {
+                    this.markFailed(payment, "Payment link expired without a completed payment");
+                    log.info("Reconcile: payment {} expired unpaid (VNPay outcome={})", payment.getId(), result.outcome());
+                }
+            }
+            case UNKNOWN -> log.warn("Reconcile: payment {} could not be classified (code={}, status={}, message={}); "
+                    + "check it in the VNPay merchant portal", payment.getId(), result.responseCode(),
+                    result.transactionStatus(), result.message());
+        }
+        this.paymentRepository.save(payment);
+    }
+
+    private void confirmPaidByQuery(final Payment payment, final VNPayQueryService.Result result) {
+        if (!this.amountMatches(payment, result.amount())) {
+            log.error("Reconcile: VNPay says payment {} is paid but vnp_Amount={} does not match; NOT confirming, check manually",
+                    payment.getId(), result.amount());
+            return;
+        }
+        if (result.transactionNo() != null && !result.transactionNo().isBlank()) {
+            payment.setProviderPaymentId(result.transactionNo());
+        }
+        log.warn("Reconcile: payment {} was paid at VNPay but never reported back; confirming it now", payment.getId());
+        this.markSuccess(payment, result.transactionNo());
     }
 
     private Payment findPaymentByTxnRefOrNull(final String txnRef) {

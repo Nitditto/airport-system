@@ -171,7 +171,7 @@ public class VNPayRefundService {
     return expected.equalsIgnoreCase(received);
   }
 
-  private static String join(final Map<String, String> p, final String... keys) {
+  static String join(final Map<String, String> p, final String... keys) {
     final StringBuilder sb = new StringBuilder();
     for (int i = 0; i < keys.length; i++) {
       if (i > 0) {
