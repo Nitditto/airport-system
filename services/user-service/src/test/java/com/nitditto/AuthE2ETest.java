@@ -156,6 +156,57 @@ class AuthE2ETest {
   }
 
   @Nested
+  @DisplayName("user lookup by id (IDOR)")
+  class UserLookupById {
+
+    @Test
+    void owner_canReadOwnProfileById() throws Exception {
+      final User alice = saveUser("alice@test.com", UserRole.ROLE_USER, null);
+
+      mockMvc.perform(get("/api/users/{id}", alice.getId()).header("Authorization", "Bearer " + tokenFor(alice)))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.data.email").value("alice@test.com"));
+    }
+
+    @Test
+    void otherUser_cannotReadSomeoneElsesProfile_returns403() throws Exception {
+      final User alice = saveUser("alice@test.com", UserRole.ROLE_USER, null);
+      final User mallory = saveUser("mallory@test.com", UserRole.ROLE_USER, null);
+
+      mockMvc.perform(get("/api/users/{id}", alice.getId()).header("Authorization", "Bearer " + tokenFor(mallory)))
+          .andExpect(status().isForbidden())
+          .andExpect(jsonPath("$.success").value(false))
+          .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void airlineOwner_cannotReadCustomerProfile_returns403() throws Exception {
+      final User alice = saveUser("alice@test.com", UserRole.ROLE_USER, null);
+      final User owner = saveUser("owner@test.com", UserRole.ROLE_AIRLINE_OWNER, null);
+
+      mockMvc.perform(get("/api/users/{id}", alice.getId()).header("Authorization", "Bearer " + tokenFor(owner)))
+          .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void systemAdmin_canReadAnyProfile() throws Exception {
+      final User alice = saveUser("alice@test.com", UserRole.ROLE_USER, null);
+      final User admin = saveUser("admin@test.com", UserRole.ROLE_SYSTEM_ADMIN, null);
+
+      mockMvc.perform(get("/api/users/{id}", alice.getId()).header("Authorization", "Bearer " + tokenFor(admin)))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.data.email").value("alice@test.com"));
+    }
+
+    @Test
+    void anonymous_isRejected_returns401() throws Exception {
+      final User alice = saveUser("alice@test.com", UserRole.ROLE_USER, null);
+
+      mockMvc.perform(get("/api/users/{id}", alice.getId())).andExpect(status().isUnauthorized());
+    }
+  }
+
+  @Nested
   @DisplayName("validation (400)")
   class Validation {
 
