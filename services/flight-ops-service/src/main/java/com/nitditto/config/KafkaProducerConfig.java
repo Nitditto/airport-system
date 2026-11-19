@@ -15,8 +15,6 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.support.serializer.JsonSerializer;
 
-import com.nitditto.event.KafkaTopics;
-
 @Configuration
 public class KafkaProducerConfig {
 
@@ -51,7 +49,7 @@ public class KafkaProducerConfig {
   }
 
   @Bean
-  public NewTopic flightInstanceCreatedTopic() {
-    return TopicBuilder.name(KafkaTopics.FLIGHT_INSTANCE_CREATED).partitions(TOPIC_PARTITIONS).replicas(TOPIC_REPLICAS).build();
+  public NewTopic flightInstanceCreatedTopic(@Value("${kafka.topics.flight-instance-created}") final String topic) {
+    return TopicBuilder.name(topic).partitions(TOPIC_PARTITIONS).replicas(TOPIC_REPLICAS).build();
   }
 }

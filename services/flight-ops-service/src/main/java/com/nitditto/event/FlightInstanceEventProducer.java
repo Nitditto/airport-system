@@ -1,11 +1,12 @@
 package com.nitditto.event;
 
+import com.nitditto.payload.event.FlightInstanceCreatedEvent;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -14,22 +15,34 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class FlightInstanceEventProducer {
 
   private final KafkaTemplate<String, Object> kafkaTemplate;
+  private final String topic;
+
+  public FlightInstanceEventProducer(final KafkaTemplate<String, Object> kafkaTemplate,
+      @Value("${kafka.topics.flight-instance-created}") final String topic) {
+    this.kafkaTemplate = kafkaTemplate;
+    this.topic = topic;
+  }
 
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
   public void onFlightInstanceCreated(final FlightInstanceCreatedEvent event) {
-    final String key = String.valueOf(event.getFlightInstanceId());
-    this.kafkaTemplate.send(KafkaTopics.FLIGHT_INSTANCE_CREATED, key, event)
-        .whenComplete((result, ex) -> {
-          if (ex != null) {
-            log.error("Failed to publish FlightInstanceCreatedEvent for flightInstanceId={}", key, ex);
-          } else {
-            log.debug("Published FlightInstanceCreatedEvent for flightInstanceId={} at offset {}", key,
-                result.getRecordMetadata().offset());
-          }
-        });
+    final String key = String.valueOf(event.flightInstanceId());
+    try {
+      this.kafkaTemplate.send(this.topic, key, event).whenComplete((result, ex) -> {
+        if (ex != null) {
+          log.error("Failed to publish FlightInstanceCreatedEvent eventId={} flightInstanceId={}",
+              event.eventId(), key, ex);
+        } else {
+          log.info("Published FlightInstanceCreatedEvent eventId={} flightInstanceId={} to {}-{}@{}", event.eventId(),
+              key, this.topic, result.getRecordMetadata().partition(), result.getRecordMetadata().offset());
+        }
+      });
+    } catch (final RuntimeException ex) {
+      // vd. broker không phản hồi metadata trong max.block.ms
+      log.error("Could not send FlightInstanceCreatedEvent eventId={} flightInstanceId={}: {}", event.eventId(), key,
+          ex.getMessage(), ex);
+    }
   }
 }

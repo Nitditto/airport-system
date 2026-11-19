@@ -2,7 +2,7 @@ package com.nitditto.service.impl;
 
 import com.nitditto.client.AirlineClient;
 import com.nitditto.client.LocationClient;
-import com.nitditto.event.FlightInstanceCreatedEvent;
+import com.nitditto.payload.event.FlightInstanceCreatedEvent;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.FlightInstanceMapper;
 import com.nitditto.model.Flight;
@@ -112,11 +112,8 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
     }
 
     private void publishCreated(final FlightInstance flightInstance, final Flight flight) {
-        this.eventPublisher.publishEvent(FlightInstanceCreatedEvent.builder()
-                .flightInstanceId(flightInstance.getId())
-                .aircraftId(flight.getAircraftId())
-                .flightId(flight.getId())
-                .build());
+        this.eventPublisher.publishEvent(FlightInstanceCreatedEvent.of(
+                flightInstance.getId(), flight.getAircraftId(), flight.getId()));
     }
 
     private void requireOwnedBy(final Flight flight, final UUID airlineId) {
