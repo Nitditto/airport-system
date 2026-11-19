@@ -268,6 +268,24 @@ chưa có luồng refund (xem §10) — giữ nguyên trong enum cho tương lai
 - **Chặn thu hai lần:** `payments.paid_booking_id` (unique, chỉ gán khi `SUCCESS`, `NULL` ở các dòng còn lại) để MySQL bảo đảm một booking chỉ có một payment thành công kể cả khi hai kết quả về song song. Nếu code thấy booking đã có payment `SUCCESS`/`REFUNDED` khác thì payment mới về được ghi là `DUPLICATE` (khách đã bị trừ tiền, không phát event, không đụng booking) và có log `ERROR`; **admin hoàn tay** vì module refund chỉ hoàn payment trả tiền chính của booking.
 - Còn thiếu: hai `initiate` song song hoàn toàn đồng thời vẫn có thể tạo hai payment `PENDING` (lớp ngoài là `Idempotency-Key` của booking); chưa có endpoint liệt kê/hoàn `DUPLICATE`; chưa có IPN nên khách trả mà đóng tab vẫn phụ thuộc việc quay lại trang kết quả.
 
+## IPN của VNPay
+
+`GET /api/payments/vnpay-ipn` (công khai ở gateway, không JWT): VNPay gọi server-to-server sau khi khách trả tiền, nên payment được cập nhật dù khách đóng tab và không quay lại trang kết quả. Dùng chung logic ghi kết quả với `check-payment-vnpay`, nên một kết quả không bị xử lý hai lần (gồm cả khi trình duyệt và IPN cùng về).
+
+| RspCode | Khi nào | VNPay làm gì |
+|---|---|---|
+| `00` | Đã ghi nhận (kể cả khi payment bị ghi `DUPLICATE`) | dừng |
+| `01` | `vnp_TxnRef` không có payment | gọi lại |
+| `02` | Đã chốt trước đó: `SUCCESS`/`REFUNDED`/`DUPLICATE`, hoặc `FAILED` mà IPN vẫn báo thất bại | dừng |
+| `04` | Số tiền ký không khớp payment (không ghi nhận) | gọi lại |
+| `97` | Sai/thiếu chữ ký (kiểm trước khi chạm DB) | gọi lại |
+| `99` | Lỗi không lường trước | gọi lại |
+
+- Response là JSON thô `{"RspCode","Message"}` do VNPay quy định, **không** bọc `ApiResponse` (ngoại lệ có chủ ý của quy ước §15).
+- Payment `FAILED` vẫn được đổi thành `SUCCESS` nếu IPN báo thành công muộn; payment đã `SUCCESS`/`REFUNDED`/`DUPLICATE` không bao giờ bị đổi.
+- **Cấu hình ở cổng merchant của VNPay:** điền URL IPN công khai trỏ tới gateway, dạng `https://<domain>/api/payments/vnpay-ipn`. Không có URL công khai thì VNPay không gọi được (localhost không dùng được; khi thử cần tunnel như ngrok). Chưa kiểm chứng với VNPay thật.
+- Chưa có: job tra cứu giao dịch chủ động (querydr) cho payment `PENDING` mà IPN cũng không tới.
+
 ## 11. Việc cần làm (bám ROADMAP Section 12)
 
 **Ở `payment-service` (module mới):**
