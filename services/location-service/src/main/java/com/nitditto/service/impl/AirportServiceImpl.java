@@ -11,8 +11,10 @@ import com.nitditto.repository.AirportRepository;
 import com.nitditto.repository.CityRepository;
 import com.nitditto.service.AirportService;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -24,6 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class AirportServiceImpl implements AirportService {
+
+  private static final int MAX_BATCH_SIZE = 200;
 
   private final AirportRepository airportRepository;
   private final CityRepository cityRepository;
@@ -49,6 +53,23 @@ public class AirportServiceImpl implements AirportService {
     final Airport airport = this.airportRepository.findById(id)
         .orElseThrow(() -> new ResourceNotFoundException("Airport", "id", id));
     return this.toResponses(List.of(airport)).get(0);
+  }
+
+  @Override
+  public Map<UUID, AirportResponse> getAirportsByIds(final List<UUID> ids) {
+    if (ids == null || ids.isEmpty()) {
+      return Map.of();
+    }
+    final List<UUID> distinctIds = ids.stream().filter(Objects::nonNull).distinct().toList();
+    if (distinctIds.size() > MAX_BATCH_SIZE) {
+      throw new BusinessException("Batch size must not exceed " + MAX_BATCH_SIZE);
+    }
+    final List<AirportResponse> responses = this.toResponses(this.airportRepository.findAllById(distinctIds));
+    final Map<UUID, AirportResponse> responseById = new HashMap<>(responses.size());
+    for (final AirportResponse response : responses) {
+      responseById.put(response.getId(), response);
+    }
+    return responseById;
   }
 
   @Override
