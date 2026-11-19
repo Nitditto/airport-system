@@ -21,6 +21,7 @@ import com.nitditto.repository.PaymentRepository;
 import com.nitditto.service.PaymentService;
 import com.nitditto.service.gateway.RazorpayService;
 import com.nitditto.service.gateway.VNPayService;
+import com.nitditto.service.gateway.VnpayIpnResponse;
 import com.razorpay.RazorpayException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -274,6 +275,12 @@ public class PaymentServiceImpl implements PaymentService {
             return PaymentMapper.toDTO(payment);
         }
 
+        this.applyVnpayResult(payment, vnpFields);
+        return PaymentMapper.toDTO(payment);
+    }
+
+    // Ghi kết quả VNPay (đã kiểm chữ ký, tham chiếu và số tiền) vào payment: dùng chung cho trình duyệt quay lại và IPN.
+    private void applyVnpayResult(final Payment payment, final Map<String, String> vnpFields) {
         final String responseCode = vnpFields.get("vnp_ResponseCode");
         final String transactionNo = vnpFields.get("vnp_TransactionNo");
         if (transactionNo != null && !transactionNo.isBlank()) {
@@ -286,7 +293,58 @@ public class PaymentServiceImpl implements PaymentService {
             log.warn("VNPay: Payment {} is FAILED with code: {}", payment.getId(), responseCode);
         }
         this.paymentRepository.save(payment);
-        return PaymentMapper.toDTO(payment);
+    }
+
+    @Override
+    @Transactional
+    public VnpayIpnResponse handleVnpayIpn(final Map<String, String> params) {
+        final Map<String, String> vnpFields = params == null ? Map.of() : onlyVnpFields(params);
+        // Chữ ký TRƯỚC khi chạm DB: không dò được payment nào tồn tại qua mã trả về.
+        if (!this.vnPayService.verifySignature(vnpFields, vnpFields.get("vnp_SecureHash"))) {
+            log.warn("VNPay IPN rejected: invalid signature (txnRef={})", vnpFields.get("vnp_TxnRef"));
+            return VnpayIpnResponse.INVALID_SIGNATURE;
+        }
+        final Payment payment = this.findPaymentByTxnRefOrNull(vnpFields.get("vnp_TxnRef"));
+        if (payment == null) {
+            log.warn("VNPay IPN: no payment for txnRef={}", vnpFields.get("vnp_TxnRef"));
+            return VnpayIpnResponse.ORDER_NOT_FOUND;
+        }
+        if (!this.amountMatches(payment, vnpFields.get("vnp_Amount"))) {
+            log.error("VNPay IPN: amount mismatch for payment {} (vnp_Amount={})", payment.getId(),
+                    vnpFields.get("vnp_Amount"));
+            return VnpayIpnResponse.INVALID_AMOUNT;
+        }
+        final boolean succeeded = "00".equals(vnpFields.get("vnp_ResponseCode"));
+        // Đã chốt: SUCCESS/REFUNDED/DUPLICATE không bao giờ đổi; FAILED chỉ được đổi nếu VNPay báo thành công muộn.
+        final PaymentStatus status = payment.getStatus();
+        if (status == PaymentStatus.SUCCESS || status == PaymentStatus.REFUNDED || status == PaymentStatus.DUPLICATE
+                || (status == PaymentStatus.FAILED && !succeeded)) {
+            return VnpayIpnResponse.ALREADY_CONFIRMED;
+        }
+        this.applyVnpayResult(payment, vnpFields);
+        log.info("VNPay IPN applied to payment {} (bookingId={}, vnp_ResponseCode={})", payment.getId(),
+                payment.getBookingId(), vnpFields.get("vnp_ResponseCode"));
+        return VnpayIpnResponse.CONFIRMED;
+    }
+
+    private Payment findPaymentByTxnRefOrNull(final String txnRef) {
+        try {
+            return this.paymentRepository.findById(UUID.fromString(txnRef)).orElse(null);
+        } catch (final IllegalArgumentException | NullPointerException ex) {
+            return null;
+        }
+    }
+
+    private boolean amountMatches(final Payment payment, final String vnpAmount) {
+        if (vnpAmount == null || payment.getAmount() == null) {
+            return false;
+        }
+        try {
+            final BigDecimal expected = BigDecimal.valueOf(payment.getAmount()).multiply(BigDecimal.valueOf(100));
+            return expected.compareTo(new BigDecimal(vnpAmount)) == 0;
+        } catch (final NumberFormatException ex) {
+            return false;
+        }
     }
 
     private void requireMatchingAmount(final Payment payment, final String vnpAmount) {

@@ -25,4 +25,10 @@ public interface PaymentService {
     PaymentDTO checkPaymentVNPay(Map<String, String> allParams);
 
     List<PaymentGatewayResponse> getAvailableGateways();
+
+    /**
+     * IPN (server-to-server) của VNPay: cập nhật payment theo kết quả có chữ ký dù khách có quay lại trang kết quả hay không.
+     * Không ném lỗi nghiệp vụ: mọi trường hợp trả về mã RspCode để VNPay quyết định có gọi lại không.
+     */
+    com.nitditto.service.gateway.VnpayIpnResponse handleVnpayIpn(java.util.Map<String, String> params);
 }
