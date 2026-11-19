@@ -9,6 +9,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -23,7 +24,10 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(name = "payments", indexes = {
+@Table(name = "payments", uniqueConstraints = {
+        // MySQL không có unique một phần: cột này chỉ được gán khi SUCCESS nên NULL ở các dòng khác (NULL không đụng nhau).
+        @UniqueConstraint(name = "uk_payment_paid_booking", columnNames = "paid_booking_id")
+}, indexes = {
         @Index(name = "idx_payment_booking_status", columnList = "booking_id, status"),
         @Index(name = "idx_payment_user", columnList = "user_id")
 })
@@ -65,5 +69,16 @@ public class Payment extends BaseEntity {
     /** vnp_CreateDate gửi lúc tạo link VNPay (yyyyMMddHHmmss, GMT+7): VNPay đòi lại đúng giá trị này khi hoàn tiền. */
     @Column(name = "provider_create_date", length = 14)
     private String providerCreateDate;
+
+    /** Link thanh toán đã tạo, để gọi lại `initiate` trả đúng link cũ thay vì tạo payment mới. */
+    @Column(name = "checkout_url", length = 2048)
+    private String checkoutUrl;
+
+    /**
+     * Bằng bookingId khi payment này là payment thành công của booking, NULL nếu không. Unique: DB bảo đảm một booking
+     * chỉ có một payment thành công kể cả khi hai kết quả thanh toán về song song.
+     */
+    @Column(name = "paid_booking_id", columnDefinition = "binary(16)")
+    private UUID paidBookingId;
 
 }

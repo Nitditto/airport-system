@@ -16,6 +16,10 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     // Payment đã thu tiền của booking (SUCCESS, hoặc REFUNDED nếu đã hoàn): dùng để hoàn tiền / tra cứu idempotent.
     List<Payment> findByBookingIdAndStatusIn(UUID bookingId, java.util.Collection<PaymentStatus> statuses);
 
+    // Payment đang chờ gần nhất của booking cho một cổng: để `initiate` gọi lặp trả lại link cũ.
+    java.util.Optional<Payment> findFirstByBookingIdAndProviderAndStatusOrderByCreatedAtDesc(UUID bookingId,
+            com.nitditto.enums.PaymentGateway provider, PaymentStatus status);
+
     List<Payment> findByBookingIdIn(List<UUID> bookingIds);
 
     Page<Payment> findByUserId(UUID userId, Pageable pageable);
