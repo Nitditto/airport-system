@@ -2,7 +2,7 @@
 # Airline Microservices — full stack
 # =============================================================================
 # Build image BE trước (chạy ở thư mục này):
-#   mvn clean install && mvn compile jib:dockerBuild
+#   mvn package jib:dockerBuild -DskipTests   (phải là package: compile không đóng gói common-lib vào image)
 #
 # Biến bí mật (JWT_SECRET, RAZORPAY_*...) lấy từ file .env cùng thư mục.
 #

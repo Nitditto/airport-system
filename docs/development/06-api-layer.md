@@ -160,8 +160,8 @@ GET    /api/seats/cabin-class/{cabinClassId}    lọc theo quan hệ
 
 ## 6.6 — Cross-service: batch endpoint là bắt buộc
 
-Chưa có Feign/service discovery, nên giao tiếp giữa service là **tham chiếu UUID + endpoint
-batch-fetch**.
+Service gọi nhau qua **OpenFeign** (resolve bằng tên Eureka), dữ liệu liên quan tham chiếu bằng
+**UUID + endpoint batch-fetch** — quy tắc đầy đủ ở `CLAUDE.md` §8.
 
 ```java
 // ❌ SAI — N HTTP call. Tệ hơn N+1 qua DB nhiều lần: mỗi lần là một round-trip TCP

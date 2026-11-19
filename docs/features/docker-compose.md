@@ -41,7 +41,7 @@ cp .env.example .env        # sửa JWT_SECRET (>= 32 ký tự), RAZORPAY_*, ADM
 mvn clean install
 
 # 3. Đóng gói image vào Docker daemon local
-mvn compile jib:dockerBuild
+mvn package jib:dockerBuild -DskipTests
 
 # 4. Chạy
 docker compose up -d                       # chỉ BE
@@ -52,7 +52,7 @@ docker compose ps
 docker compose logs -f api-gateway
 ```
 
-Bước 2 bắt buộc chạy **từ thư mục gốc**: các service phụ thuộc `common-lib`, nếu bỏ qua Jib sẽ báo thiếu class `AirlineResponse`, `AirlineRequest`... Nếu chỉ build một module: `mvn -pl services/pricing-service -am compile jib:dockerBuild`.
+Bước 2 bắt buộc chạy **từ thư mục gốc** và ở phase **`package`**: các service phụ thuộc `common-lib`. Với `compile`, artifact `common-lib` trong reactor chỉ là thư mục `target/classes` nên Jib **không đưa vào image** — container khởi động sẽ chết với `ClassNotFoundException: com.nitditto.entity.BaseEntity`. Nếu chỉ build một module: `mvn -pl services/pricing-service -am package jib:dockerBuild -DskipTests`.
 
 Dừng / dọn:
 
@@ -150,7 +150,8 @@ service-registry ─┤        (started)
 | `Unknown database 'airline_xxx'` | Volume cũ được tạo trước khi `init.sql` có database đó → `down -v` hoặc tạo tay |
 | Gateway trả 503 / không tìm thấy service | Service chưa đăng ký xong Eureka; xem <http://localhost:8761> |
 | Port 5173/5000/8761/3307 đã bị chiếm | Đổi phần bên trái của `ports:` trong compose |
-| Sửa code mà container vẫn chạy bản cũ | Chạy lại `mvn compile jib:dockerBuild` rồi `docker compose up -d` (image BE do Jib build, compose không tự build; riêng `frontend` thêm `--profile full --build`) |
+| Container crash `ClassNotFoundException: com.nitditto...` | Image build bằng `compile` nên thiếu `common-lib.jar`: build lại bằng `mvn package jib:dockerBuild -DskipTests` |
+| Sửa code mà container vẫn chạy bản cũ | Chạy lại `mvn package jib:dockerBuild -DskipTests` rồi `docker compose up -d` (image BE do Jib build, compose không tự build; riêng `frontend` thêm `--profile full --build`) |
 
 ## 9. Giới hạn hiện tại
 

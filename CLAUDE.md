@@ -1,183 +1,174 @@
 # CLAUDE.md
 
-File này chứa **rule và convention** cho Claude Code khi làm việc với repository này. Chỉ chứa quy tắc mang tính lâu dài — không ghi trạng thái codebase, không ghi "chỗ nào đang sai / cần sửa". Việc còn tồn đọng nằm ở [`docs/REFACTOR-BACKLOG.md`](docs/REFACTOR-BACKLOG.md).
+File này chứa **rule và convention** cho Claude Code khi làm việc với repository này. Chỉ chứa quy tắc mang tính lâu dài — không ghi trạng thái tạm thời, không ghi "chỗ nào đang sai / cần sửa". Việc còn tồn đọng nằm ở [`docs/REFACTOR-BACKLOG.md`](docs/REFACTOR-BACKLOG.md). Giải thích chi tiết từng chủ đề nằm ở [`docs/`](docs/README.md) (xem [§19](#19-reference)).
 
 ---
 
 ## 1. Project Overview
 
-**Airline Microservices** (`com.nitditto:airline-microservice`, repo `Nitditto/airport-system`) — hệ thống quản lý hàng không dạng multi-module Maven, tách theo domain thành các microservice độc lập (airline core, flight operations, location, pricing, user/auth).
+**Airline Microservices** (`com.nitditto:airline-microservice`, repo `Nitditto/airport-system`) — hệ thống đặt vé & quản lý hàng không dạng multi-module Maven, gồm 9 business service tách theo domain, đứng sau một API Gateway và đăng ký qua Eureka.
 
 ## 2. Tech Stack
 
-- Java 17 + Spring Boot 4.0.7 + Spring Cloud 2025.1.0
-- MySQL + Spring Data JPA (Hibernate `ddl-auto: update` — chỉ dùng ở môi trường dev)
-- Lombok
-- Maven multi-module reactor build
-- Spring Security + JWT tự viết (`JwtProvider`, `JwtConstant`) — chỉ có ở `user-service`
+| Hạng mục | Công nghệ |
+|---|---|
+| Ngôn ngữ / framework | Java 17, Spring Boot 4.0.7, Spring Cloud 2025.1.0 |
+| Persistence | MySQL 8.4 + Spring Data JPA (Hibernate 7, `ddl-auto: update` — chỉ dev) |
+| Service Registry | Spring Cloud Netflix Eureka (`cloud/service-registry`, :8761) |
+| API Gateway | Spring Cloud Gateway **Server MVC** (servlet, không phải WebFlux) (`cloud/api-gateway`, :5000) — verify JWT tập trung |
+| Gọi đồng bộ giữa service | Spring Cloud OpenFeign (Apache HttpClient 5), resolve qua Eureka |
+| Event bất đồng bộ | Apache Kafka 4.1 KRaft (`localhost:9092` từ host / `kafka:29092` trong Docker network) + `spring-kafka` |
+| Auth | JWT tự viết — phát hành ở `user-service`, verify ở gateway |
+| Container | Docker Compose + Google Jib (`jib-maven-plugin`) |
+| Khác | Lombok, Maven multi-module reactor |
 
 ### Ngoài phạm vi kiến trúc hiện tại
 
-Không giả định các thành phần sau tồn tại khi viết code: service discovery (Eureka), config server, API gateway, Feign client, message broker (Kafka/RabbitMQ), Redis cache, Flyway/Liquibase, PostgreSQL, MapStruct, OpenAPI/Swagger, CI/CD, Docker. Khi cần một trong số này, hỏi trước — đừng tự thêm.
+Không giả định các thành phần sau tồn tại: **Config Server** (module đang comment trong `cloud/pom.xml`), Redis, Resilience4j/circuit breaker, Flyway/Liquibase, PostgreSQL, MapStruct, OpenAPI/Swagger, distributed tracing, CI/CD. Khi cần một trong số này, hỏi trước — đừng tự thêm dependency.
 
 ## 3. Repository & Module Structure
 
-Reactor 3 cấp: `root pom` → (`common-lib`, `cloud`, `services`) → `services/pom.xml` → 5 service module.
+Reactor 3 cấp: `root pom` → (`common-lib`, `cloud`, `services`) → module con.
 
 ```
 microservices/
-├── pom.xml                          # Parent POM — quản lý version tập trung
-│                                     # (java.version, spring.boot.version, spring.cloud.version)
-├── common-lib/                      # Shared jar — mọi service phụ thuộc vào đây
+├── pom.xml                     # Parent POM — version tập trung (java, spring-boot, spring-cloud, jib)
+├── docker-compose.yml          # Full stack: MySQL + Kafka + Eureka + Gateway + 9 service (+ FE với --profile full)
+├── docker-compose.dev.yml      # Chỉ hạ tầng (MySQL :3306, Kafka :9092) — chạy service từ IDE
+├── docker/mysql/init.sql       # Tạo database cho từng service
+├── docker/mysql/migrations/    # Script SQL chạy tay cho DB dev đã tồn tại (xem §17) — KHÔNG mount vào initdb
+├── common-lib/                 # Shared jar — mọi service phụ thuộc
 │   └── src/main/java/com/nitditto/
-│       ├── entity/                  # BaseEntity (id UUIDv7 + createdAt/updatedAt)
-│       ├── embeddable/              # @Embeddable value objects (Address, GeoCode, SeatBenefits...)
-│       ├── enums/                   # AircraftStatus, AirlineStatus, CabinClassType, FlightStatus, UserRole
-│       ├── exception/               # ResourceNotFoundException, BusinessException (dùng chung)
+│       ├── entity/             # BaseEntity (@MappedSuperclass)
+│       ├── embeddable/         # @Embeddable value objects (Address, GeoCode, SeatBenefits...)
+│       ├── enums/              # Enum nghiệp vụ dùng chung (UserRole, FlightStatus, PaymentGateway...)
+│       ├── exception/          # ResourceNotFoundException, BusinessException
 │       └── payload/
-│           ├── dto/                 # UserDTO
-│           ├── request/             # *Request DTO cho MỌI service (tập trung tại đây)
-│           └── response/            # *Response DTO + ApiResponse<T>, AuthResponse
-├── cloud/                           # Aggregator cho service-registry/config-server/api-gateway
+│           ├── request/        # *Request DTO dùng chung
+│           ├── response/       # *Response DTO + ApiResponse<T>
+│           └── event/          # Integration event (Kafka) dùng bởi ≥ 2 service — xem §9
+├── cloud/
+│   ├── service-registry/       # Eureka Server
+│   └── api-gateway/            # Routing + JWT filter + phân quyền theo role (RouteConfig)
 └── services/
-    ├── pom.xml                      # Aggregator của 5 service, là parent thật của từng service
-    ├── user-service/         port 5001   # Auth, JWT, Spring Security
-    ├── airline-core-service/ port 5002   # Aircraft, Airline
-    ├── flight-ops-service/   port 5003   # Flight, FlightInstance, FlightSchedule
-    ├── location-service/     port 5004   # Airport, City
-    └── pricing-service/      port 5005   # Fare, FareRules, BaggagePolicy
 ```
 
-Mỗi service có package layout giống nhau dưới `com.nitditto`:
+### Services & Port Mapping
+
+| Module | Port | Domain chính | Database |
+|---|---|---|---|
+| `cloud/api-gateway` | 5000 | Routing, central JWT filter, role check | — |
+| `cloud/service-registry` | 8761 | Eureka Server | — |
+| `user-service` | 5001 | Auth (`/auth/**`), phát hành JWT, User | `airline_user` |
+| `airline-core-service` | 5002 | Airline, Aircraft | `airline` |
+| `flight-ops-service` | 5003 | Flight, FlightInstance, FlightSchedule | `airline_flight` |
+| `location-service` | 5004 | Airport, City | `airline_location` |
+| `pricing-service` | 5005 | Fare, FareRules, BaggagePolicy | `airline_pricing` |
+| `seat-service` | 5006 | CabinClass, SeatMap, SeatInstance, seat hold | `airline_seat` |
+| `ancillary-service` | 5008 | Meal, Ancillary, InsuranceCoverage | `airline_ancillary` |
+| `booking-service` | 5009 | Booking, Ticket, Reservation | `airline_booking` |
+| `payment-service` | 5010 | Payment, cổng VNPay & Razorpay | `airline_payment` |
+
+Thêm service mới: lấy port kế tiếp chưa dùng, khai `spring.application.name` = tên module (đây là tên Eureka/Feign dùng), thêm route ở gateway, database ở `docker/mysql/init.sql`, block ở `docker-compose.yml`, và cập nhật bảng trên.
+
+### Package layout chuẩn của một service (dưới `com.nitditto`)
 
 ```
-controller/    # @RestController
-service/       # interface — hợp đồng nghiệp vụ
-service/impl/  # *ServiceImpl — @Service @RequiredArgsConstructor
-repository/    # Spring Data JPA interface
-repository/spec/ # *Specs — Specification factory (khi filter động ≥ 3 điều kiện)
-model/         # @Entity
-mapper/        # static method mapper Entity <-> DTO (viết tay, không MapStruct)
-converter/     # AttributeConverter (thay cho @ElementCollection)
-exception/     # GlobalExceptionHandler của service (@RestControllerAdvice)
-config/        # SecurityConfig, JwtProvider, JwtConstant, JwtAuthenticationFilter (hiện chỉ user-service)
+controller/       # @RestController
+service/          # interface — hợp đồng nghiệp vụ
+service/impl/     # *ServiceImpl — @Service @RequiredArgsConstructor
+repository/       # Spring Data JPA interface
+repository/spec/  # *Specs — Specification factory (filter động ≥ 3 điều kiện)
+model/            # @Entity
+mapper/           # static mapper Entity <-> DTO (viết tay)
+converter/        # AttributeConverter (thay @ElementCollection)
+client/           # @FeignClient gọi service khác — xem §8
+event/            # Spring ApplicationEvent nội bộ + Kafka producer/consumer — xem §9
+exception/        # GlobalExceptionHandler (@RestControllerAdvice)
+config/           # @Configuration (KafkaProducerConfig, ClockConfig...)
 ```
 
-## 4. Build Commands
+## 4. Build, Run & Docker
 
-**Không có Maven Wrapper ở thư mục gốc** — dùng `mvn` cài trên máy. Mỗi service con còn `mvnw`/`mvnw.cmd`/`.mvn/` lẻ (rác từ lúc khởi tạo độc lập bằng Spring Initializr) — **đừng dùng**, luôn chạy `mvn` từ thư mục gốc để giữ đúng version do parent POM quản lý.
+**Không có Maven Wrapper ở thư mục gốc** — dùng `mvn` cài trên máy. `mvnw`/`.mvn/` lẻ trong từng service là rác từ Spring Initializr — **đừng dùng**; luôn chạy từ thư mục gốc.
 
 ```bash
-# Build toàn bộ reactor (common-lib -> cloud -> services)
-mvn clean install
-
-# Build/run một service cụ thể (chạy từ thư mục gốc, dùng -pl với path module)
-mvn -pl services/pricing-service -am clean install
+mvn clean install                                   # toàn reactor
+mvn -pl services/pricing-service -am clean install  # một service (+ common-lib)
 mvn -pl services/pricing-service spring-boot:run
-
-# Run tests toàn repo / một service / một class / một method
-mvn test
-mvn -pl services/pricing-service test
-mvn -pl services/pricing-service test -Dtest=ClassName
 mvn -pl services/pricing-service test -Dtest=ClassName#methodName
-
-# Package không chạy test
 mvn clean package -DskipTests
+
+# Docker
+mvn package jib:dockerBuild -DskipTests    # build image nitditto/<artifactId>:<version> (KHÔNG dùng compile: image thiếu common-lib)
+docker compose up -d                                # full stack (cần .env có JWT_SECRET, VNPAY_*)
+docker compose -f docker-compose.dev.yml up -d      # chỉ MySQL + Kafka, service chạy từ IDE
 ```
 
-**Quản lý version dependency:** chỉ khai `<version>` ở root `pom.xml` (`dependencyManagement`), hoặc dùng version do `spring-boot-dependencies`/`spring-cloud-dependencies` BOM quản lý. Service con **KHÔNG** tự ghim `<version>` riêng — tránh lệch version giữa các service.
+- **Thứ tự khởi động khi chạy từ IDE:** hạ tầng (dev compose) → `service-registry` → các service → `api-gateway`.
+- **Chỉ gateway (5000), Eureka (8761), MySQL, Kafka được publish ra host** trong compose. Client/frontend luôn gọi qua gateway, không gọi thẳng port service.
+- Config phụ thuộc môi trường đọc qua biến môi trường có default dev (`${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}`). Secret (`JWT_SECRET`, `VNPAY_*`, `RAZORPAY_*`) **không có default** và nằm trong `.env` (không commit).
+- **Quản lý version:** chỉ khai `<version>` ở root `pom.xml` (`dependencyManagement`/properties) hoặc để BOM Spring Boot/Spring Cloud quản lý. Service con **KHÔNG** ghim version riêng.
 
-## 5. Architecture — Data Flow (trong một service)
+## 5. Architecture
+
+### Luồng request end-to-end
 
 ```
-Request → Controller → Service (interface) → ServiceImpl → Repository → MySQL
-                                                    ↓
-                                              Mapper (Entity <-> DTO)
+Client ──► api-gateway :5000 ──(verify JWT, role check, set X-User-*)──► lb://<service> (Eureka)
+                                                                             │
+          Controller → Service (interface) → ServiceImpl → Repository → MySQL (DB riêng)
+                                                │
+                                                ├─► Mapper (Entity <-> DTO, static)
+                                                ├─► FeignClient ──► service khác (đồng bộ, batch)
+                                                └─► Kafka producer ──► topic (bất đồng bộ)
 ```
 
-- Controller chỉ xử lý HTTP (nhận request, gọi service, bọc `ApiResponse`, trả `ResponseEntity`).
-- Business logic chỉ nằm ở `*ServiceImpl`.
-- Mapper là hàm static thuần — không inject gì.
+- Controller chỉ xử lý HTTP (nhận request, đọc header danh tính, gọi service, bọc `ApiResponse`).
+- Business logic và check quyền sở hữu chỉ nằm ở `*ServiceImpl`.
+- Mapper là hàm static thuần — không inject gì, không query.
 - Repository chỉ chứa truy vấn.
 
 ---
 
-## 6. NO JPA Relationship Annotations (BẮT BUỘC — áp dụng CẢ trong cùng một service)
+## 6. NO JPA Relationship Annotations (BẮT BUỘC — kể cả trong cùng một service)
 
-Rule nền tảng của project, chi phối cách viết entity, repository, service và mapper. **Mọi khoá ngoại đều là cột `UUID` thô**, không exception — kể cả khi hai entity cùng một service, cùng một database.
+**Mọi khoá ngoại đều là cột `UUID` thô**, đặt tên `<entity>Id`, không exception.
 
-### Danh sách annotation bị CẤM
-
-`@ManyToOne` · `@OneToMany` · `@OneToOne` · `@ManyToMany` · `@JoinColumn` · `@JoinTable` · `@ElementCollection` · `@MapsId` · mọi `CascadeType` và `orphanRemoval`
+**CẤM:** `@ManyToOne` · `@OneToMany` · `@OneToOne` · `@ManyToMany` · `@JoinColumn` · `@JoinTable` · `@ElementCollection` · `@MapsId` · mọi `CascadeType` và `orphanRemoval`.
 
 ```java
-// ❌ SAI — không được xuất hiện trong bất kỳ entity nào
-@Entity
-public class Fare extends BaseEntity {
+// ❌ SAI
+@OneToOne(mappedBy = "fare", cascade = CascadeType.ALL, orphanRemoval = true)
+private BaggagePolicy baggagePolicy;
 
-    @OneToOne(mappedBy = "fare", cascade = CascadeType.ALL, orphanRemoval = true)
-    private BaggagePolicy baggagePolicy;          // KHÔNG ĐƯỢC
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "cabin_class_id")
-    private CabinClass cabinClass;                // KHÔNG ĐƯỢC
-}
-```
-
-```java
-// ✅ ĐÚNG — chỉ giữ UUID thô, đặt tên <entity>Id
-@Entity
-@Table(name = "fares")
-public class Fare extends BaseEntity {
-
-    @Column(name = "flight_id", columnDefinition = "binary(16)", nullable = false)
-    private UUID flightId;                        // trỏ sang flight-ops-service
-
-    @Column(name = "cabin_class_id", columnDefinition = "binary(16)", nullable = false)
-    private UUID cabinClassId;                    // trỏ sang airline-core-service
-}
-
-// Chiều ngược lại cũng vậy — con giữ ID của cha, cha KHÔNG giữ tham chiếu tới con
+// ✅ ĐÚNG — con giữ ID của cha, cha KHÔNG giữ tham chiếu tới con
 @Entity
 @Table(name = "baggage_policies")
 public class BaggagePolicy extends BaseEntity {
-
     @Column(name = "fare_id", columnDefinition = "binary(16)", nullable = false, unique = true)
     private UUID fareId;
 }
 ```
 
-**Lý do:** loại bỏ hoàn toàn N+1 do lazy/eager loading; kiểm soát tường minh thời điểm load dữ liệu liên quan; entity serialize/deserialize đơn giản, không cần `@JsonIgnore` chống vòng lặp; và quan trọng nhất — ranh giới service không vỡ khi một entity sau này bị tách sang service khác (đổi chỗ chỉ là chuyện của tầng service, entity không đổi).
+**Lý do:** không N+1 do lazy/eager loading; load dữ liệu liên quan tường minh; serialize không vòng lặp; ranh giới service không vỡ khi tách entity sang service khác.
 
 ### Ngoại lệ được phép: `@Embedded` / `@Embeddable`
 
-`@Embedded` **KHÔNG phải** relationship — nó nhúng field vào chính bảng đó, không sinh join, không sinh query phụ, không gây N+1. Các benefit block của `Fare` (`SeatBenefits`, `BoardingBenefits`, `InFlightBenefits`, `FlexibilityBenefits`, `PremiumServiceBenefits`) và `Address`, `GeoCode` trong `common-lib` là hợp lệ — **giữ nguyên khi refactor**.
+`@Embedded` nhúng field vào chính bảng đó — không join, không query phụ. `SeatBenefits`, `BoardingBenefits`, `InFlightBenefits`, `FlexibilityBenefits`, `PremiumServiceBenefits`, `Address`, `GeoCode` là hợp lệ — **giữ nguyên khi refactor**.
+
+### Thay thế `@ElementCollection` bằng `AttributeConverter`
 
 ```java
-// ✅ ĐÚNG — cùng bảng, không join
-@Embedded
-private SeatBenefits seatBenefits = new SeatBenefits();
-```
-
-### Thay thế `@ElementCollection`
-
-`@ElementCollection` bị cấm vì sinh bảng phụ và lazy-load y hệt `@OneToMany`. Với collection kiểu giá trị (vd. `Set<DayOfWeek> operatingDays`), dùng `AttributeConverter` lưu vào một cột duy nhất:
-
-```java
-// ✅ ĐÚNG — 1 cột varchar, không bảng phụ, không query phụ
 @Convert(converter = DayOfWeekSetConverter.class)
 @Column(name = "operating_days", length = 32)
 private Set<DayOfWeek> operatingDays = new HashSet<>();
 
 @Converter
 public class DayOfWeekSetConverter implements AttributeConverter<Set<DayOfWeek>, String> {
-
     @Override
     public String convertToDatabaseColumn(final Set<DayOfWeek> attribute) {
-        if (attribute == null || attribute.isEmpty()) {
-            return "";
-        }
-        return attribute.stream().map(Enum::name).collect(Collectors.joining(","));
+        return attribute == null ? "" : attribute.stream().map(Enum::name).collect(Collectors.joining(","));
     }
 
     @Override
@@ -191,863 +182,516 @@ public class DayOfWeekSetConverter implements AttributeConverter<Set<DayOfWeek>,
 }
 ```
 
-Converter đặt trong package `converter/` của service sở hữu entity (hoặc `common-lib/converter/` nếu ≥ 2 service dùng).
+Converter đặt trong `converter/` của service sở hữu entity (hoặc `common-lib/converter/` nếu ≥ 2 service dùng).
 
-### Hệ quả 1 — Không còn `cascade`/`orphanRemoval`, phải tự xử lý ở tầng service
-
-Xoá cha không tự xoá con nữa. Phải xoá thủ công trong cùng một transaction, con trước cha sau:
+### Hệ quả 1 — Xoá cha-con thủ công trong một transaction
 
 ```java
-// ✅ ĐÚNG
 @Override
 @Transactional
 public void deleteFareById(final UUID id) {
     if (!this.fareRepository.existsById(id)) {
         throw new ResourceNotFoundException("Fare", "id", id);
     }
-    this.baggagePolicyRepository.deleteByFareId(id);
+    this.baggagePolicyRepository.deleteByFareId(id);   // con trước
     this.fareRuleRepository.deleteByFareId(id);
-    this.fareRepository.deleteById(id);
+    this.fareRepository.deleteById(id);                // cha sau
 }
 ```
 
-**Bắt buộc:** mọi method xoá một entity có bản ghi con phải có `@Transactional` và xoá con tường minh. Với các cặp cha-con từng dựa vào FK constraint thật của MySQL, thêm kiểm tra tường minh (ném `BusinessException`) ở tầng service trước khi xoá cha hoặc thêm con.
+Với ràng buộc từng dựa vào FK thật của MySQL, kiểm tra tường minh ở service và ném `BusinessException` trước khi xoá cha hoặc thêm con.
 
 ### Hệ quả 2 — Mapper nhận dữ liệu liên quan qua tham số
 
-Mapper không truy ngược quan hệ được nữa (`fare.getFareRules()` không tồn tại), nên service load sẵn và truyền vào:
-
 ```java
-// ❌ SAI — mapper tự đi query, hoặc inject repository vào mapper
-public static FareResponse toResponse(final Fare fare) {
-    return FareResponse.builder()
-            .fareRules(FareRuleMapper.toResponse(fare.getFareRules()))   // KHÔNG CÒN
-            .build();
-}
+// ✅ Service load sẵn rồi truyền vào; mapper vẫn static thuần
+public static FareResponse toResponse(final Fare fare, final FareRules rules, final BaggagePolicy policy) { ... }
 
-// ✅ ĐÚNG — service load rồi truyền vào; mapper vẫn là hàm static thuần
-public static FareResponse toResponse(final Fare fare,
-                                      final FareRules fareRules,
-                                      final BaggagePolicy baggagePolicy) {
-    return FareResponse.builder()
-            .id(fare.getId())
-            .fareRules(FareRuleMapper.toResponse(fareRules))
-            .baggagePolicy(BaggagePolicyMapper.toResponse(baggagePolicy))
-            .build();
-}
-```
-
-**Không inject repository/service vào mapper.** Nếu mapper cần query, logic đang đặt sai chỗ — đẩy lên service.
-
-Nếu số tham số vượt 3, gói lại thành một record ngữ cảnh:
-
-```java
+// > 3 tham số → gói thành record ngữ cảnh
 public record FareContext(Fare fare, FareRules fareRules, BaggagePolicy baggagePolicy) {}
-
-public static FareResponse toResponse(final FareContext context) { ... }
 ```
 
-### Hệ quả 3 — Load dữ liệu liên quan bằng batch query ở tầng service
+**Không inject repository/service/Feign client vào mapper.** Mapper cần query nghĩa là logic đặt sai chỗ.
 
-Nguyên tắc: **một query cho cha, một query `IN` cho mỗi loại con, rồi ghép trong bộ nhớ bằng `Map`.** Đầy đủ ở [§7 N+1 Query Prevention](#7-n1-query-prevention-quan-trọng).
-
-### Cross-Service Communication
-
-Chưa có Feign/service discovery, nên giao tiếp giữa các service là **tham chiếu bằng UUID + endpoint batch-fetch**:
-
-```java
-// Consumer tự batch-fetch khi cần data đầy đủ, ví dụ pricing-service expose:
-POST /api/fares/batch-by-ids   // nhận List<UUID>, trả về Map<UUID, FareResponse>
-```
-
-**Quy tắc bắt buộc khi thêm liên kết mới giữa 2 service:**
-
-- Field tham chiếu luôn là `UUID`, đặt tên `<entity>Id`. Không bao giờ map sang entity của service khác (khác database, vỡ khi chạy).
-- Cần load nhiều bản ghi liên quan → cung cấp endpoint `POST /batch-by-ids` nhận `List<UUID>` trả `Map<UUID, XxxResponse>`, không gọi API service khác trong loop (xem [§7 Loại 2](#loại-2--gọi-http-sang-service-khác-trong-vòng-lặp-nguy-hiểm-nhất)).
-- Khi module `cloud/` (Eureka + Gateway) dựng xong, thay lời gọi HTTP thủ công bằng OpenFeign client đặt trong `common-lib` hoặc package `client/` của service gọi — không hardcode `localhost:port`.
+Cách load dữ liệu liên quan (batch, không N+1) → [§7](#7-n1-prevention--batch-loading-quan-trọng).
 
 ---
 
-## 7. N+1 Query Prevention (QUAN TRỌNG)
+## 7. N+1 Prevention & Batch Loading (QUAN TRỌNG)
 
-Vì đã cấm hoàn toàn relationship annotation, **N+1 do lazy/eager loading không còn tồn tại**. Đổi lại, việc ghép dữ liệu chuyển sang tay bạn ở tầng service — và đó là chỗ N+1 quay lại nếu viết ẩu. Có **2 loại** phải phòng.
+Đây là nguồn rule **duy nhất** về N+1 trong file này. Có 2 loại:
 
-### Loại 1 — Gọi repository trong vòng lặp
+| Loại | Nguyên nhân | Giải pháp |
+|---|---|---|
+| DB N+1 | `repository.*` trong vòng lặp | Một query `...In(ids)` cho mỗi loại con, ghép bằng `Map` |
+| Network N+1 (tệ hơn nhiều) | Feign call trong vòng lặp | Một call tới endpoint `batch-by-ids` |
 
 ```java
-// ❌ SAI — 1 + N query
-final List<FareResponse> responses = new ArrayList<>();
+// ❌ SAI — 1 + N query / N HTTP call
 for (final Fare fare : fares) {
-    final BaggagePolicy policy = baggagePolicyRepository.findByFareId(fare.getId());   // N query!
-    final FareRules rules = fareRuleRepository.findByFareId(fare.getId());             // N query nữa!
-    responses.add(FareMapper.toResponse(fare, rules, policy));
+    final BaggagePolicy policy = baggagePolicyRepository.findByFareId(fare.getId());
+    final FlightResponse flight = flightClient.getFlightById(fare.getFlightId());
 }
 
-// ✅ ĐÚNG — 1 + 2 query, ghép bằng Map trong bộ nhớ
+// ✅ ĐÚNG — số query/call là hằng số
 final List<UUID> fareIds = fares.stream().map(Fare::getId).toList();
+final List<UUID> flightIds = fares.stream().map(Fare::getFlightId).distinct().toList();
 
 final Map<UUID, BaggagePolicy> policyByFareId = this.baggagePolicyRepository.findByFareIdIn(fareIds)
         .stream().collect(Collectors.toMap(BaggagePolicy::getFareId, Function.identity()));
-final Map<UUID, FareRules> rulesByFareId = this.fareRuleRepository.findByFareIdIn(fareIds)
-        .stream().collect(Collectors.toMap(FareRules::getFareId, Function.identity()));
+final Map<UUID, FlightResponse> flightById = this.flightClient.getFlightsByIds(flightIds).getData();
 
 final List<FareResponse> responses = new ArrayList<>(fares.size());
 for (final Fare fare : fares) {
-    responses.add(FareMapper.toResponse(
-            fare, rulesByFareId.get(fare.getId()), policyByFareId.get(fare.getId())));
+    responses.add(FareMapper.toResponse(fare, policyByFareId.get(fare.getId()), flightById.get(fare.getFlightId())));
 }
 ```
 
-**Công thức chuẩn — 4 bước:**
+**Công thức 4 bước:** (1) query cha có phân trang → (2) trích `List<UUID>`, `.distinct()` → (3) một query `...In(ids)` / một batch call cho **mỗi loại** dữ liệu → `Map<UUID, T>` → (4) lặp cha, tra `Map.get()`.
 
-1. Query danh sách cha (có phân trang).
-2. Trích `List<UUID>` các ID cần tra cứu, nhớ `.distinct()`.
-3. Một query `...In(ids)` cho **mỗi loại** dữ liệu con → gom về `Map<UUID, T>`.
-4. Lặp qua cha, tra `Map` bằng `get()`, không đụng repository nữa.
-
-Số query luôn là **hằng số** theo số loại quan hệ, không phụ thuộc số dòng.
-
-Với dữ liệu tổng hợp (đếm/sum/min), dùng aggregate query một lần thay vì tính từng dòng:
+**Endpoint batch bắt buộc:** mọi service expose dữ liệu cho service khác phải có
 
 ```java
-// ✅ ĐÚNG — 1 query gom nhóm, ưu tiên DTO projection thay vì Object[]
-public record FareCountByFlight(UUID flightId, Long total) {}
-
-@Query("""
-        select new com.nitditto.payload.projection.FareCountByFlight(f.flightId, count(f))
-        from Fare f where f.flightId in :flightIds group by f.flightId
-        """)
-List<FareCountByFlight> countByFlightIds(@Param("flightIds") List<UUID> flightIds);
+@PostMapping("/api/<resources>/batch-by-ids")
+ResponseEntity<ApiResponse<Map<UUID, XxxResponse>>> getByIds(@RequestBody @Valid @Size(max = 200) List<UUID> ids);
 ```
 
-### Loại 2 — Gọi HTTP sang service khác trong vòng lặp (nguy hiểm nhất)
+Gateway coi `POST .../batch-by-ids` là thao tác **đọc** (regex `BATCH_READ_PATH` trong `RouteConfig`) — giữ đúng path pattern này.
 
-N+1 qua network tệ hơn N+1 qua DB nhiều lần (mỗi lần là round-trip TCP + serialize JSON, nhân theo độ trễ mạng):
+Dữ liệu tổng hợp (count/sum/min) → một aggregate query `group by` trả DTO projection (record), không tính từng dòng.
 
-```java
-// ❌ SAI — N HTTP call
-for (final Fare fare : fares) {
-    final FlightResponse flight = flightClient.getById(fare.getFlightId());
-    responses.add(FareMapper.toResponse(fare, flight));
-}
-
-// ✅ ĐÚNG — 1 HTTP call batch
-final List<UUID> flightIds = fares.stream().map(Fare::getFlightId).distinct().toList();
-final Map<UUID, FlightResponse> flightById = this.flightClient.getByIds(flightIds);
-
-for (final Fare fare : fares) {
-    responses.add(FareMapper.toResponse(fare, flightById.get(fare.getFlightId())));
-}
-```
-
-**Rule:** mọi service expose dữ liệu cho service khác **bắt buộc** có endpoint batch nhận `List<UUID>` trả `Map<UUID, XxxResponse>`. Luôn `.distinct()` danh sách ID trước khi gọi.
-
-### Cấu hình bắt buộc trong `application.yaml`
+### Cấu hình bắt buộc (`application.yaml`)
 
 ```yaml
 spring:
   jpa:
-    open-in-view: false     # giải phóng DB connection ngay khi service trả về
-    show-sql: true          # DEV ONLY — để đếm query thực tế, tắt ở production
+    open-in-view: false
+    show-sql: true                 # DEV ONLY — để đếm query
     properties:
       hibernate:
         format_sql: true
+        jdbc.batch_size: 50        # cho saveAll() batch thật
+        order_inserts: true
+        order_updates: true
 logging:
   level:
-    org.hibernate.SQL: DEBUG          # DEV ONLY
+    org.hibernate.SQL: DEBUG       # DEV ONLY
 ```
 
-Không thể phòng N+1 nếu không nhìn thấy nó — bật SQL log, gọi thử endpoint trả list và **đếm số dòng SQL**. Số query tăng theo số bản ghi = đang có N+1.
-
-### Checklist N+1 (tự soát trước khi kết thúc task)
-
-- [ ] Entity mới có lọt annotation quan hệ nào không?
-- [ ] Có lời gọi `repository.*` hay HTTP client nào nằm trong `for` / `stream().map()` / `forEach` không?
-- [ ] Mỗi loại dữ liệu con có đúng **một** query `...In(ids)` không, và đã `.distinct()` danh sách ID chưa?
-- [ ] Endpoint trả list đã phân trang chưa?
-- [ ] Đã bật SQL log và đếm số query thực tế cho endpoint trả list chưa?
+Bật SQL log, gọi endpoint trả list và **đếm số dòng SQL**: số query tăng theo số bản ghi = đang có N+1.
 
 ---
 
-## 8. Repository & Query Rules
+## 8. Inter-service Communication — OpenFeign (BẮT BUỘC)
 
-### Phân trang cho MỌI endpoint trả về list
+### Quy tắc đặt & khai báo client
+
+- Client đặt trong package **`com.nitditto.client`** của **service gọi** (không đặt trong `common-lib`). Tên `<TargetDomain>Client` (`FlightClient`, `SeatClient`).
+- Khai bằng **tên Eureka**: `@FeignClient(name = "seat-service")`. **Cấm** `url = "http://localhost:..."` hay hardcode host/port.
+- Application class có `@EnableFeignClients`.
+- Kiểu trả về: `ApiResponse<T>` (khớp wrapper của service đích). Không dùng `ResponseEntity<...>` trong signature Feign; không khai `public` thừa trong interface.
+- DTO dùng ở cả hai đầu lấy từ `common-lib/payload` — không copy DTO sang service gọi.
+- Luôn đặt `@PathVariable("id")` / `@RequestParam("name")` có tên tường minh.
 
 ```java
-// ❌ SAI — không giới hạn số dòng, và trả entity thô ra ngoài service
-List<Fare> getFares() {
-    return fareRepository.findAll();
-}
+@FeignClient(name = "flight-ops-service")
+public interface FlightClient {
 
-// ✅ ĐÚNG
+    @PostMapping("/api/flight-instances/batch-by-ids")
+    ApiResponse<Map<UUID, FlightInstanceResponse>> getFlightInstancesByIds(@RequestBody List<UUID> ids);
+
+    @GetMapping("/api/flights/{id}")
+    ApiResponse<FlightResponse> getFlightById(@PathVariable("id") UUID id);
+}
+```
+
+### Batching
+
+- **Cấm gọi Feign trong `for` / `stream().map()` / `forEach`.** Đọc nhiều bản ghi → method batch (`List<UUID>` → `Map<UUID, T>`), `.distinct()` trước khi gọi. Chi tiết ở [§7](#7-n1-prevention--batch-loading-quan-trọng).
+- Thiếu endpoint batch ở service đích → thêm endpoint batch ở đó, không vòng lặp gọi đơn lẻ.
+
+### Truyền danh tính người dùng
+
+Feign **không tự forward** header của request gốc. Khi service đích cần biết user (check sở hữu, hold ghế...), truyền tường minh: `@RequestHeader("X-User-Id") UUID userId`. Không thêm `RequestInterceptor` copy toàn bộ header.
+
+### Error handling
+
+Feign ném `FeignException` (subclass theo status: `FeignException.BadRequest`, `.NotFound`, ...) khi service đích trả 4xx/5xx. Quy tắc:
+
+1. **Bọc lời gọi Feign ở tầng service**, không để `FeignException` lọt lên controller. Lỗi có ý nghĩa nghiệp vụ → dịch sang exception của mình:
+
+   ```java
+   try {
+       this.seatClient.hold(userId, request);
+   } catch (final FeignException.BadRequest ex) {
+       throw new BusinessException("One or more selected seats are no longer available");
+   } catch (final FeignException.NotFound ex) {
+       throw new ResourceNotFoundException("SeatInstance", "ids", seatInstanceIds);
+   }
+   ```
+
+2. Lời gọi **bù trừ/không quan trọng** (release ghế khi rollback, notify) → method hậu tố `*Quietly`, bắt `RuntimeException`, `log.warn` rồi bỏ qua — không làm hỏng luồng chính.
+3. Mọi service có Feign client khai lưới an toàn `handleFeign(FeignException)` trong `GlobalExceptionHandler` (cùng một bản ở mọi service, mẫu: `flight-ops-service`), log đầy đủ ở server, trả message chung — **không** trả `ex.getMessage()` (lộ URL/body nội bộ):
+
+   | Lỗi từ service đích | Trả cho client |
+   |---|---|
+   | `FeignException.NotFound` | 404 — id client gửi không tồn tại |
+   | `RetryableException`, `status < 0`, 503 (không kết nối được / timeout / chưa có instance trên Eureka) | 503 — client thử lại được |
+   | Còn lại (5xx, 401/403 nội bộ...) | 502 |
+4. Không dùng `ErrorDecoder` toàn cục, không retry thủ công trong vòng lặp. Cần retry/circuit breaker → hỏi trước (xem §2).
+5. Feign call **không nằm trong transaction DB đang ghi** nếu tránh được: gọi service khác trước (validate/lấy dữ liệu), rồi mới mở transaction ghi; hoặc dùng `@TransactionalEventListener(AFTER_COMMIT)` cho việc cần làm sau commit.
+6. **Luồng ghi qua nhiều service** (mẫu: `BookingServiceImpl.createBooking`): method điều phối `@Transactional(propagation = NOT_SUPPORTED)` → đọc dữ liệu remote → giữ tài nguyên (hold ghế) → ghi DB trong **bean riêng** (`BookingCreationService`, `REQUIRES_NEW`) để chắc chắn đã commit → mới gọi side-effect ở service khác (tạo payment). Mỗi bước sau có bù trừ cho bước trước. Bắt lỗi bù trừ **ngoài** proxy, vì lỗi commit chỉ lộ ra sau khi method `@Transactional` trả về.
+7. Dữ liệu tham chiếu hiển thị (hãng, máy bay, sân bay...) nạp qua một component loader dùng chung của service (mẫu: `flight-ops-service/service/integration/ReferenceDataLoader`) — gom id, distinct, chia lô 200, mỗi loại một lời gọi batch. Không tự viết lại vòng gọi ở từng service impl.
+
+---
+
+## 9. Events — Spring Events & Kafka
+
+Project có **hai loại event**, không được lẫn:
+
+| | Domain event nội bộ | Integration event (Kafka) |
+|---|---|---|
+| Phạm vi | Trong một service, cùng JVM | Giữa các service |
+| Cơ chế | `ApplicationEventPublisher` + `@TransactionalEventListener` | `KafkaTemplate` + `@KafkaListener` |
+| Đặt ở | `event/` của service | `common-lib/payload/event/` nếu ≥ 2 service dùng, ngược lại `event/` của producer |
+| Ví dụ | `PaymentSucceededEvent`, `PaymentFailedEvent` (payment-service) | `PaymentTransactionSucceededEvent` → `payment.transaction.succeeded`, `FlightInstanceCreatedEvent` → `flight.instance.created` |
+
+### Domain event nội bộ
+
+- Dùng `@TransactionalEventListener(phase = AFTER_COMMIT)` khi listener gọi ra ngoài (Feign/Kafka) và bên kia sẽ đọc lại dữ liệu vừa ghi — tránh bên kia thấy trạng thái chưa commit.
+- Listener tự bắt lỗi và log; không ném ngược làm hỏng luồng đã commit. Phải có cơ chế đối soát (reconcile) cho trường hợp listener thất bại.
+
+### Integration event (Kafka)
+
+**Format:** Java `record` (bất biến), có tối thiểu:
+
+```java
+public record PaymentTransactionSucceededEvent(
+        UUID eventId,          // UUIDv7, sinh khi publish — dùng cho idempotency
+        Instant occurredAt,
+        UUID paymentId,        // ID aggregate — dùng làm message key
+        UUID bookingId,        // correlation ID
+        BigDecimal amount) {}
+```
+
+- Event chỉ chứa dữ liệu cần thiết + ID; không nhét entity, không nhét DTO response lớn.
+- **Thay đổi schema tương thích ngược:** chỉ thêm field; không đổi tên/xoá/đổi kiểu field đã publish. Breaking → event version mới (`...V2`) / topic mới.
+
+**Topic naming:** `<domain>.<entity>.<action>` — lowercase, dấu chấm, action thì quá khứ: `payment.transaction.succeeded`, `booking.reservation.expired`, `seat.hold.released`.
+
+- Tên topic khai trong `application.yaml` (`kafka.topics.<name>`), đọc qua `@Value`/`@ConfigurationProperties` — không hardcode string trong code.
+- **Message key = ID aggregate** (`paymentId`, `bookingId`) để giữ thứ tự theo aggregate trong partition.
+- Bootstrap server đọc từ `spring.kafka.bootstrap-servers` (compose set `kafka:29092`, default dev `localhost:9092`).
+
+**Producer:**
+
+- Publish **sau khi commit** DB (`@TransactionalEventListener(AFTER_COMMIT)` → `kafkaTemplate.send(...)`), không publish giữa transaction (rollback DB nhưng event đã đi).
+- Xử lý kết quả `send()` (callback/`whenComplete`), log lỗi kèm `eventId`.
+
+**Consumer (BẮT BUỘC idempotent):**
+
+- Không tin Kafka "exactly-once": cùng một event có thể tới nhiều lần. Mỗi consumer phải khử trùng lặp, theo một trong hai cách:
+  - Bảng `processed_events(event_id binary(16) PK, processed_at)` — insert trong cùng transaction với thao tác nghiệp vụ; trùng PK = đã xử lý, bỏ qua.
+  - Hoặc thao tác tự nhiên idempotent bằng check trạng thái (`if (booking.getStatus() == CONFIRMED) return;`).
+- `groupId` = `spring.application.name` của consumer.
+- Listener mỏng: deserialize → gọi method service (`@Transactional`) → không chứa business logic.
+- Lỗi không phục hồi được (payload sai) → log + bỏ qua/dead-letter, không để retry vô hạn chặn partition.
+
+---
+
+## 10. Security & Identity Propagation (BẮT BUỘC)
+
+```
+Client ─(Authorization: Bearer <jwt>)─► api-gateway
+    gateway: verify JWT → check role theo route → SET X-User-Id, X-User-Email, X-User-Roles
+             (public read & /auth/**: XOÁ mọi X-User-* client tự gửi)
+                                       ─► downstream service: tin header X-User-*
+```
+
+- **JWT chỉ verify ở gateway.** Service nghiệp vụ **không** có Spring Security, **không** viết `JwtAuthenticationFilter`, **không** parse token. Ngoại lệ duy nhất: `user-service` (phát hành token, endpoint `/auth/**`, dùng Spring Security nội bộ).
+- Downstream lấy danh tính **qua header**, không qua `SecurityContext`:
+
+  ```java
+  @PostMapping
+  public ResponseEntity<ApiResponse<AirlineResponse>> create(
+          @RequestHeader("X-User-Id") final UUID userId,
+          @RequestBody @Valid final AirlineRequest request) { ... }
+  ```
+
+- **Phân quyền chia hai tầng:**
+  - **Role** (ai được gọi route/method nào) → chỉ ở gateway, `RouteConfig`. Thêm route/endpoint public mới = sửa `RouteConfig` (`PUBLIC_READS` là danh sách tường minh — thêm vào là quyết định bảo mật).
+  - **Ownership** (owner A không sửa được dữ liệu của owner B) → ở `*ServiceImpl`, đối chiếu `userId` từ header với `ownerId`/`userId` của bản ghi; sai → `BusinessException`/403.
+- Không bao giờ nhận danh tính từ body/query param (`userId` trong request body để quyết định quyền là lỗ hổng).
+- Endpoint nội bộ (chỉ service khác gọi, vd `seat-instances/confirm-booked`, `free`) không được thêm vào nhóm route customer ở gateway.
+- Service chỉ an toàn vì **không lộ port ra ngoài** — không publish port business service trong `docker-compose.yml`.
+- Không log JWT, password, `hash-secret`, key cổng thanh toán.
+
+---
+
+## 11. Repository & Query Rules
+
+### Phân trang cho MỌI endpoint trả list
+
+```java
 Page<FareResponse> getFares(final Pageable pageable) {
     return this.fareRepository.findAll(pageable).map(FareMapper::toResponse);
 }
 ```
 
-- Không có ngoại lệ cho endpoint "lấy tất cả" — nếu client cần toàn bộ, bắt nó phân trang và lặp.
-- Endpoint `batch-by-ids` là ngoại lệ hợp lệ (client tự giới hạn bằng danh sách ID), nhưng chặn kích thước đầu vào (`@Size(max = 200)` trên `List<UUID>`).
+Không có ngoại lệ "lấy tất cả". Riêng `batch-by-ids` không phân trang nhưng chặn `@Size(max = 200)`.
 
-### Repository chỉ chứa truy vấn
+### Các rule khác
 
-Spring Data JPA thuần: method name query, `@Query` khi cần, `Specification` cho filter động. **Không** đặt business logic, không mapping Entity↔DTO, không gọi service khác từ repository.
+- **Repository chỉ chứa truy vấn** — method name query, `@Query`, `Specification`. Không business logic, không mapping, không gọi service khác.
+- **Filter động ≥ 3 điều kiện → `Specification`**, không dùng pattern `(:p is null or f.col = :p)` (chặn index). Lớp `*Specs` ở `repository/spec/`, `final class` + constructor private, mỗi factory trả `null` khi tham số null:
 
-### `Specification` cho filter động (khi số filter ≥ 3)
+  ```java
+  public static Specification<Flight> airlineId(final UUID airlineId) {
+      return (root, query, cb) -> airlineId == null ? null : cb.equal(root.get("airlineId"), airlineId);
+  }
+  // service: Specification.where(FlightSpecs.airlineId(a)).and(FlightSpecs.departureAirportId(d))
+  ```
 
-Thay pattern `(:param is null or f.col = :param)` — pattern đó chặn DB dùng index và phải sửa JPQL mỗi lần thêm filter.
+- **Kiểm tra tồn tại → `existsBy*`**, không `findBy*().isPresent()` hay `countBy* > 0`. Luồng update dùng `existsBy...AndIdNot(..., id)`.
+- **Ghi hàng loạt → `saveAll()`**, không `save()` trong vòng lặp. > 5.000 bản ghi: chia lô, `flush()`/`clear()` sau mỗi lô.
+- **Chỉ cần vài cột → interface/record projection**, không load cả entity (nhất là entity có nhiều `@Embedded`).
+- **Index:** `ddl-auto: update` chỉ tạo index cho PK và unique. Thêm method lọc theo cột nào → khai `@Index` cho cột đó trong `@Table(indexes = ...)`. Index tổ hợp: cột lọc `=` đứng trước cột lọc khoảng.
 
-```java
-public interface FlightRepository
-        extends JpaRepository<Flight, UUID>, JpaSpecificationExecutor<Flight> { }
-
-public final class FlightSpecs {
-
-    private FlightSpecs() { }
-
-    public static Specification<Flight> airlineId(final UUID airlineId) {
-        return (root, query, cb) ->
-                airlineId == null ? null : cb.equal(root.get("airlineId"), airlineId);
-    }
-
-    public static Specification<Flight> departureAirportId(final UUID airportId) {
-        return (root, query, cb) ->
-                airportId == null ? null : cb.equal(root.get("departureAirportId"), airportId);
-    }
-}
-```
-
-```java
-// Ghép ở tầng service — trả null nghĩa là "bỏ qua điều kiện này"
-final Specification<Flight> spec = Specification
-        .where(FlightSpecs.airlineId(airlineId))
-        .and(FlightSpecs.departureAirportId(departureAirportId));
-
-return this.flightRepository.findAll(spec, pageable).map(FlightMapper::toResponse);
-```
-
-Đặt các lớp `*Specs` trong package `repository/spec/`, là `final class` với constructor private (chỉ chứa static factory method, không phải bean).
-
-### Kiểm tra tồn tại: `existsBy*`, không `findBy*` rồi check null
-
-```java
-// ❌ SAI — kéo cả entity về chỉ để biết có tồn tại hay không
-if (fareRepository.findByName(name).isPresent()) { ... }
-if (fareRepository.countByName(name) > 0) { ... }
-
-// ✅ ĐÚNG — SQL chỉ trả về boolean
-if (this.fareRepository.existsByName(name)) { ... }
-```
-
-Luồng update: dùng biến thể `*AndIdNot` để loại chính bản ghi đang sửa khỏi phép kiểm tra trùng (`existsByCityCodeAndIdNot`). Áp dụng cho mọi unique check.
-
-### Ghi hàng loạt: `saveAll()`, không `save()` trong vòng lặp
-
-```java
-// ❌ SAI — N lần round-trip tới DB
-for (final Fare fare : fares) {
-    fareRepository.save(fare);
-}
-
-// ✅ ĐÚNG — 1 lần, Hibernate gom thành batch insert
-this.fareRepository.saveAll(fares);
-```
-
-Để `saveAll()` thật sự batch dưới JDBC, bật trong `application.yaml`:
-
-```yaml
-spring:
-  jpa:
-    properties:
-      hibernate:
-        jdbc.batch_size: 50
-        order_inserts: true
-        order_updates: true
-```
-
-Batch insert chỉ hoạt động khi ID **không** do DB sinh. Project dùng UUIDv7 sinh ở tầng ứng dụng (xem [§10](#10-entity-design-rules)) nên Hibernate biết ID trước khi insert → gom batch được.
-
-`saveAll()` một danh sách rất lớn vẫn giữ toàn bộ entity trong persistence context. Với > 5.000 bản ghi, chia lô và `flush()`/`clear()` sau mỗi lô để tránh phình heap.
-
-### Chỉ đọc vài cột thì dùng projection
-
-```java
-// ❌ SAI — load cả Fare (kèm 5 khối @Embedded) chỉ để lấy tên và giá
-final List<Fare> fares = fareRepository.findByFlightId(flightId);
-
-// ✅ ĐÚNG — interface projection, SQL chỉ select đúng 2 cột
-public interface FareSummary {
-    String getName();
-    Double getCurrentPrice();
-}
-List<FareSummary> findByFlightId(UUID flightId);
-```
-
-### Index cho cột được query thường xuyên
-
-Với `ddl-auto: update`, Hibernate chỉ tự tạo index cho khoá chính và unique constraint — cột dùng để lọc thì không có, nghĩa là full table scan. Khai `@Index` tường minh:
-
-```java
-@Entity
-@Table(
-    name = "fares",
-    indexes = {
-        @Index(name = "idx_fare_flight_cabin", columnList = "flight_id, cabin_class_id"),
-        @Index(name = "idx_fare_flight", columnList = "flight_id")
-    }
-)
-public class Fare extends BaseEntity { ... }
-```
-
-**Quy tắc:** thêm repository method lọc theo cột nào thì kiểm tra cột đó đã có index chưa. Index tổ hợp đặt cột lọc bằng `=` lên trước cột lọc theo khoảng.
-
-### `@Transactional` — bắt buộc và nhất quán
+### `@Transactional`
 
 ```java
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)        // mặc định cho cả class
+@Transactional(readOnly = true)   // mặc định cả class
 public class FareServiceImpl implements FareService {
-
     @Override
-    @Transactional                      // ghi đè cho method ghi
-    public FareResponse createFare(final FareRequest request) { ... }
+    @Transactional                // ghi đè cho method ghi
+    public FareResponse create(final FareRequest request) { ... }
 }
 ```
 
-- `readOnly = true` cho method đọc: Hibernate bỏ qua dirty checking → nhanh hơn, tránh vô tình ghi.
-- **Bắt buộc `@Transactional`** cho mọi method ghi đụng tới ≥ 2 bảng — đặc biệt luồng xoá cha-con thủ công, vì đã không còn `cascade` (xem [§6 Hệ quả 1](#hệ-quả-1--không-còn-cascadeorphanremoval-phải-tự-xử-lý-ở-tầng-service)).
-- `@Transactional` chỉ có tác dụng khi được gọi từ **bên ngoài** bean. Gọi `this.someTransactionalMethod()` trong cùng class bỏ qua proxy → **không** mở transaction. Tách sang bean khác nếu cần.
+- Bắt buộc `@Transactional` cho method ghi đụng ≥ 2 bảng (đặc biệt xoá cha-con, §6).
+- Gọi `this.method()` trong cùng class bỏ qua proxy → không có transaction. Cần thì tách bean.
+- Không gọi Feign/Kafka bên trong transaction ghi nếu tránh được (§8, §9).
 
 ---
 
-## 9. common-lib Usage Rules (BẮT BUỘC)
-
-- **DTO dùng chung nhiều service** (Request/Response đại diện cho một entity mà service khác cần đọc) → `common-lib/payload/request|response`.
-- **Enum nghiệp vụ dùng chung** (status, role, type) → `common-lib/enums`.
-- **`@Embeddable` value object dùng chung** (Address, GeoCode...) → `common-lib/embeddable`.
-- **Exception dùng chung** (`ResourceNotFoundException`, `BusinessException`) → `common-lib/exception`.
-- **KHÔNG** đặt Entity (`@Entity`) trong `common-lib` — entity luôn thuộc đúng 1 service, giữ database boundary rõ ràng. Ngoại lệ duy nhất: `BaseEntity` (`@MappedSuperclass`, không phải `@Entity`).
-- **KHÔNG** đặt business logic hay Service/Repository trong `common-lib` — chỉ model dữ liệu thuần (DTO/enum/embeddable) + validation annotation.
-- Thêm class mới vào `common-lib` nghĩa là ít nhất 2 service sẽ dùng nó. Nếu chỉ 1 service dùng, giữ trong service đó.
-
----
-
-## 10. Entity Design Rules
+## 12. Entity Design & common-lib
 
 ### BaseEntity + UUIDv7 (BẮT BUỘC)
 
-Toàn bộ khoá chính dùng **UUID version 7**, sinh ở tầng ứng dụng. Mọi entity `extends BaseEntity` (đặt trong `common-lib/entity/`):
+Mọi entity `extends BaseEntity` (`common-lib/entity/`, `@MappedSuperclass`) — đây là nơi **duy nhất** khai `id`, `createdAt`, `updatedAt`:
 
 ```java
-// common-lib/entity/BaseEntity.java
-@Getter
-@Setter
-@MappedSuperclass
-public abstract class BaseEntity {
+@Id
+@UuidGenerator(algorithm = UuidVersion7Strategy.class)   // org.hibernate.id.uuid, có sẵn trong Hibernate 7
+@JdbcTypeCode(SqlTypes.BINARY)
+@Column(name = "id", columnDefinition = "binary(16)", updatable = false, nullable = false)
+private UUID id;
 
-    @Id
-    @UuidGenerator(algorithm = UuidVersion7Strategy.class)
-    @JdbcTypeCode(SqlTypes.BINARY)
-    @Column(name = "id", columnDefinition = "binary(16)", updatable = false, nullable = false)
-    private UUID id;
-
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false, nullable = false)
-    private Instant createdAt;
-
-    @UpdateTimestamp
-    @Column(name = "updated_at")
-    private Instant updatedAt;
-}
+@CreationTimestamp @Column(name = "created_at", updatable = false, nullable = false) private Instant createdAt;
+@UpdateTimestamp   @Column(name = "updated_at")                                     private Instant updatedAt;
 ```
 
-`UuidVersion7Strategy` là `org.hibernate.id.uuid.UuidVersion7Strategy` — có sẵn trong Hibernate 7 (Spring Boot 4.0.7 kéo về), không cần thư viện ngoài.
+- **CẤM `@GeneratedValue(strategy = GenerationType.UUID)`** — sinh UUIDv4 ngẫu nhiên, phân mảnh index (lỗi âm thầm).
+- UUID sinh ở tầng ứng dụng → Hibernate biết ID trước khi insert → `saveAll()` batch được.
+- Lưu `binary(16)`, không `char(36)`. Query tay trong MySQL: `BIN_TO_UUID(id)` / `UUID_TO_BIN('...')`.
+- **Mọi FK đều `UUID` + `columnDefinition = "binary(16)"`.**
+- `ddl-auto: update` **không đổi được kiểu/độ dài cột đã có** → đổi = drop & tạo lại DB dev, hoặc viết script thủ công nếu phải giữ dữ liệu (§17).
+- **Không** dùng `@Data`/`@EqualsAndHashCode` trên entity. Không override `equals/hashCode` trừ khi thật cần.
 
-**Quy tắc bắt buộc:**
+### Naming
 
-- **CẤM `@GeneratedValue(strategy = GenerationType.UUID)`** — sinh UUID **v4 ngẫu nhiên**, làm phân mảnh index và mất hết lợi ích của v7. Lỗi âm thầm, chỉ lộ khi bảng lớn. Chỉ dùng đúng cặp `@UuidGenerator(algorithm = UuidVersion7Strategy.class)` như trên.
-- **`BaseEntity` là nơi DUY NHẤT khai báo `id`, `createdAt`, `updatedAt`.** Entity con không khai lại.
-- **Lưu dạng `binary(16)`**, không `char(36)` — tiết kiệm 20 byte mỗi khoá và mỗi index. Đánh đổi: query tay trong MySQL Workbench phải bọc `BIN_TO_UUID(id)` / `UUID_TO_BIN('...')`.
-- **Mọi FK (cross-service và cùng service) đều là `UUID`**, khai kèm `columnDefinition = "binary(16)"` để khớp kiểu với PK:
+- Bảng: số nhiều, snake_case (`fares`, `flight_instances`). Cột: snake_case, luôn khai `@Column(name = ...)` tường minh.
+- Lombok trên entity: `@Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor`.
 
-```java
-@Column(name = "flight_id", columnDefinition = "binary(16)", nullable = false)
-private UUID flightId;
-```
+### common-lib — được đặt gì
 
-- **`ddl-auto: update` KHÔNG đổi được kiểu cột đã tồn tại** — chỉ thêm bảng/cột mới. Đổi kiểu cột bắt buộc **drop và tạo lại database dev**.
-- **Không tự override `equals()`/`hashCode()` theo `id`** trừ khi thực sự cần bỏ entity vào `Set`/`Map`. **Không bao giờ** dùng `@Data`/`@EqualsAndHashCode` của Lombok trên entity (sinh `equals` trên toàn bộ field, gây lỗi khó lần).
+| Đặt trong `common-lib` | Không đặt |
+|---|---|
+| Request/Response DTO mà ≥ 2 service dùng (`payload/request|response`) | `@Entity` (trừ `BaseEntity` là `@MappedSuperclass`) |
+| Enum nghiệp vụ dùng chung (`enums/`) | Service, Repository, business logic |
+| `@Embeddable` dùng chung (`embeddable/`) | `@FeignClient` (thuộc service gọi) |
+| `ResourceNotFoundException`, `BusinessException` | `GlobalExceptionHandler` (thuộc từng service) |
+| Integration event Kafka dùng ≥ 2 service (`payload/event/`) | Spring config, bean |
 
-### Naming & Table Convention
-
-```java
-@Entity
-@Table(
-    name = "fares",
-    indexes = @Index(name = "idx_fare_flight_cabin", columnList = "flight_id, cabin_class_id")
-)
-@Getter
-@Setter
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class Fare extends BaseEntity {
-
-    @Column(name = "flight_id", columnDefinition = "binary(16)", nullable = false)
-    private UUID flightId;
-    // ...
-}
-```
-
-- Tên bảng: số nhiều, snake_case (`fares`, `flight_instances`, `baggage_policies`).
-- Tên cột: snake_case, khai `name` tường minh — không dựa vào naming strategy mặc định.
+Chỉ 1 service dùng → giữ trong service đó.
 
 ---
 
-## 11. Coding Standards
+## 13. Coding Standards
 
-### SOLID Principles (Bắt buộc)
+### SOLID & DI
 
-- **S — Single Responsibility** — Controller chỉ xử lý HTTP; Service chỉ chứa business logic của một domain; tách service nếu class vượt ~200 dòng.
-- **O — Open/Closed** — mở rộng qua interface/Strategy, không sửa method hiện có để nhét thêm nhánh `if` cho case mới.
-- **L — Liskov Substitution** — `*ServiceImpl` phải thay thế được interface mà không đổi hành vi; không override để throw `UnsupportedOperationException`.
-- **I — Interface Segregation** — interface nhỏ, gọn theo domain (`FareService` riêng, không gộp với `BaggagePolicyService`).
-- **D — Dependency Inversion** — **BẮT BUỘC** controller và service khác inject qua interface, không inject thẳng `*ServiceImpl`.
+- **S** — Controller chỉ HTTP; Service một domain; tách khi class vượt ~200 dòng.
+- **O** — mở rộng qua interface/Strategy (vd. `service/gateway/VNPayService`, `RazorpayService`), không nhét thêm nhánh `if`.
+- **L** — `*ServiceImpl` không override để ném `UnsupportedOperationException`.
+- **I** — interface nhỏ theo domain.
+- **D** — **BẮT BUỘC** inject qua interface, không inject `*ServiceImpl`. Constructor injection (`@RequiredArgsConstructor` + `private final`), không `@Autowired` field.
+- Thời gian hiện tại lấy từ bean `Clock` (`ClockConfig`) để test được, không gọi `Instant.now()` trực tiếp trong logic có hạn (hold ghế, hết hạn booking).
 
-### Dependency Injection Pattern
+### Naming
 
-```java
-public interface FareService {
-    FareResponse findById(UUID id);
-    Map<UUID, FareResponse> findByIds(List<UUID> ids);
-    Page<FareResponse> findAll(Pageable pageable);
-    FareResponse create(FareRequest request);
-    FareResponse update(UUID id, FareRequest request);
-    void delete(UUID id);
-}
+- Package lowercase; Class PascalCase; interface không prefix `I`, impl hậu tố `Impl`.
+- Method camelCase bắt đầu bằng động từ; boolean `is*/has*/can*`. Biến có nghĩa, collection số nhiều. Hằng `SCREAMING_SNAKE_CASE`.
+- DTO: `*Request` (dùng chung create & update), `*Response`.
 
-@Service
-@RequiredArgsConstructor
-@Transactional(readOnly = true)
-public class FareServiceImpl implements FareService {
-    private final FareRepository fareRepository;
-    private final BaggagePolicyRepository baggagePolicyRepository;
-    private final FareRuleRepository fareRuleRepository;
-    // ...
-}
+### Clean code
 
-@RestController
-@RequiredArgsConstructor
-@RequestMapping("/api/fares")
-public class FareController {
-    private final FareService fareService;  // inject interface, không phải FareServiceImpl
-}
-```
-
-Constructor injection qua `@RequiredArgsConstructor` + field `private final`. Không dùng `@Autowired` trên field.
-
-### Java Naming Conventions
-
-- **Package**: lowercase, không underscore — `com.nitditto.pricing.service`.
-- **Class/Interface**: PascalCase danh từ; interface không prefix `I`; implementation suffix `Impl` (`FareService` / `FareServiceImpl`).
-- **Method**: camelCase, bắt đầu bằng động từ — `findById()`, `createFare()`, `isActive()`. Boolean: `is*`, `has*`, `can*`.
-- **Variable**: camelCase có nghĩa (`flightId`, không viết tắt `fltId`); collection dùng số nhiều (`fares`, `flights`).
-- **Constant**: SCREAMING_SNAKE_CASE.
-- **DTO**: `*Request` (dùng chung cho cả create và update — không tách `CreateXRequest`/`UpdateXRequest`), `*Response` (trả về client).
-
-### Clean Code Rules
-
-- Method tối đa ~20 dòng, tối đa 3 parameter (nhiều hơn thì gói vào Request object).
-- Một method làm một việc.
-- Không comment giải thích WHAT, chỉ comment WHY (constraint ẩn, workaround).
-- Không catch `Exception` chung chung ở tầng service để nuốt lỗi; ném exception cụ thể (xem [§12](#12-exception-handling)).
-- Không return `null` cho method tìm theo id — dùng `Optional` ở repository, ném exception cụ thể ở service.
-
-### `final` & `this`
-
-- Method parameter và local variable không đổi giá trị: dùng `final`.
-- Luôn dùng `this.` khi truy cập field/method của instance trong service/mapper để phân biệt với parameter cùng tên.
-
-### Loop vs Stream
-
-- Ưu tiên `for` loop ở hot path (mapping list lớn, batch xử lý). Stream OK cho logic đơn giản không phải hot path.
+- Method ~20 dòng, ≤ 3 tham số (nhiều hơn → gói object). Một method một việc.
+- Comment WHY, không comment WHAT.
+- Không catch `Exception` chung để nuốt lỗi ở service; ném exception cụ thể. Không return `null` cho tìm theo id.
+- Parameter/local không đổi: `final`. Luôn `this.` khi truy cập field instance.
+- Hot path (mapping list lớn): ưu tiên `for`; stream OK cho logic đơn giản.
 
 ---
 
-## 12. Exception Handling
+## 14. Exception Handling
 
-Custom exception dùng chung trong `common-lib`, mỗi service có `GlobalExceptionHandler` riêng.
+- `ResourceNotFoundException(resource, field, value)` và `BusinessException(message)` ở `common-lib/exception`.
+- Mỗi service có `exception/GlobalExceptionHandler` (`@Slf4j @RestControllerAdvice`) map tối thiểu:
 
-```java
-// common-lib/exception/ResourceNotFoundException.java
-public class ResourceNotFoundException extends RuntimeException {
-    public ResourceNotFoundException(final String resource, final String field, final Object value) {
-        super("%s not found with %s: %s".formatted(resource, field, value));
-    }
-}
-
-// common-lib/exception/BusinessException.java
-public class BusinessException extends RuntimeException {
-    public BusinessException(final String message) {
-        super(message);
-    }
-}
-```
-
-```java
-// mỗi service: exception/GlobalExceptionHandler.java
-@Slf4j
-@RestControllerAdvice
-public class GlobalExceptionHandler {
-
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ApiResponse<Void>> handleNotFound(final ResourceNotFoundException ex) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.error(ex.getMessage()));
-    }
-
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiResponse<Void>> handleValidation(final MethodArgumentNotValidException ex) {
-        // gom field error -> message
-    }
-
-    @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ApiResponse<Void>> handleBusiness(final BusinessException ex) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(ex.getMessage()));
-    }
-
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<Void>> handleUnexpected(final Exception ex) {
-        log.error("Unexpected error", ex);   // log đầy đủ ở server
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("Internal server error"));   // không lộ stack trace ra client
-    }
-}
-```
-
-- `ResourceNotFoundException`/`BusinessException` đặt trong `common-lib` (dùng chung). `GlobalExceptionHandler` đặt riêng từng service (`@RestControllerAdvice` scope theo application context).
-- Service ném `ResourceNotFoundException`/`BusinessException` — **không** `throw new Exception(...)`. Controller **không** khai `throws Exception`.
-- Catch-all `Exception.class` luôn log đầy đủ ở server và trả message chung chung — không bao giờ trả stack trace ra client.
-
----
-
-## 13. API Response Wrapper
-
-`ApiResponse<T>` là generic wrapper cho **mọi endpoint có trả dữ liệu**.
-
-```java
-// common-lib/payload/response/ApiResponse.java
-@Getter
-@Builder
-public class ApiResponse<T> {
-    private boolean success;
-    private String message;
-    private T data;
-
-    public static <T> ApiResponse<T> success(final T data) {
-        return ApiResponse.<T>builder().success(true).data(data).build();
-    }
-
-    public static <T> ApiResponse<T> error(final String message) {
-        return ApiResponse.<T>builder().success(false).message(message).build();
-    }
-}
-```
-
-```java
-@GetMapping("/{id}")
-public ResponseEntity<ApiResponse<FareResponse>> findById(@PathVariable final UUID id) {
-    return ResponseEntity.ok(ApiResponse.success(this.fareService.findById(id)));
-}
-```
-
-- Áp dụng đồng bộ cho **tất cả** controller — không nửa vời (một số endpoint bọc, số khác trả thẳng DTO).
-- `DELETE` giữ `204 No Content` không body — **không** bọc `ApiResponse` (204 theo spec không nên có body).
-
----
-
-## 14. Validation
-
-- Request DTO dùng `jakarta.validation.constraints` (`@NotBlank`, `@NotNull`, `@Positive`, `@Size`).
-- **BẮT BUỘC** mọi `@RequestBody` ở controller phải có `@Valid` đi kèm — cả create lẫn update.
-
----
-
-## 15. Logging
-
-```java
-@Slf4j
-@Service
-@RequiredArgsConstructor
-public class FareServiceImpl implements FareService {
-    @Override
-    public FareResponse create(final FareRequest request) {
-        log.info("Creating fare for flightId={}", request.getFlightId());
-        // ...
-    }
-}
-```
-
-- `@Slf4j` cho class Service. Log mức `info` cho hành động ghi (create/update/delete); `warn`/`error` khi bắt exception nghiệp vụ.
-- **Không** log dữ liệu nhạy cảm (password, token JWT).
-
----
-
-## 16. Database
-
-- **Database-per-service.** Mỗi service một database riêng:
-
-  | Service | Database |
+  | Exception | Status |
   |---|---|
-  | user-service | `airline_user` |
-  | airline-core-service | `airline` |
-  | flight-ops-service | `airline_flight` |
-  | location-service | `airline_location` |
-  | pricing-service | `airline_pricing` |
+  | `ResourceNotFoundException` | 404 |
+  | `BusinessException`, `MethodArgumentNotValidException` | 400 (gom field error thành message) |
+  | `FeignException` (service có Feign) | 502, message chung |
+  | `Exception` (catch-all) | 500, `log.error` đầy đủ, message `"Internal server error"` |
 
-- `ddl-auto: update` chỉ dùng ở dev. Không dùng cho production — nếu tiến tới production, dùng Flyway/Liquibase để quản lý schema migration.
-- **Không** commit credential/mật khẩu DB thật/JWT secret. Khi lên môi trường thật, chuyển sang biến môi trường hoặc config server.
+- Service **không** `throw new Exception(...)`; controller **không** khai `throws Exception`.
+- Không bao giờ trả stack trace hay message nội bộ của exception hạ tầng ra client.
+
+## 15. API Response Wrapper
+
+`ApiResponse<T>` (`common-lib/payload/response`) với `success`, `message`, `data`; factory `ApiResponse.success(data)` / `ApiResponse.error(message)`.
+
+- **Mọi** endpoint có trả dữ liệu đều bọc `ResponseEntity<ApiResponse<T>>` — đồng bộ toàn project (Feign client phía gọi phụ thuộc vào điều này).
+- `DELETE` trả `204 No Content`, không body.
+
+## 16. Validation & Logging
+
+- Request DTO dùng `jakarta.validation.constraints`. **Mọi `@RequestBody` phải có `@Valid`.**
+- `@Slf4j` ở service. `info` cho thao tác ghi (create/update/delete, đổi trạng thái booking/payment); `warn`/`error` khi bắt lỗi. Log kèm ID (`bookingId=`, `paymentId=`, `eventId=`) để truy vết qua service.
+- **Không** log password, JWT, secret, dữ liệu thẻ/cổng thanh toán.
+
+## 17. Database
+
+- **Database-per-service** (bảng ở [§3](#services--port-mapping)). Service **không** đọc DB của service khác — chỉ qua Feign/Kafka.
+- DB mới phải khai trong `docker/mysql/init.sql`.
+- `ddl-auto: update` chỉ dev. Lên production → Flyway/Liquibase (hỏi trước).
+- **Không** commit credential thật, JWT secret, key cổng thanh toán — dùng biến môi trường + `.env`.
+
+### Migration thủ công (`docker/mysql/migrations/`)
+
+`ddl-auto: update` chỉ thêm bảng/cột/index mới; nó **không** đổi kiểu hay độ dài cột đã có và không sửa dữ liệu cũ. Khi một thay đổi entity cần điều đó **và** phải giữ dữ liệu của DB dev đang có, viết script SQL thủ công thay vì drop DB. DB dev không có dữ liệu cần giữ thì vẫn mặc định drop & tạo lại.
+
+- **Vị trí/tên:** `docker/mysql/migrations/NNN-<mô-tả-kebab>.sql`, `NNN` tăng dần từ `001`. Hiện có `001-fare-current-price.sql`, `002-flight-schedule-operating-days.sql`.
+- **Chạy tay.** Compose chỉ mount `init.sql` vào `/docker-entrypoint-initdb.d`; không công cụ nào tự chạy thư mục này. Đây là giải pháp tạm cho dev, **không thay** Flyway/Liquibase ở production (hỏi trước).
+- **Header comment bắt buộc:** đổi gì và vì sao (nhánh/PR gây ra), chạy trên database nào, DB tạo mới (kể cả sau `docker compose down -v`) có cần chạy không, có idempotent không.
+- **Đúng đích:** `USE <database>;` phải khớp `spring.datasource.url` của service đó. Tên bảng/cột phải là cột Hibernate thực sinh ra (field `taxedAndFees` → cột `taxed_and_fees`); kiểm tra bằng `SHOW CREATE TABLE` thay vì đoán.
+- **Idempotent** (chạy lại không hỏng, vd. `MODIFY COLUMN` về cùng độ dài).
+- **Script sửa dữ liệu:** (1) `SELECT` xem trước đúng các dòng sẽ bị ảnh hưởng; (2) `UPDATE` để **comment**, bọc `START TRANSACTION … COMMIT`, chỉ sửa dòng khớp điều kiện — không `UPDATE` cả bảng; (3) nhắc backup bảng trước khi chạy. ID là `binary(16)`: đọc bằng `BIN_TO_UUID(id)`.
+- **Commit:** đi cùng PR với thay đổi entity gây ra nó. Nếu commit riêng dùng `chore(docker)`.
 
 ---
 
-## 17. Git Convention (BẮT BUỘC)
+## 18. Git Convention (BẮT BUỘC)
 
-### Branch Model
+### Branch
 
-Mô hình **develop-centric**: `develop` là base branch mặc định. Chưa có `main`/`master` — mọi PR nhắm vào `develop`.
-
-```
-develop                 ← base branch, luôn ở trạng thái build được
-   ├── feature/xxx      ← nhánh làm việc, tách ra từ develop
-   ├── fix/xxx
-   └── docs/xxx
-```
-
-- **KHÔNG commit trực tiếp lên `develop`.** Mọi thay đổi đi qua nhánh riêng + Pull Request, kể cả sửa một dòng config.
-- Luôn tách nhánh mới từ `develop` đã cập nhật, không tách từ nhánh feature khác (trừ khi thật sự phụ thuộc, và ghi rõ trong PR).
-- Một nhánh = một mục đích.
-
-### Branch Naming
-
-```
-<type>/<mô-tả-ngắn>
-```
-
-| Prefix | Dùng khi | Ví dụ |
-|---|---|---|
-| `feature/` | Thêm tính năng / module mới | `feature/pricing-service` |
-| `fix/` | Sửa bug, sửa cấu hình sai | `fix/flight-ops-port` |
-| `docs/` | Chỉ đụng tài liệu | `docs/build-base` |
-| `refactor/` | Đổi cấu trúc, không đổi hành vi | `refactor/uuid-migration` |
-| `chore/` | Build, dependency, config vặt | `chore/bump-spring-boot` |
-| `test/` | Chỉ thêm/sửa test | `test/fare-service` |
-
-- Toàn bộ **lowercase, kebab-case**. Không dấu tiếng Việt, không space, không camelCase.
-- Ngắn gọn nhưng đủ nghĩa: `feature/pricing-service` tốt hơn `feature/new-stuff`.
-- Có issue tracker thì thêm số vào cuối: `feature/pricing-service-42`.
-- Dùng `feature/` cho branch. `feat` chỉ là *type của commit* — hai khái niệm khác nhau, đừng trộn.
+- Base branch: **`develop`** (chưa có `main`). Mọi PR nhắm vào `develop`. **Không commit/force-push trực tiếp lên `develop`.**
+- Tên nhánh `<type>/<mô-tả-kebab-case>` — lowercase, không dấu, không space. Prefix: `feature/`, `fix/`, `refactor/`, `docs/`, `chore/`, `test/`. (`feature/` là prefix nhánh; `feat` là type commit.)
+- Tách từ `develop` mới nhất; một nhánh = một mục đích. Force-push chỉ trên nhánh cá nhân, dùng `--force-with-lease`.
 
 ### Commit Message — Conventional Commits
 
 ```
 <type>(<scope>): <subject>
-
-<body — tuỳ chọn, giải thích WHY>
-
-<footer — tuỳ chọn: BREAKING CHANGE, Refs #issue>
 ```
-
-**`type`:**
 
 | Type | Ý nghĩa |
 |---|---|
-| `feat` | Thêm tính năng mới cho người dùng/API |
+| `feat` | Tính năng mới cho người dùng/API |
 | `fix` | Sửa bug |
-| `refactor` | Đổi code nhưng **không** đổi hành vi bên ngoài |
-| `perf` | Tối ưu hiệu năng (thêm index, gỡ N+1) |
+| `refactor` | Đổi code, không đổi hành vi |
+| `perf` | Tối ưu hiệu năng (index, gỡ N+1, batch) |
 | `docs` | Chỉ tài liệu |
 | `test` | Thêm/sửa test |
-| `chore` | Build, dependency, cấu hình, việc vặt không đụng logic |
-| `style` | Format, khoảng trắng, import — không đổi logic |
-| `build` | Maven POM, version, reactor structure |
+| `chore` | Config, việc vặt không đụng logic |
+| `build` | Maven POM, version, reactor, Jib |
+| `ci` | Pipeline CI/CD |
+| `style` | Format, import — không đổi logic |
 
-**`scope`** — bám theo module trong reactor, dùng tên rút gọn (bỏ đuôi `-service`):
-
-| Scope | Module |
+| Scope | Phạm vi |
 |---|---|
 | `common` | `common-lib/` |
-| `cloud` | `cloud/` |
+| `gateway` | `cloud/api-gateway/` |
+| `registry` | `cloud/service-registry/` |
+| `cloud` | `cloud/pom.xml`, thay đổi chung cả hai module cloud |
 | `user` | `services/user-service/` |
 | `airline-core` | `services/airline-core-service/` |
-| `location` | `services/location-service/` |
 | `flight-ops` | `services/flight-ops-service/` |
+| `location` | `services/location-service/` |
 | `pricing` | `services/pricing-service/` |
-| `build` | `pom.xml` gốc, `services/pom.xml`, cấu hình reactor |
+| `seat` | `services/seat-service/` |
+| `ancillary` | `services/ancillary-service/` |
+| `booking` | `services/booking-service/` |
+| `payment` | `services/payment-service/` |
+| `docker` | `docker-compose*.yml`, `docker/`, cấu hình Jib image |
+| `kafka` | Hạ tầng/cấu hình Kafka dùng chung (topic, broker). Producer/consumer của một service → dùng scope service đó |
+| `build` | Root `pom.xml`, `services/pom.xml`, cấu trúc reactor |
 
-- Đụng **một** module → bắt buộc có scope: `feat(pricing): ...`
-- Đụng **nhiều** module cùng lúc → **bỏ scope**: `refactor: migrate all entity ids to uuidv7`
-- Không bịa scope ngoài bảng trên.
-
-**`subject`:**
-
-- **Tiếng Anh**, thể mệnh lệnh (imperative): `add`, `implement`, `fix`, `remove` — không phải `added`/`adding`/`adds`.
-- Chữ đầu **thường**, **không** dấu chấm cuối câu.
-- Tối đa **72 ký tự**.
-- Mô tả *cái gì thay đổi*, không phải *đã làm bao nhiêu file*.
-
-```
-✅ ĐÚNG
-feat(pricing): implement baggage policy management feature
-feat(user): add user-service with authentication and jwt configuration
-feat(common): add shared models and request/response payloads for pricing
-chore(flight-ops): change port to 5003
-
-❌ SAI
-Feature/pricing service              # tên nhánh, không phải commit message
-feat(pricing): Implemented Fares.    # hoa đầu + quá khứ + dấu chấm cuối
-update code                          # thiếu type, không rõ nghĩa
-fix bug                              # không biết bug gì, ở đâu
-feat(pricing): add fare + fix port + update docs   # gộp 3 việc vào 1 commit
-```
-
-**Body** — bỏ qua được với commit hiển nhiên; **bắt buộc có** khi thay đổi cần giải thích lý do hoặc có đánh đổi:
+- Đụng **một** scope → bắt buộc ghi scope. Đụng **nhiều** → bỏ scope. Không bịa scope ngoài bảng.
+- Subject: **tiếng Anh**, imperative (`add`, `fix`, không `added`), chữ đầu thường, không dấu chấm cuối, ≤ 72 ký tự.
+- Một commit = một thay đổi logic hoàn chỉnh, build được.
 
 ```
-perf(pricing): add composite index on fares(flight_id, cabin_class_id)
-
-FareRepository lọc theo đúng cặp cột này ở 3 method, trước đó full table
-scan vì ddl-auto: update chỉ tự tạo index cho PK và unique constraint.
-
-Refs #12
+✅ feat(booking): add seat hold before payment
+✅ perf(pricing): add composite index on fares(flight_id, cabin_class_id)
+✅ refactor: migrate all entity ids to uuidv7
+❌ feat(pricing): Implemented Fares.      # hoa đầu, quá khứ, dấu chấm
+❌ update code / fix bug                   # thiếu type, không rõ nghĩa
+❌ feat(pricing): add fare + fix port      # gộp nhiều việc
 ```
 
-- Body cách subject đúng **một dòng trống**. Wrap ở **72 ký tự**. Viết **WHY**, không viết WHAT.
+### Quy tắc riêng cho Claude khi commit / mở PR
 
-**Footer — breaking change** — bắt buộc khai báo khi thay đổi phá vỡ client đang gọi API hoặc phá schema DB:
+- Commit message **đúng một dòng** theo format trên. **TUYỆT ĐỐI KHÔNG** `Co-Authored-By`, không footer, không "Generated with Claude Code", không bọc code block. Áp dụng cả cho mô tả PR.
+- Tạo nhánh `<type>/<mô-tả>` trước khi commit; không commit lên `develop`; chỉ commit/push khi được yêu cầu.
 
-```
-refactor: migrate all entity ids from Long to UUIDv7
+### Pull Request
 
-BREAKING CHANGE: mọi @PathVariable, *Request/*Response trong common-lib
-và mọi FK cross-service đổi từ Long sang UUID. ddl-auto: update không
-alter được kiểu cột — bắt buộc drop và tạo lại database dev.
-```
+- Title viết như một commit message conventional (không để tên nhánh tự sinh).
+- Description: **Mục đích** · **Thay đổi chính** · **Cách kiểm thử** (lệnh + endpoint đã gọi qua gateway) · **Breaking change** (API/schema/event; có phải drop DB không).
+- PR nhỏ, tập trung (~400 dòng là ngưỡng cân nhắc tách). Không merge khi build đỏ. Merge commit cho `feature/*`, squash cho nhánh nhiều commit rác. Xoá nhánh sau merge.
 
-**Kích thước commit:**
+**PR Checklist:**
 
-- Một commit = một thay đổi logic hoàn chỉnh, build được. Không commit code không compile.
-- Chia commit theo bước (`initialize module` → `add shared payloads` → `add Fare` → `add FareRules` → `add BaggagePolicy`) thay vì một commit khổng lồ.
-- Không commit `target/`, `.idea/`, `.vscode/`, `*.iml` (đã có trong `.gitignore` — đừng `git add -f`).
-
-### Pull Request Convention
-
-**Title:** viết đúng như một commit message conventional — **không** để tên nhánh tự sinh (`feat(pricing): add fare, fare rules and baggage policy management`, không phải `Feature/pricing service`).
-
-**Description — template tối thiểu:**
-
-```markdown
-## Mục đích
-<Giải quyết vấn đề gì, tại sao cần>
-
-## Thay đổi chính
-- <thay đổi 1>
-- <thay đổi 2>
-
-## Cách kiểm thử
-mvn -pl services/pricing-service -am clean install
-mvn -pl services/pricing-service spring-boot:run
-<endpoint đã gọi thử, kết quả mong đợi>
-
-## Breaking change
-<Có/Không — nếu có, ghi rõ client nào phải sửa, có phải drop DB không>
-
-## Checklist
-- [ ] Không có annotation quan hệ mới (`@ManyToOne`/`@OneToMany`/`@OneToOne`/`@ManyToMany`/`@JoinColumn`/`@ElementCollection`)
-- [ ] Không có `repository.*` hay HTTP client nằm trong `for`/`stream().map()`/`forEach`
-- [ ] Endpoint trả list đã phân trang (`Page<T>` + `Pageable`)
-- [ ] Method ghi đụng ≥ 2 bảng đã có `@Transactional`
-- [ ] `@RequestBody` đã có `@Valid`
-- [ ] Cột mới dùng để lọc đã có `@Index`
-- [ ] Controller inject qua interface, không phải `*ServiceImpl`
-- [ ] Đã bật SQL log và đếm query cho endpoint trả list
-```
-
-- PR luôn nhắm vào `develop`.
-- PR nhỏ, tập trung. Trên ~400 dòng thay đổi thì cân nhắc tách — trừ đợt refactor nền tảng buộc phải làm một lần.
-- Tự review diff trước khi mở PR: `git diff develop...HEAD`.
-- Không merge PR đang đỏ build.
-
-### Merge Strategy
-
-- **Merge commit** — mặc định cho `feature/*`: giữ lại lịch sử từng bước.
-- **Squash** — cho nhánh lặt vặt nhiều commit rác kiểu `fix typo`, `fix again`.
-- **KHÔNG force-push lên `develop`.** Force-push chỉ được phép trên nhánh feature cá nhân chưa ai khác cùng làm, và dùng `--force-with-lease`, không phải `--force`.
-
-**Cập nhật nhánh feature khi develop chạy trước:**
-
-```bash
-# Ưu tiên rebase khi nhánh CHƯA push hoặc chỉ mình bạn làm — giữ lịch sử thẳng
-git fetch origin
-git rebase origin/develop
-
-# Nếu nhánh đã push và có người khác cùng làm thì merge, đừng rebase
-git merge origin/develop
-```
-
-### Dọn nhánh sau khi merge
-
-Xoá nhánh ngay sau khi PR được merge, cả local lẫn remote:
-
-```bash
-git branch -d feature/pricing-service
-git push origin --delete feature/pricing-service
-```
-
-### Lệnh Git hay dùng
-
-```bash
-# Bắt đầu một task mới
-git checkout develop && git pull origin develop
-git checkout -b feature/seat-service
-
-# Xem mình đã thay đổi gì so với base trước khi mở PR
-git diff develop...HEAD --stat
-git diff develop...HEAD
-
-# Kiểm tra không lỡ commit file build/IDE
-git status --short
-
-# Đẩy nhánh lần đầu
-git push -u origin feature/seat-service
-
-# Sửa lại commit message vừa tạo (CHỈ khi chưa push)
-git commit --amend
-
-# Xem lịch sử gọn
-git log --oneline --graph --decorate -20
-```
-
-### Quy tắc cho AI/Claude khi tạo commit
-
-- Tuân thủ Conventional Commits nghiêm ngặt: `<type>(<scope>): <subject>`
-  - Types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `chore`, `build`, `ci`
-  - Subject: thể mệnh lệnh (imperative), chữ thường, không dấu chấm cuối, tối đa 72 ký tự.
-  - Scope chỉ lấy từ bảng scope ở trên; đụng nhiều module thì bỏ scope.
-- Chỉ xuất **đúng một dòng** commit message.
-- **TUYỆT ĐỐI KHÔNG** có co-author (`Co-Authored-By`), không footer, không dòng "Generated with Claude Code", không bọc trong markdown code block. Quy tắc này áp dụng cả cho mô tả Pull Request.
-- Một commit = một thay đổi logic; tạo nhánh `<type>/<mô-tả>` trước, không commit lên `develop`; chỉ push khi được yêu cầu.
+- [ ] Không có annotation quan hệ JPA mới (§6)
+- [ ] Không có `repository.*` / Feign call trong vòng lặp; dữ liệu liên quan load bằng batch (§7)
+- [ ] Feign client khai bằng tên Eureka, `FeignException` được bọc ở service (§8)
+- [ ] Kafka consumer idempotent; event là `record` có `eventId`; topic đúng `<domain>.<entity>.<action>` (§9)
+- [ ] Không thêm Spring Security/JWT filter vào service nghiệp vụ; check ownership bằng `X-User-Id` (§10)
+- [ ] Endpoint/route mới đã được khai báo trong `RouteConfig` của gateway với role đúng
+- [ ] Endpoint trả list có phân trang; `@RequestBody` có `@Valid`
+- [ ] Method ghi đụng ≥ 2 bảng có `@Transactional`; cột lọc mới có `@Index`
+- [ ] Inject qua interface, không `*ServiceImpl`
+- [ ] Không commit secret, `.env`, `target/`, `.idea/`, `.vscode/`, `*.iml`
 
 ### Những điều TUYỆT ĐỐI không làm
 
-- Commit trực tiếp lên `develop`.
-- Force-push lên `develop`.
-- Commit credential, mật khẩu DB thật, JWT secret.
-- Commit `target/`, `.idea/`, `.vscode/`, `*.iml`.
-- Commit code không compile được, hoặc "commit tạm để mai sửa" lên nhánh chung.
+- Commit hoặc force-push trực tiếp lên `develop`.
+- Commit credential, JWT secret, key VNPay/Razorpay, file `.env`.
+- Commit `target/`, `.idea/`, `.vscode/`, `*.iml` (đừng `git add -f`).
+- Commit code không compile, hoặc "commit tạm" lên nhánh chung.
 - Gộp refactor lớn chung với feature mới trong một PR.
 
 ---
 
-## 18. Reference
+## 19. Reference
 
-- **Việc còn tồn đọng / bug đã biết / nợ kỹ thuật** → [`docs/REFACTOR-BACKLOG.md`](docs/REFACTOR-BACKLOG.md). File `CLAUDE.md` này chỉ chứa rule/convention.
-- Chưa có `README.md` hay tài liệu thiết kế khác — `CLAUDE.md` là nguồn quy tắc chính.
+- **Backlog / bug đã biết / nợ kỹ thuật** → [`docs/REFACTOR-BACKLOG.md`](docs/REFACTOR-BACKLOG.md). `CLAUDE.md` chỉ chứa rule.
+- **Tổng quan & mục lục tài liệu** → [`docs/README.md`](docs/README.md), lộ trình → [`docs/ROADMAP.md`](docs/ROADMAP.md).
+- **Hướng dẫn phát triển chi tiết** (ví dụ dài, giải thích) → [`docs/development/`](docs/development/).
+- **Tài liệu từng tính năng hạ tầng** (gateway routing, Eureka, OpenFeign, communication patterns, Docker, payment, booking) → [`docs/features/`](docs/features/).
+- Khi `docs/` mâu thuẫn với file này, **`CLAUDE.md` là nguồn đúng**.
