@@ -540,7 +540,8 @@ Chỉ 1 service dùng → giữ trong service đó.
 ### Clean code
 
 - Method ~20 dòng, ≤ 3 tham số (nhiều hơn → gói object). Một method một việc.
-- Comment WHY, không comment WHAT.
+- Comment WHY, không comment WHAT. Ngắn gọn: 1–3 dòng, ngắt dòng ≤ 120 ký tự.
+- Javadoc không quá 5 dòng, trừ khi mô tả thuật toán toán học/tài chính phức tạp (tính giá, thuế, hoàn tiền).
 - Không catch `Exception` chung để nuốt lỗi ở service; ném exception cụ thể. Không return `null` cho tìm theo id.
 - Parameter/local không đổi: `final`. Luôn `this.` khi truy cập field instance.
 - Hot path (mapping list lớn): ưu tiên `for`; stream OK cho logic đơn giản.

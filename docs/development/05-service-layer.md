@@ -269,7 +269,8 @@ public class SeatServiceImpl implements SeatService {
 
 - Method tối đa ~20 dòng, tối đa 3 parameter (nhiều hơn thì gói vào Request object).
 - Một method làm một việc; tách service nếu class vượt ~200 dòng.
-- Comment chỉ giải thích **WHY** (ràng buộc ẩn, workaround), không giải thích WHAT.
+- Comment chỉ giải thích **WHY** (ràng buộc ẩn, workaround), không giải thích WHAT. Ngắn gọn: 1–3 dòng, ngắt dòng ≤ 120 ký tự.
+- Javadoc không quá 5 dòng, trừ khi mô tả thuật toán toán học/tài chính phức tạp (tính giá, thuế, hoàn tiền).
 - `final` cho parameter và local variable không đổi giá trị.
 - Luôn `this.` khi truy cập field/method của instance.
 - Ưu tiên `for` loop ở hot path (mapping list lớn); Stream OK cho logic đơn giản.
