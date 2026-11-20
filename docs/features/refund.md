@@ -74,14 +74,25 @@ DB: bảng `refunds` mới và cột `payments.provider_create_date` (do `ddl-au
 `vnp_CreateDate` của giao dịch gốc nên giá trị này được lưu lúc tạo link thanh toán. Payment tạo **trước** khi có cột này suy
 ra từ `created_at` (có thể lệch vài giây và bị VNPay từ chối, khi đó refund `FAILED` để xử lý tay).
 
-## 6. Giới hạn đã biết
+## 6. Thanh toán đến muộn / mất ghế: hoàn toàn bộ tự động
+
+Khách có thể trả tiền thành công **sau khi** booking đã `CANCELLED`/`EXPIRED` (đóng tab rồi IPN/job đối soát về muộn, trả bằng link cũ...), hoặc trả đúng hạn nhưng ghế đã bị người khác lấy. Trước đây `confirmPayment` chỉ ném lỗi và ghi log, tiền kẹt lại. Nay:
+
+- `BookingConfirmationService.confirmPayment` ném `PaidBookingNotConfirmableException` (là `BusinessException`) khi payment `SUCCESS` mà booking không xác nhận được: booking `CANCELLED`/`EXPIRED` **và `paymentId` chưa được gán** (booking chưa từng được xác nhận), hoặc `confirmBooked` báo hết ghế.
+- `PaymentSettlementService.settle` (không trong transaction DB) bắt lỗi đó và gọi `BookingRefundService.refundUnfulfillablePayment`: **hoàn toàn bộ** số đã trả, không áp chính sách hoàn vé (lỗi không thuộc về khách), `requestedBy = system`. Cả đường Kafka (`PaymentEventConsumer`), đường HTTP `confirm-payment` của payment-service và việc tự đối soát khi đọc booking đều đi qua `settle`.
+- **Idempotent:** payment-service chỉ nhận một refund cho mỗi payment, nên Kafka + HTTP gọi lặp không hoàn hai lần. Payment đã `REFUNDED` hoặc không phải `SUCCESS` thì bỏ qua.
+- **Không hoàn nhầm:** booking đã được xác nhận rồi mới huỷ (có `paymentId`) và đã xử lý hoàn vé theo chính sách thì event gửi lại **không** bị hoàn thêm. Hai trường hợp này phân biệt bằng `paymentId`.
+- Lỗi gọi payment-service nổi lên: Kafka retry (3 lần, rồi chỉ còn log do chưa có Dead Letter Topic); refund `FAILED`/`PENDING` được log `ERROR` và xử lý theo mục 4.
+- Booking mất ghế vẫn `PENDING` cho đến hết hạn (không còn `SUCCESS` nên `expireIfStale` xử lý được, nhả ghế).
+- Chưa kiểm chứng với VNPay thật, giống mục 7 bên dưới.
+
+## 7. Giới hạn đã biết
 
 - **Chưa kiểm chứng với VNPay thật.** Thứ tự trường để ký, endpoint, `vnp_TransactionType` (`02` toàn phần / `03` một phần),
   và cách xử lý yêu cầu trùng đều lấy từ tài liệu/thư viện công khai. Sandbox của VNPay **hạn chế hoàn tiền** và cần VNPay mở
   cho merchant. Test hiện có (và E2E với cổng VNPay giả) chứng minh code nhất quán với tài liệu, không chứng minh VNPay thật chấp nhận.
 - Hỗ trợ **VNPay** và **Razorpay** (xem phần "Hoàn tiền Razorpay" cuối tài liệu). Payment Razorpay tạo trước khi có số quy đổi tiền tệ: refund ghi nhận rồi `FAILED`, hoàn tay.
-- Chỉ hoàn khi **khách huỷ**. Chưa tự hoàn khi: hãng huỷ chuyến, thanh toán thành công **sau khi** booking đã `CANCELLED`/`EXPIRED`
-  (hiện ghi log để xử lý tay), hoặc đổi vé.
+- Chỉ tự hoàn khi **khách huỷ** và khi **thanh toán không thể thực hiện** (mục 6). Chưa tự hoàn khi hãng huỷ chuyến hoặc đổi vé.
 - Chưa gửi thông báo cho khách khi hoàn tiền; chưa có audit log riêng ngoài bảng `refunds`.
 - Số tiền dùng `Double` (VND nguyên) theo quyết định hiện tại của dự án.
 

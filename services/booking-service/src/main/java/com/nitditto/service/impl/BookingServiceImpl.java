@@ -34,6 +34,7 @@ import com.nitditto.service.BookingReadAccess;
 import com.nitditto.service.BookingService;
 import com.nitditto.service.PassengerService;
 import com.nitditto.service.PaymentWindow;
+import com.nitditto.service.PaymentSettlementService;
 import com.nitditto.service.SeatReservationService;
 import com.nitditto.service.TicketService;
 import com.nitditto.service.integration.FareIntegrationService;
@@ -74,6 +75,7 @@ public class BookingServiceImpl implements BookingService {
     private final BookingEnrichmentService bookingEnrichmentService;
     private final BookingConfirmationService bookingConfirmationService;
     private final PaymentWindow paymentWindow;
+    private final PaymentSettlementService paymentSettlementService;
     private final BookingCreationService bookingCreationService;
     private final BookingRefundService bookingRefundService;
     private final BookingCancellationService bookingCancellationService;
@@ -195,7 +197,7 @@ public class BookingServiceImpl implements BookingService {
     @Override
     public BookingResponse confirmPayment(final UUID id) {
         // Chạy trong transaction riêng và commit trước khi đọc lại, nên bản đọc bên dưới thấy trạng thái mới.
-        this.bookingConfirmationService.confirmPayment(id);
+        this.paymentSettlementService.settle(id);
         // Lệnh nội bộ (payment-service gọi qua Eureka, gateway chỉ cho ADMIN): không kiểm tra chủ booking ở đây.
         return convertToBookingResponses(List.of(this.findBooking(id))).get(0);
     }
@@ -332,7 +334,7 @@ public class BookingServiceImpl implements BookingService {
             final boolean paid = context.payment() != null
                     && context.payment().getPaymentStatus() == PaymentStatus.SUCCESS;
             final BookingStatus status = paid
-                    ? this.bookingConfirmationService.confirmPayment(booking.getId())
+                    ? this.paymentSettlementService.settle(booking.getId())
                     : this.bookingConfirmationService.expireIfStale(booking.getId());
             booking.setBookingStatus(status);
         } catch (final RuntimeException ex) {
