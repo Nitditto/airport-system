@@ -79,8 +79,12 @@ ra từ `created_at` (có thể lệch vài giây và bị VNPay từ chối, kh
 - **Chưa kiểm chứng với VNPay thật.** Thứ tự trường để ký, endpoint, `vnp_TransactionType` (`02` toàn phần / `03` một phần),
   và cách xử lý yêu cầu trùng đều lấy từ tài liệu/thư viện công khai. Sandbox của VNPay **hạn chế hoàn tiền** và cần VNPay mở
   cho merchant. Test hiện có (và E2E với cổng VNPay giả) chứng minh code nhất quán với tài liệu, không chứng minh VNPay thật chấp nhận.
-- Chỉ **VNPay**. Payment Razorpay: refund được ghi nhận rồi `FAILED` với lý do "không hỗ trợ, hoàn tay".
+- Hỗ trợ **VNPay** và **Razorpay** (xem phần "Hoàn tiền Razorpay" cuối tài liệu). Payment Razorpay tạo trước khi có số quy đổi tiền tệ: refund ghi nhận rồi `FAILED`, hoàn tay.
 - Chỉ hoàn khi **khách huỷ**. Chưa tự hoàn khi: hãng huỷ chuyến, thanh toán thành công **sau khi** booking đã `CANCELLED`/`EXPIRED`
   (hiện ghi log để xử lý tay), hoặc đổi vé.
 - Chưa gửi thông báo cho khách khi hoàn tiền; chưa có audit log riêng ngoài bảng `refunds`.
 - Số tiền dùng `Double` (VND nguyên) theo quyết định hiện tại của dự án.
+
+## 8. Hoàn tiền Razorpay
+
+Payment Razorpay thu INR (số đã quy đổi từ VND lúc tạo link, xem `docs/features/payment-service.md`), nên hoàn **theo tỷ lệ trên số INR đã thu** chứ không quy đổi lại theo tỷ giá hôm nay: hoàn toàn bộ trả đúng số INR đã thu, hoàn một phần trả `đã thu × (VND hoàn / VND đã trả)`. Phân loại kết quả như VNPay: HTTP 4xx (kể cả `BAD_REQUEST_ERROR`) là `REJECTED` (chưa hoàn, retry tự do); 5xx/timeout/lỗi mạng là `UNKNOWN` (tiền có thể đã hoàn: admin xác nhận ở cổng rồi retry với `confirmNotRefunded=true`). Đã thử với Razorpay test mode: payment không tồn tại trả 404 và được xếp `REJECTED`; chưa thử hoàn một payment đã capture thật.
