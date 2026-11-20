@@ -198,6 +198,61 @@ class BookingRefundServiceImplTest {
 
   // ---- helpers ----
 
+  // ---- hoàn toàn bộ khi booking không thể thực hiện (thanh toán đến muộn / mất ghế) ----
+
+  @Test
+  void unfulfillablePayment_isRefundedInFull_withoutApplyingTheFareRules() {
+    this.givenPayment(PaymentStatus.SUCCESS);
+    when(this.paymentClient.requestRefund(any())).thenReturn(ApiResponse.success(this.refund(RefundStatus.SUCCESS)));
+
+    this.service.refundUnfulfillablePayment(this.booking.getId(), "booking expired");
+
+    final ArgumentCaptor<RefundRequest> sent = ArgumentCaptor.forClass(RefundRequest.class);
+    verify(this.paymentClient).requestRefund(sent.capture());
+    assertThat(sent.getValue().getBookingId()).isEqualTo(this.booking.getId());
+    assertThat(sent.getValue().getAmount()).isEqualTo(PAID); // toàn bộ, không trừ phí huỷ
+    assertThat(sent.getValue().getReason()).contains("booking expired");
+    assertThat(sent.getValue().getRequestedBy()).isEqualTo("system");
+    verify(this.pricingClient, never()).getFareRulesByFareId(any());
+    verify(this.flightClient, never()).getFlightInstance(any());
+  }
+
+  @Test
+  void unfulfillablePayment_alreadyRefundedOrNotPaid_isLeftAlone() {
+    for (final PaymentStatus status : new PaymentStatus[] {PaymentStatus.REFUNDED, PaymentStatus.PENDING,
+        PaymentStatus.DUPLICATE}) {
+      this.givenPayment(status);
+      this.service.refundUnfulfillablePayment(this.booking.getId(), "x");
+    }
+    verify(this.paymentClient, never()).requestRefund(any());
+  }
+
+  @Test
+  void unfulfillablePayment_withNoPaymentRecord_doesNothing() {
+    when(this.paymentClient.getPaymentsByBookingIds(any())).thenReturn(ApiResponse.success(Collections.emptyMap()));
+
+    this.service.refundUnfulfillablePayment(this.booking.getId(), "x");
+
+    verify(this.paymentClient, never()).requestRefund(any());
+  }
+
+  @Test
+  void unfulfillablePayment_aGatewayFailureDoesNotThrow_butIsLeftForManualFollowUp() {
+    this.givenPayment(PaymentStatus.SUCCESS);
+    when(this.paymentClient.requestRefund(any())).thenReturn(ApiResponse.success(this.refund(RefundStatus.FAILED)));
+
+    this.service.refundUnfulfillablePayment(this.booking.getId(), "x"); // không ném: yêu cầu đã được ghi nhận
+  }
+
+  @Test
+  void unfulfillablePayment_whenPaymentServiceCannotBeReached_theErrorSurfaces_soTheCallerCanRetry() {
+    this.givenPayment(PaymentStatus.SUCCESS);
+    when(this.paymentClient.requestRefund(any())).thenThrow(feignError(503));
+
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+        () -> this.service.refundUnfulfillablePayment(this.booking.getId(), "x")).isInstanceOf(FeignException.class);
+  }
+
   private void givenPayment(final PaymentStatus status) {
     final PaymentDTO payment = new PaymentDTO();
     payment.setPaymentStatus(status);

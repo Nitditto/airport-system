@@ -81,6 +81,8 @@ class BookingServiceImplTest {
   @Mock
   private BookingConfirmationService bookingConfirmationService;
   @Mock
+  private com.nitditto.service.PaymentSettlementService paymentSettlementService;
+  @Mock
   private BookingCreationService bookingCreationService;
   @Mock
   private BookingRefundService bookingRefundService;
@@ -100,7 +102,7 @@ class BookingServiceImplTest {
     this.service = new BookingServiceImpl(this.bookingRepository, this.passengerService, this.ticketService,
         this.flightClient, this.seatClient, this.ancillaryClient, this.paymentClient, this.fareIntegrationService,
         this.airlineClient, this.seatReservationService, this.bookingEnrichmentService,
-        this.bookingConfirmationService, this.bookingCreationService, this.bookingRefundService,
+        this.bookingConfirmationService, this.paymentSettlementService, this.bookingCreationService, this.bookingRefundService,
         this.bookingCancellationService);
   }
 

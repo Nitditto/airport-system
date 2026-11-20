@@ -69,6 +69,35 @@ public class BookingRefundServiceImpl implements BookingRefundService {
     return new Outcome(decision.amount(), refund.getStatus(), noteFor(decision, refund));
   }
 
+  @Override
+  public void refundUnfulfillablePayment(final UUID bookingId, final String reason) {
+    final PaymentDTO payment = this.findPayment(bookingId);
+    if (payment == null || payment.getPaymentStatus() != PaymentStatus.SUCCESS) {
+      log.info("No refund needed for booking {}: payment is {}", bookingId,
+          payment == null ? "missing" : payment.getPaymentStatus());
+      return;
+    }
+    if (payment.getAmount() == null || payment.getAmount() <= 0) {
+      log.error("Booking {} has a successful payment {} with no refundable amount; check it manually", bookingId,
+          payment.getId());
+      return;
+    }
+    final RefundResponse refund = this.paymentClient.requestRefund(RefundRequest.builder().bookingId(bookingId)
+        .amount(payment.getAmount()).reason(truncate("Booking could not be fulfilled: " + reason, 255))
+        .requestedBy("system").build()).getData();
+    if (refund.getStatus() == RefundStatus.SUCCESS) {
+      log.warn("Refunded {} in full for unfulfillable booking {} (payment {})", payment.getAmount(), bookingId,
+          payment.getId());
+    } else {
+      log.error("Refund for unfulfillable booking {} (payment {}) is {}: it needs manual follow-up", bookingId,
+          payment.getId(), refund.getStatus());
+    }
+  }
+
+  private static String truncate(final String text, final int max) {
+    return text.length() <= max ? text : text.substring(0, max);
+  }
+
   private static String noteFor(final RefundPolicy.Decision decision, final RefundResponse refund) {
     if (refund.getStatus() == RefundStatus.SUCCESS) {
       return decision.note();
