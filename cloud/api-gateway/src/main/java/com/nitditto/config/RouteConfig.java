@@ -74,15 +74,24 @@ public class RouteConfig {
 
     private final JwtUtil jwtUtil;
 
-    public RouteConfig(final JwtUtil jwtUtil) {
+    private static final String FORWARDED_FOR = "X-Forwarded-For";
+
+    // false (mặc định): gateway là điểm vào của Internet nên IP khách = địa chỉ của kết nối TCP, bỏ qua mọi X-Forwarded-For
+    // client tự gửi (chống giả IP). true: gateway đứng sau reverse proxy tin cậy (nginx...) đã ghi X-Forwarded-For; lấy địa chỉ đầu.
+    private final boolean trustForwardedFor;
+
+    public RouteConfig(final JwtUtil jwtUtil,
+            @org.springframework.beans.factory.annotation.Value("${gateway.client-ip.trust-forwarded-for:false}")
+            final boolean trustForwardedFor) {
         this.jwtUtil = jwtUtil;
+        this.trustForwardedFor = trustForwardedFor;
     }
 
     @Bean
     public RouterFunction<ServerResponse> authRoutes() {
         return GatewayRouterFunctions.route("auth-routes")
                 .route(RequestPredicates.path("/auth/**"), HandlerFunctions.http())
-                .before(this::stripIdentityHeaders)
+                .before(request -> this.withClientIp(this.stripIdentityHeaders(request)))
                 .filter(LoadBalancerFilterFunctions.lb("user-service"))
                 .build();
     }
@@ -149,9 +158,9 @@ public class RouteConfig {
         for (final String path : paths) {
             builder.route(RequestPredicates.path(path), HandlerFunctions.http());
         }
-        return builder.before(request -> this.isPublicRead(request)
+        return builder.before(request -> this.withClientIp(this.isPublicRead(request)
                         ? this.stripIdentityHeaders(request)
-                        : access.apply(request))
+                        : access.apply(request)))
                 .filter(LoadBalancerFilterFunctions.lb(serviceId))
                 .build();
     }
@@ -246,6 +255,35 @@ public class RouteConfig {
                     headers.set(USER_EMAIL_HEADER, email);
                     headers.set(USER_ROLES_HEADER, authorities);
                 }).build();
+    }
+
+    /**
+     * Ghi đè {@code X-Forwarded-For} bằng IP thật của khách để service phía sau (payment-service: vnp_IpAddr) dùng. Luôn
+     * {@code set} (không {@code add}) nên giá trị client tự gửi không bao giờ đi tiếp trừ khi {@code trustForwardedFor}.
+     */
+    ServerRequest withClientIp(final ServerRequest request) {
+        final String ip = this.clientIpOf(request);
+        return ServerRequest.from(request).headers(headers -> {
+            if (ip == null) {
+                headers.remove(FORWARDED_FOR);
+            } else {
+                headers.set(FORWARDED_FOR, ip);
+            }
+        }).build();
+    }
+
+    private String clientIpOf(final ServerRequest request) {
+        if (this.trustForwardedFor) {
+            final String forwarded = request.headers().firstHeader(FORWARDED_FOR);
+            if (forwarded != null) {
+                final String first = forwarded.split(",", 2)[0].trim();
+                if (ClientIpFormat.isIpLiteral(first)) {
+                    return first;
+                }
+            }
+        }
+        return request.remoteAddress().map(address -> address.getAddress() == null ? null
+                : address.getAddress().getHostAddress()).orElse(null);
     }
 
     private ServerRequest stripIdentityHeaders(final ServerRequest request) {
