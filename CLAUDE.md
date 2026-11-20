@@ -539,7 +539,8 @@ Chỉ 1 service dùng → giữ trong service đó.
 ### Clean code
 
 - Method ~20 dòng, ≤ 3 tham số (nhiều hơn → gói object). Một method một việc.
-- Comment WHY, không comment WHAT.
+- Comment WHY, không comment WHAT. Ngắn gọn: 1–3 dòng, ngắt dòng ≤ 120 ký tự.
+- Javadoc không quá 5 dòng, trừ khi mô tả thuật toán toán học/tài chính phức tạp (tính giá, thuế, hoàn tiền).
 - Không catch `Exception` chung để nuốt lỗi ở service; ném exception cụ thể. Không return `null` cho tìm theo id.
 - Parameter/local không đổi: `final`. Luôn `this.` khi truy cập field instance.
 - Hot path (mapping list lớn): ưu tiên `for`; stream OK cho logic đơn giản.
@@ -642,7 +643,7 @@ Chỉ 1 service dùng → giữ trong service đó.
 | `build` | Root `pom.xml`, `services/pom.xml`, cấu trúc reactor |
 
 - Đụng **một** scope → bắt buộc ghi scope. Đụng **nhiều** → bỏ scope. Không bịa scope ngoài bảng.
-- Subject: **tiếng Anh**, imperative (`add`, `fix`, không `added`), chữ đầu thường, không dấu chấm cuối, ≤ 72 ký tự.
+- Subject: **tiếng Anh**, imperative (`add`, `fix`, không `added`), chữ đầu thường, không dấu chấm cuối. **Cả dòng** (gồm `type(scope):`) ≤ 72 ký tự; nên ≤ 60 để đọc gọn trong `git log --oneline`.
 - Một commit = một thay đổi logic hoàn chỉnh, build được.
 
 ```
