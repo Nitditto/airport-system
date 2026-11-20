@@ -21,4 +21,6 @@ public class PaymentLinkResponse {
     private String paymentLinkId;
     private PaymentStatus status;
     private Instant expiresAt;
+    /** Thời điểm tạo giao dịch phía cổng (VNPay: yyyyMMddHHmmss, GMT+7); cần lưu lại để hoàn tiền sau này. */
+    private String createDate;
 }

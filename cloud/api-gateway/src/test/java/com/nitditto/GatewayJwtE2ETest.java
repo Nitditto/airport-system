@@ -65,7 +65,7 @@ class GatewayJwtE2ETest {
   static void registerDownstream(final DynamicPropertyRegistry registry) {
     final String uri = "http://localhost:" + DOWNSTREAM.getAddress().getPort();
     for (final String service : List.of("user-service", "airline-core-service", "location-service",
-        "flight-ops-service", "pricing-service", "seat-service", "payment-service")) {
+        "flight-ops-service", "pricing-service", "seat-service", "payment-service", "booking-service")) {
       registry.add("spring.cloud.discovery.client.simple.instances." + service + "[0].uri",
           () -> uri);
     }
@@ -189,8 +189,8 @@ class GatewayJwtE2ETest {
 
     @Test
     void routeToServiceWithoutInstances_withoutToken_returns401NotServerError() throws Exception {
-      // booking-service không được đăng ký trong discovery của test này
-      final HttpResponse<String> response = send("GET", "/api/bookings/anything", null, Map.of(), null);
+      // ancillary-service không được đăng ký trong discovery của test này
+      final HttpResponse<String> response = send("GET", "/api/meals/anything", null, Map.of(), null);
 
       assertThat(response.statusCode()).isEqualTo(401);
     }
@@ -466,6 +466,28 @@ class GatewayJwtE2ETest {
     }
 
     @Test
+    void vnpayIpn_isForwardedWithoutToken_butOnlyForGet() throws Exception {
+      final HttpResponse<String> response = send("GET", "/api/payments/vnpay-ipn?vnp_TxnRef=x", null,
+          Map.of("X-User-Id", SPOOFED), null);
+
+      assertThat(response.statusCode()).isEqualTo(200);
+      assertThat(RECEIVED).hasSize(1);
+      assertThat(RECEIVED.get(0).headers("X-User-Id")).isEmpty();
+      assertThat(send("POST", "/api/payments/vnpay-ipn", null, Map.of(), "{}").statusCode()).isEqualTo(401);
+      assertThat(send("GET", "/api/payments/vnpay-ipn/../initiate", null, Map.of(), null).statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void aClientSuppliedXForwardedFor_isReplacedByTheRealPeerAddress_beforeReachingTheService() throws Exception {
+      send("GET", "/api/airports", null, Map.of("X-Forwarded-For", "6.6.6.6"), null);
+
+      assertThat(RECEIVED).hasSize(1);
+      final List<String> forwarded = RECEIVED.get(0).headers("X-Forwarded-For");
+      assertThat(forwarded).hasSize(1);
+      assertThat(forwarded.get(0)).isIn("127.0.0.1", "0:0:0:0:0:0:0:1").isNotEqualTo("6.6.6.6");
+    }
+
+    @Test
     void writesOnPublicPaths_stillRequireAuthentication() throws Exception {
       assertThat(send("POST", "/api/airports", null, Map.of(), "{}").statusCode()).isEqualTo(401);
       assertThat(send("DELETE", "/api/airports/" + UUID.randomUUID(), null, Map.of(), null).statusCode())
@@ -558,11 +580,122 @@ class GatewayJwtE2ETest {
     }
 
     @Test
+    void userRole_cannotCallAnyRefundEndpoint_throughTheGateway() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+      final UUID someRefund = UUID.randomUUID();
+
+      assertThat(send("POST", "/api/payments/refund", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("POST", "/api/payments/Refund/", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("POST", "/api/payments/refund;x=1", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("POST", "/api/payments/refunds/" + someRefund + "/retry", token, Map.of(), null)
+          .statusCode()).isEqualTo(403);
+      // GET danh sách cũng bị chặn: lộ trạng thái hoàn tiền của người khác
+      assertThat(send("GET", "/api/payments/refunds", token, Map.of(), null).statusCode()).isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void airlineOwnerRole_cannotCallRefundEndpoints_either() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_OWNER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/payments/refund", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void admin_canCallRefundEndpoints() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_ADMIN, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/payments/refunds/" + UUID.randomUUID() + "/retry", token, Map.of(), null)
+          .statusCode()).isEqualTo(200);
+      assertThat(send("GET", "/api/payments/refunds", token, Map.of(), null).statusCode()).isEqualTo(200);
+    }
+
+    @Test
     void admin_canInitiatePayment() throws Exception {
       final String token = token(UUID.randomUUID(), ROLE_ADMIN, SECRET, 60_000);
 
       assertThat(send("POST", "/api/payments/initiate", token, Map.of(), "{}").statusCode()).isEqualTo(200);
       assertThat(send("POST", "/api/payments/batch-by-ids", token, Map.of(), "[]").statusCode()).isEqualTo(200);
+    }
+  }
+
+  @Nested
+  @DisplayName("booking routes")
+  class BookingRoutes {
+
+    @Test
+    void userRole_cannotCallInternalConfirmPaymentThroughGateway_soBookingDetailsDoNotLeak() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+      final UUID someonesBooking = UUID.randomUUID();
+
+      assertThat(send("PATCH", "/api/bookings/" + someonesBooking + "/confirm-payment", token, Map.of(), null)
+          .statusCode()).isEqualTo(403);
+      assertThat(send("PATCH", "/api/bookings/" + someonesBooking + "/Confirm-Payment/", token, Map.of(), null)
+          .statusCode()).isEqualTo(403);
+      assertThat(send("PATCH", "/api/bookings/" + someonesBooking + "/confirm-payment;x=1", token, Map.of(), null)
+          .statusCode()).isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void airlineOwnerRole_cannotCallInternalConfirmPayment_either() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_OWNER, SECRET, 60_000);
+
+      assertThat(send("PATCH", "/api/bookings/" + UUID.randomUUID() + "/confirm-payment", token, Map.of(), null)
+          .statusCode()).isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void admin_canCallConfirmPayment() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_ADMIN, SECRET, 60_000);
+
+      assertThat(send("PATCH", "/api/bookings/" + UUID.randomUUID() + "/confirm-payment", token, Map.of(), null)
+          .statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void userRole_canStillReadCancelAndListOwnBookings() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      assertThat(send("GET", "/api/bookings/" + UUID.randomUUID(), token, Map.of(), null).statusCode()).isEqualTo(200);
+      assertThat(send("GET", "/api/bookings/user/history", token, Map.of(), null).statusCode()).isEqualTo(200);
+      assertThat(send("PATCH", "/api/bookings/" + UUID.randomUUID() + "/cancel", token, Map.of(), null)
+          .statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void readingABooking_forwardsRolesFromTheToken_soACustomerCannotClaimAdminByHeader() throws Exception {
+      // booking-service cho admin đọc mọi booking dựa vào X-User-Roles: gateway phải ghi đè giá trị client tự gửi.
+      final String token = token(UUID.randomUUID(), ROLE_USER, SECRET, 60_000);
+
+      send("GET", "/api/bookings/" + UUID.randomUUID(), token, Map.of("X-User-Roles", ROLE_ADMIN), null);
+
+      assertThat(RECEIVED).hasSize(1);
+      assertThat(RECEIVED.get(0).headers("X-User-Roles")).containsExactly(ROLE_USER);
+    }
+
+    @Test
+    void readingABooking_asAdmin_forwardsTheAdminRoleFromTheToken() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_ADMIN, SECRET, 60_000);
+
+      assertThat(send("GET", "/api/bookings/" + UUID.randomUUID(), token, Map.of(), null).statusCode()).isEqualTo(200);
+
+      assertThat(RECEIVED.get(0).headers("X-User-Roles")).containsExactly(ROLE_ADMIN);
+    }
+
+    @Test
+    void readingABooking_forwardsTheIdentityFromTheToken_notTheOneTheClientSent() throws Exception {
+      // booking-service quyết định quyền đọc bằng X-User-Id: gateway phải ghi đè giá trị client tự gửi.
+      final UUID callerId = UUID.randomUUID();
+      final UUID victimId = UUID.randomUUID();
+      final String token = token(callerId, ROLE_USER, SECRET, 60_000);
+
+      send("GET", "/api/bookings/" + UUID.randomUUID(), token, Map.of("X-User-Id", victimId.toString()), null);
+
+      assertThat(RECEIVED).hasSize(1);
+      assertThat(RECEIVED.get(0).headers("X-User-Id")).containsExactly(callerId.toString());
     }
   }
 

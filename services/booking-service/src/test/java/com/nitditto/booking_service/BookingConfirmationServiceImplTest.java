@@ -12,6 +12,7 @@ import com.nitditto.client.PaymentClient;
 import com.nitditto.enums.BookingStatus;
 import com.nitditto.enums.PaymentStatus;
 import com.nitditto.exception.BusinessException;
+import com.nitditto.exception.PaidBookingNotConfirmableException;
 import com.nitditto.model.Booking;
 import com.nitditto.payload.dto.PaymentDTO;
 import com.nitditto.payload.response.ApiResponse;
@@ -55,7 +56,8 @@ class BookingConfirmationServiceImplTest {
   @BeforeEach
   void setUp() {
     this.service = new BookingConfirmationServiceImpl(this.bookingRepository, this.ticketService,
-        this.paymentClient, this.seatReservationService, Clock.fixed(NOW, ZoneOffset.UTC), 15);
+        this.paymentClient, this.seatReservationService, Clock.fixed(NOW, ZoneOffset.UTC),
+        new com.nitditto.service.PaymentWindow(15));
   }
 
   @Test
@@ -96,11 +98,43 @@ class BookingConfirmationServiceImplTest {
   }
 
   @Test
-  void confirmPayment_rejectsCancelledBooking() {
+  void confirmPayment_rejectsACancelledBookingThatWasAlreadyPaidAndUsed_withoutAskingForARefund() {
+    // paymentId đã gán = booking từng được xác nhận rồi huỷ theo chính sách hoàn vé; event gửi lại không được hoàn thêm.
     final Booking booking = pendingBooking(NOW.minusSeconds(60));
     booking.setBookingStatus(BookingStatus.CANCELLED);
+    booking.setPaymentId(UUID.randomUUID());
 
-    assertThatThrownBy(() -> this.service.confirmPayment(this.bookingId)).isInstanceOf(BusinessException.class);
+    assertThatThrownBy(() -> this.service.confirmPayment(this.bookingId))
+        .isInstanceOf(BusinessException.class).isNotInstanceOf(PaidBookingNotConfirmableException.class);
+    verify(this.paymentClient, never()).getPaymentsByBookingIds(any());
+  }
+
+  @Test
+  void confirmPayment_flagsAPaymentThatArrivedAfterTheBookingWasCancelledOrExpired_soItCanBeRefunded() {
+    for (final BookingStatus closed : List.of(BookingStatus.CANCELLED, BookingStatus.EXPIRED)) {
+      final Booking booking = pendingBooking(NOW.minusSeconds(60));
+      booking.setBookingStatus(closed);
+      givenPayment(PaymentStatus.SUCCESS);
+
+      assertThatThrownBy(() -> this.service.confirmPayment(this.bookingId))
+          .isInstanceOfSatisfying(PaidBookingNotConfirmableException.class, ex -> {
+            assertThat(ex.getBookingStatus()).isEqualTo(closed);
+            assertThat(ex.getBookingId()).isEqualTo(this.bookingId);
+            assertThat(ex.getPaymentId()).isNotNull();
+          });
+      assertThat(booking.getBookingStatus()).isEqualTo(closed);
+      verify(this.seatReservationService, never()).confirmBooked(any(), any());
+    }
+  }
+
+  @Test
+  void confirmPayment_onACancelledBookingWithoutASuccessfulPayment_isAPlainRejection() {
+    final Booking booking = pendingBooking(NOW.minusSeconds(60));
+    booking.setBookingStatus(BookingStatus.EXPIRED);
+    givenPayment(PaymentStatus.PENDING);
+
+    assertThatThrownBy(() -> this.service.confirmPayment(this.bookingId))
+        .isInstanceOf(BusinessException.class).isNotInstanceOf(PaidBookingNotConfirmableException.class);
   }
 
   @Test
@@ -110,7 +144,8 @@ class BookingConfirmationServiceImplTest {
     doThrow(new BusinessException("Seats can no longer be confirmed for this booking"))
         .when(this.seatReservationService).confirmBooked(this.userId, this.seats);
 
-    assertThatThrownBy(() -> this.service.confirmPayment(this.bookingId)).isInstanceOf(BusinessException.class);
+    assertThatThrownBy(() -> this.service.confirmPayment(this.bookingId))
+        .isInstanceOf(PaidBookingNotConfirmableException.class);
 
     assertThat(booking.getBookingStatus()).isEqualTo(BookingStatus.PENDING);
     verify(this.ticketService, never()).issueTicketsForBooking(any());

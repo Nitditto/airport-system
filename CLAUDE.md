@@ -421,6 +421,7 @@ Client ─(Authorization: Bearer <jwt>)─► api-gateway
 - **Phân quyền chia hai tầng:**
   - **Role** (ai được gọi route/method nào) → chỉ ở gateway, `RouteConfig`. Thêm route/endpoint public mới = sửa `RouteConfig` (`PUBLIC_READS` là danh sách tường minh — thêm vào là quyết định bảo mật).
   - **Ownership** (owner A không sửa được dữ liệu của owner B) → ở `*ServiceImpl`, đối chiếu `userId` từ header với `ownerId`/`userId` của bản ghi; sai → `BusinessException`/403.
+  - **Ngoại lệ có kiểm soát — admin ĐỌC:** `ROLE_SYSTEM_ADMIN` được bỏ qua kiểm tra sở hữu cho thao tác **đọc** (hỗ trợ/kiểm soát). Service đọc header `X-User-Roles` (gateway ghi đè từ JWT, client không giả được; có test) thay vì tự parse token. Thao tác **ghi/huỷ** vẫn chỉ chủ sở hữu, trừ khi có quyết định riêng. Ví dụ: `BookingReadAccess` (booking-service).
 - Không bao giờ nhận danh tính từ body/query param (`userId` trong request body để quyết định quyền là lỗ hổng).
 - Endpoint nội bộ (chỉ service khác gọi, vd `seat-instances/confirm-booked`, `free`) không được thêm vào nhóm route customer ở gateway.
 - Service chỉ an toàn vì **không lộ port ra ngoài** — không publish port business service trong `docker-compose.yml`.
@@ -643,7 +644,7 @@ Chỉ 1 service dùng → giữ trong service đó.
 | `build` | Root `pom.xml`, `services/pom.xml`, cấu trúc reactor |
 
 - Đụng **một** scope → bắt buộc ghi scope. Đụng **nhiều** → bỏ scope. Không bịa scope ngoài bảng.
-- Subject: **tiếng Anh**, imperative (`add`, `fix`, không `added`), chữ đầu thường, không dấu chấm cuối. **Cả dòng** (gồm `type(scope):`) ≤ 72 ký tự; nên ≤ 60 để đọc gọn trong `git log --oneline`.
+- Subject: **tiếng Anh**, imperative (`add`, `fix`, không `added`), chữ đầu thường, không dấu chấm cuối, ≤ 72 ký tự.
 - Một commit = một thay đổi logic hoàn chỉnh, build được.
 
 ```

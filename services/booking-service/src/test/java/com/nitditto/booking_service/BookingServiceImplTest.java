@@ -24,11 +24,18 @@ import com.nitditto.payload.request.PaymentInitiateRequest;
 import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.FlightResponse;
+import com.nitditto.payload.response.BookingResponse;
 import com.nitditto.payload.response.PaymentInitiateResponse;
+import java.util.Map;
 import com.nitditto.repository.BookingRepository;
+import com.nitditto.enums.BookingStatus;
+import com.nitditto.enums.RefundStatus;
+import com.nitditto.mapper.BookingEnrichmentContext;
+import com.nitditto.service.BookingCancellationService;
 import com.nitditto.service.BookingConfirmationService;
 import com.nitditto.service.BookingCreationService;
 import com.nitditto.service.BookingEnrichmentService;
+import com.nitditto.service.BookingRefundService;
 import com.nitditto.service.PassengerService;
 import com.nitditto.service.SeatReservationService;
 import com.nitditto.service.TicketService;
@@ -74,13 +81,20 @@ class BookingServiceImplTest {
   @Mock
   private BookingConfirmationService bookingConfirmationService;
   @Mock
+  private com.nitditto.service.PaymentSettlementService paymentSettlementService;
+  @Mock
   private BookingCreationService bookingCreationService;
+  @Mock
+  private BookingRefundService bookingRefundService;
+  @Mock
+  private BookingCancellationService bookingCancellationService;
 
   private BookingServiceImpl service;
 
   private final UUID userId = UUID.randomUUID();
   private final UUID airlineId = UUID.randomUUID();
   private final UUID bookingId = UUID.randomUUID();
+  private static final java.time.Instant BOOKING_CREATED_AT = java.time.Instant.parse("2026-11-20T03:00:00Z");
   private final UUID seatA = UUID.randomUUID();
   private final UUID seatB = UUID.randomUUID();
 
@@ -89,7 +103,8 @@ class BookingServiceImplTest {
     this.service = new BookingServiceImpl(this.bookingRepository, this.passengerService, this.ticketService,
         this.flightClient, this.seatClient, this.ancillaryClient, this.paymentClient, this.fareIntegrationService,
         this.airlineClient, this.seatReservationService, this.bookingEnrichmentService,
-        this.bookingConfirmationService, this.bookingCreationService);
+        this.bookingConfirmationService, new com.nitditto.service.PaymentWindow(15), this.paymentSettlementService, this.bookingCreationService, this.bookingRefundService,
+        this.bookingCancellationService);
   }
 
   @Test
@@ -105,6 +120,20 @@ class BookingServiceImplTest {
     // 2 hành khách x 1000 + phụ thu ghế 150 + hành lý/bảo hiểm 80 + suất ăn 20
     assertThat(captor.getValue().getAmount()).isEqualTo(2 * 1000.0 + 150.0 + 80.0 + 20.0);
     assertThat(captor.getValue().getBookingId()).isEqualTo(this.bookingId);
+  }
+
+  @Test
+  void createBooking_makesThePaymentLinkExpireWhenTheBookingDoes_notAnIndependentTimer() {
+    givenFlightAndPrices(1000.0, 150.0);
+    givenBookingIsCreated();
+    givenPaymentIsInitiated();
+
+    this.service.createBooking(request(this.seatA, this.seatB), this.userId);
+
+    final ArgumentCaptor<PaymentInitiateRequest> captor = ArgumentCaptor.forClass(PaymentInitiateRequest.class);
+    verify(this.paymentClient).initiatePayment(captor.capture());
+    // booking.payment-window-minutes = 15 (cùng một PaymentWindow quyết định cả hạn booking lẫn hạn link)
+    assertThat(captor.getValue().getExpiresAt()).isEqualTo(BOOKING_CREATED_AT.plusSeconds(15 * 60));
   }
 
   @Test
@@ -214,12 +243,117 @@ class BookingServiceImplTest {
     verify(this.ancillaryClient).calculateMealPrice(List.of());
   }
 
+  // ---- cancelBooking ----
+
+  @Test
+  void cancel_confirmedBooking_requestsTheRefundBeforeCancelling_andReportsIt() {
+    final Booking booking = this.bookingIn(BookingStatus.CONFIRMED);
+    this.givenBookingExists(booking);
+    when(this.bookingRefundService.refundForCancellation(booking, this.userId)).thenReturn(
+        new BookingRefundService.Outcome(1_050_000.0, RefundStatus.SUCCESS, "Refunded after a cancellation fee of 100000"));
+    this.givenCancelledResponseCanBeBuilt(booking);
+
+    final BookingResponse response = this.service.cancelBooking(booking.getId(), this.userId);
+
+    final InOrder order = inOrder(this.bookingRefundService, this.bookingCancellationService,
+        this.seatReservationService);
+    order.verify(this.bookingRefundService).refundForCancellation(booking, this.userId);
+    order.verify(this.bookingCancellationService).markCancelled(booking.getId());
+    order.verify(this.seatReservationService).freeQuietly(booking.getSeatInstanceIds());
+    assertThat(response.getStatus()).isEqualTo(BookingStatus.CANCELLED);
+    assertThat(response.getRefundAmount()).isEqualTo(1_050_000.0);
+    assertThat(response.getRefundStatus()).isEqualTo(RefundStatus.SUCCESS);
+    assertThat(response.getRefundNote()).contains("cancellation fee");
+  }
+
+  @Test
+  void cancel_whenTheRefundCannotBeRecorded_leavesTheBookingUntouched_soTheUserCanRetry() {
+    final Booking booking = this.bookingIn(BookingStatus.CONFIRMED);
+    this.givenBookingExists(booking);
+    when(this.bookingRefundService.refundForCancellation(booking, this.userId))
+        .thenThrow(new IllegalStateException("payment-service unavailable"));
+
+    assertThatThrownBy(() -> this.service.cancelBooking(booking.getId(), this.userId))
+        .isInstanceOf(IllegalStateException.class);
+
+    verify(this.bookingCancellationService, never()).markCancelled(any());
+    verify(this.seatReservationService, never()).freeQuietly(any());
+  }
+
+  @Test
+  void cancel_pendingBooking_neverTouchesRefunds_andOnlyReleasesTheHold() {
+    final Booking booking = this.bookingIn(BookingStatus.PENDING);
+    this.givenBookingExists(booking);
+    this.givenCancelledResponseCanBeBuilt(booking);
+
+    final BookingResponse response = this.service.cancelBooking(booking.getId(), this.userId);
+
+    verify(this.bookingRefundService, never()).refundForCancellation(any(), any());
+    verify(this.bookingCancellationService).markCancelled(booking.getId());
+    verify(this.seatReservationService).releaseQuietly(this.userId, booking.getSeatInstanceIds());
+    assertThat(response.getRefundAmount()).isNull();
+    assertThat(response.getRefundStatus()).isNull();
+  }
+
+  @Test
+  void cancel_byAnotherUser_isRejected_withoutAnySideEffect() {
+    final Booking booking = this.bookingIn(BookingStatus.CONFIRMED);
+    this.givenBookingExists(booking);
+
+    assertThatThrownBy(() -> this.service.cancelBooking(booking.getId(), UUID.randomUUID()))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("not allowed");
+
+    verify(this.bookingRefundService, never()).refundForCancellation(any(), any());
+    verify(this.bookingCancellationService, never()).markCancelled(any());
+  }
+
+  @Test
+  void cancel_alreadyCancelledBooking_doesNotRefundOrCancelAgain() {
+    final Booking booking = this.bookingIn(BookingStatus.CANCELLED);
+    this.givenBookingExists(booking);
+    this.givenResponseCanBeBuilt(booking);
+
+    this.service.cancelBooking(booking.getId(), this.userId);
+
+    verify(this.bookingRefundService, never()).refundForCancellation(any(), any());
+    verify(this.bookingCancellationService, never()).markCancelled(any());
+    verify(this.seatReservationService, never()).freeQuietly(any());
+  }
+
   @Test
   void createBooking_rejectsTwoPassengersOnTheSameSeat() {
     assertThatThrownBy(() -> this.service.createBooking(request(this.seatA, this.seatA), this.userId))
         .isInstanceOf(BusinessException.class).hasMessageContaining("different seat");
 
     verify(this.seatReservationService, never()).hold(any(), any());
+  }
+
+  private Booking bookingIn(final BookingStatus status) {
+    final Booking booking = new Booking();
+    booking.setId(UUID.randomUUID());
+    booking.setBookingReference("BKCANCEL01");
+    booking.setUserId(this.userId);
+    booking.setBookingStatus(status);
+    booking.setSeatInstanceIds(List.of(this.seatA));
+    return booking;
+  }
+
+  private void givenBookingExists(final Booking booking) {
+    when(this.bookingRepository.findById(booking.getId())).thenReturn(java.util.Optional.of(booking));
+  }
+
+  private void givenCancelledResponseCanBeBuilt(final Booking booking) {
+    final Booking cancelled = this.bookingIn(BookingStatus.CANCELLED);
+    cancelled.setId(booking.getId());
+    when(this.bookingCancellationService.markCancelled(booking.getId())).thenReturn(cancelled);
+    this.givenResponseCanBeBuilt(cancelled);
+  }
+
+  private void givenResponseCanBeBuilt(final Booking booking) {
+    when(this.passengerService.findByBookingIds(any())).thenReturn(Map.of());
+    when(this.ticketService.findByBookingIds(any())).thenReturn(Map.of());
+    when(this.bookingEnrichmentService.load(any(), any(), any())).thenReturn(Map.of(booking.getId(),
+        new BookingEnrichmentContext(null, null, null, List.of(), List.of(), List.of(), List.of(), List.of())));
   }
 
   private void givenFlightAndPrices(final double fare, final double seatPrice) {
@@ -239,6 +373,7 @@ class BookingServiceImplTest {
       final Booking booking = new Booking();
       booking.setId(this.bookingId);
       booking.setBookingReference("BKTEST001");
+      booking.setCreatedAt(BOOKING_CREATED_AT);
       return booking;
     });
   }

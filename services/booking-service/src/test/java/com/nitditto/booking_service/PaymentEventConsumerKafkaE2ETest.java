@@ -11,7 +11,7 @@ import com.nitditto.payload.event.EventIds;
 import com.nitditto.payload.event.PaymentTransactionFailedEvent;
 import com.nitditto.payload.event.PaymentTransactionSucceededEvent;
 import com.nitditto.exception.BusinessException;
-import com.nitditto.service.BookingConfirmationService;
+import com.nitditto.service.PaymentSettlementService;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -32,7 +32,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * Tích hợp thật phía consumer: broker Kafka nhúng → ErrorHandlingDeserializer/JsonDeserializer (cấu hình yaml) →
- * PaymentEventConsumer → DefaultErrorHandler (KafkaConsumerConfig). BookingConfirmationService được mock để quan sát
+ * PaymentEventConsumer → DefaultErrorHandler (KafkaConsumerConfig). PaymentSettlementService được mock để quan sát
  * số lần gọi (retry / không retry).
  */
 @SpringBootTest(properties = {
@@ -50,7 +50,7 @@ class PaymentEventConsumerKafkaE2ETest {
   @Autowired
   private EmbeddedKafkaBroker broker;
   @MockitoBean
-  private BookingConfirmationService bookingConfirmationService;
+  private PaymentSettlementService paymentSettlementService;
 
   private KafkaTemplate<String, Object> producer;
 
@@ -66,23 +66,23 @@ class PaymentEventConsumerKafkaE2ETest {
 
   @AfterEach
   void tearDown() {
-    reset(this.bookingConfirmationService);
+    reset(this.paymentSettlementService);
   }
 
   @Test
   void paymentCompleted_confirmsTheBooking() throws Exception {
     final UUID bookingId = UUID.randomUUID();
-    when(this.bookingConfirmationService.confirmPayment(bookingId)).thenReturn(BookingStatus.CONFIRMED);
+    when(this.paymentSettlementService.settle(bookingId)).thenReturn(BookingStatus.CONFIRMED);
 
     this.send(SUCCEEDED, completed(bookingId));
 
-    verify(this.bookingConfirmationService, timeout(15_000)).confirmPayment(bookingId);
+    verify(this.paymentSettlementService, timeout(15_000)).settle(bookingId);
   }
 
   @Test
   void transientFailure_isRetried_untilItSucceeds() throws Exception {
     final UUID bookingId = UUID.randomUUID();
-    when(this.bookingConfirmationService.confirmPayment(bookingId))
+    when(this.paymentSettlementService.settle(bookingId))
         .thenThrow(new RuntimeException("seat-service unavailable"))
         .thenThrow(new RuntimeException("seat-service unavailable"))
         .thenReturn(BookingStatus.CONFIRMED);
@@ -90,34 +90,34 @@ class PaymentEventConsumerKafkaE2ETest {
     this.send(SUCCEEDED, completed(bookingId));
 
     // FixedBackOff(2s, 3 lần): lần 1 lỗi, lần 2 lỗi, lần 3 thành công
-    verify(this.bookingConfirmationService, timeout(20_000).times(3)).confirmPayment(bookingId);
+    verify(this.paymentSettlementService, timeout(20_000).times(3)).settle(bookingId);
   }
 
   @Test
   void businessError_isNotRetried() throws Exception {
     final UUID bookingId = UUID.randomUUID();
-    when(this.bookingConfirmationService.confirmPayment(bookingId))
+    when(this.paymentSettlementService.settle(bookingId))
         .thenThrow(new BusinessException("Booking is EXPIRED and cannot be confirmed"));
 
     this.send(SUCCEEDED, completed(bookingId));
 
-    verify(this.bookingConfirmationService, timeout(15_000)).confirmPayment(bookingId);
+    verify(this.paymentSettlementService, timeout(15_000)).settle(bookingId);
     // chờ lâu hơn một chu kỳ backoff (2s) để chắc chắn không có lần gọi thứ hai
-    verify(this.bookingConfirmationService, after(5_000).times(1)).confirmPayment(bookingId);
+    verify(this.paymentSettlementService, after(5_000).times(1)).settle(bookingId);
   }
 
   @Test
   void paymentFailed_doesNotTouchTheBooking() throws Exception {
     final UUID bookingId = UUID.randomUUID();
     final UUID marker = UUID.randomUUID();
-    when(this.bookingConfirmationService.confirmPayment(marker)).thenReturn(BookingStatus.CONFIRMED);
+    when(this.paymentSettlementService.settle(marker)).thenReturn(BookingStatus.CONFIRMED);
 
     this.send(FAILED, new PaymentTransactionFailedEvent(EventIds.newEventId(), java.time.Instant.now(),
         UUID.randomUUID(), bookingId, UUID.randomUUID(), 250.0, null, "cancelled"));
     this.send(SUCCEEDED, completed(marker));
 
-    verify(this.bookingConfirmationService, timeout(15_000)).confirmPayment(marker);
-    verify(this.bookingConfirmationService, after(2_000).never()).confirmPayment(bookingId);
+    verify(this.paymentSettlementService, timeout(15_000)).settle(marker);
+    verify(this.paymentSettlementService, after(2_000).never()).settle(bookingId);
   }
 
   private void send(final String topic, final Object event) throws Exception {

@@ -14,7 +14,15 @@ import java.util.UUID;
 
 public interface PaymentService {
 
-    PaymentInitiateResponse initiatePayment(PaymentInitiateRequest request);
+    /**
+     * @param clientIp giá trị header X-Forwarded-For do gateway ghi (IP thật của khách); null/không hợp lệ thì dùng
+     *                 {@code ClientIp.FALLBACK}
+     */
+    PaymentInitiateResponse initiatePayment(PaymentInitiateRequest request, String clientIp);
+
+    default PaymentInitiateResponse initiatePayment(final PaymentInitiateRequest request) {
+        return this.initiatePayment(request, null);
+    }
 
     PaymentDTO verifyPayment(PaymentVerifyRequest request, UUID callerUserId);
 
@@ -25,4 +33,16 @@ public interface PaymentService {
     PaymentDTO checkPaymentVNPay(Map<String, String> allParams);
 
     List<PaymentGatewayResponse> getAvailableGateways();
+
+    /**
+     * IPN (server-to-server) của VNPay: cập nhật payment theo kết quả có chữ ký dù khách có quay lại trang kết quả hay không.
+     * Không ném lỗi nghiệp vụ: mọi trường hợp trả về mã RspCode để VNPay quyết định có gọi lại không.
+     */
+    com.nitditto.service.gateway.VnpayIpnResponse handleVnpayIpn(java.util.Map<String, String> params);
+
+    /**
+     * Áp kết quả tra cứu VNPay (job đối soát) vào một payment còn {@code PENDING}. Chạy trong transaction riêng cho từng
+     * payment; payment đã chốt thì bỏ qua.
+     */
+    void applyVnpayQuery(java.util.UUID paymentId, com.nitditto.service.gateway.VNPayQueryService.Result result);
 }

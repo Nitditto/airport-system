@@ -2,7 +2,8 @@ package com.nitditto.event;
 
 import com.nitditto.payload.event.PaymentTransactionFailedEvent;
 import com.nitditto.payload.event.PaymentTransactionSucceededEvent;
-import com.nitditto.service.BookingConfirmationService;
+import com.nitditto.enums.BookingStatus;
+import com.nitditto.service.PaymentSettlementService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -22,14 +23,14 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class PaymentEventConsumer {
 
-  private final BookingConfirmationService bookingConfirmationService;
+  private final PaymentSettlementService paymentSettlementService;
 
   @KafkaListener(topics = "${kafka.topics.payment-transaction-succeeded}", groupId = "${spring.application.name}")
   public void handlePaymentSucceeded(final PaymentTransactionSucceededEvent event) {
     log.info("Received PaymentTransactionSucceededEvent eventId={} bookingId={} paymentId={}", event.eventId(),
         event.bookingId(), event.paymentId());
-    this.bookingConfirmationService.confirmPayment(event.bookingId());
-    log.info("Booking {} confirmed via Kafka event {}", event.bookingId(), event.eventId());
+    final BookingStatus status = this.paymentSettlementService.settle(event.bookingId());
+    log.info("Booking {} is {} after Kafka event {}", event.bookingId(), status, event.eventId());
   }
 
   @KafkaListener(topics = "${kafka.topics.payment-transaction-failed}", groupId = "${spring.application.name}")

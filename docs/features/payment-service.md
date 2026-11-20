@@ -262,6 +262,89 @@ chưa có luồng refund (xem §10) — giữ nguyên trong enum cho tương lai
   Đây là công việc riêng, không nằm trong scope "initiate + verify + publish" ban đầu — liệt kê
   ở §11 như việc kế tiếp, khớp `ROADMAP.md` §12.7 ("Testing Payment flows... refund").
 
+## Một payment thành công cho mỗi booking, và `initiate` idempotent
+
+- **`initiate` gọi lặp** (bấm đúp, retry, nhiều tab) cho cùng booking, cùng người, cùng cổng, cùng số tiền: trả lại link của payment `PENDING` cũ nếu tạo chưa quá 10 phút (link VNPay sống 15 phút), không tạo payment mới. Quá 10 phút thì tạo payment và link mới. Link lưu ở `payments.checkout_url`.
+- **Chặn thu hai lần:** `payments.paid_booking_id` (unique, chỉ gán khi `SUCCESS`, `NULL` ở các dòng còn lại) để MySQL bảo đảm một booking chỉ có một payment thành công kể cả khi hai kết quả về song song. Nếu code thấy booking đã có payment `SUCCESS`/`REFUNDED` khác thì payment mới về được ghi là `DUPLICATE` (khách đã bị trừ tiền, không phát event, không đụng booking) và có log `ERROR`; **admin hoàn tay** vì module refund chỉ hoàn payment trả tiền chính của booking.
+- Còn thiếu: hai `initiate` song song hoàn toàn đồng thời vẫn có thể tạo hai payment `PENDING` (lớp ngoài là `Idempotency-Key` của booking); chưa có endpoint liệt kê/hoàn `DUPLICATE`; chưa có IPN nên khách trả mà đóng tab vẫn phụ thuộc việc quay lại trang kết quả.
+
+## IPN của VNPay
+
+`GET /api/payments/vnpay-ipn` (công khai ở gateway, không JWT): VNPay gọi server-to-server sau khi khách trả tiền, nên payment được cập nhật dù khách đóng tab và không quay lại trang kết quả. Dùng chung logic ghi kết quả với `check-payment-vnpay`, nên một kết quả không bị xử lý hai lần (gồm cả khi trình duyệt và IPN cùng về).
+
+| RspCode | Khi nào | VNPay làm gì |
+|---|---|---|
+| `00` | Đã ghi nhận (kể cả khi payment bị ghi `DUPLICATE`) | dừng |
+| `01` | `vnp_TxnRef` không có payment | gọi lại |
+| `02` | Đã chốt trước đó: `SUCCESS`/`REFUNDED`/`DUPLICATE`, hoặc `FAILED` mà IPN vẫn báo thất bại | dừng |
+| `04` | Số tiền ký không khớp payment (không ghi nhận) | gọi lại |
+| `97` | Sai/thiếu chữ ký (kiểm trước khi chạm DB) | gọi lại |
+| `99` | Lỗi không lường trước | gọi lại |
+
+- Response là JSON thô `{"RspCode","Message"}` do VNPay quy định, **không** bọc `ApiResponse` (ngoại lệ có chủ ý của quy ước §15).
+- Payment `FAILED` vẫn được đổi thành `SUCCESS` nếu IPN báo thành công muộn; payment đã `SUCCESS`/`REFUNDED`/`DUPLICATE` không bao giờ bị đổi.
+- **Cấu hình ở cổng merchant của VNPay:** điền URL IPN công khai trỏ tới gateway, dạng `https://<domain>/api/payments/vnpay-ipn`. Không có URL công khai thì VNPay không gọi được (localhost không dùng được; khi thử cần tunnel như ngrok). Chưa kiểm chứng với VNPay thật.
+- Chưa có: job tra cứu giao dịch chủ động (querydr) cho payment `PENDING` mà IPN cũng không tới.
+
+## Job đối soát payment VNPay (`PendingPaymentReconciler`)
+
+Bù cho trường hợp cả trình duyệt lẫn IPN đều không báo kết quả: cứ 2 phút (cấu hình được) job hỏi VNPay (API `querydr`) về các payment VNPay còn `PENDING`, tạo từ 2 phút đến 48 giờ trước, và chưa được hỏi trong 5 phút gần nhất (hỏi lâu chưa hỏi trước, tối đa 50 payment/lượt). Job **chỉ hỏi cổng, không đoán kết quả**; gọi cổng nằm ngoài transaction DB, mỗi payment áp kết quả trong transaction riêng nên một payment lỗi không chặn các payment khác.
+
+| Kết quả VNPay | Hành động |
+|---|---|
+| Thành công (`vnp_TransactionStatus=00`) và `vnp_Amount` khớp | `SUCCESS` như IPN (phát event, booking được xác nhận) |
+| Thành công nhưng số tiền không khớp | **Không xác nhận**, log `ERROR`, xem tay |
+| Thất bại (`02`) | `FAILED` |
+| Chưa hoàn tất (`01`) hoặc không có giao dịch (mã `91`) | Giữ `PENDING`; sau 30 phút kể từ lúc tạo (link đã hết hạn) thì `FAILED` |
+| Mọi thứ khác (lỗi mạng, sai chữ ký phản hồi, mã lạ, trạng thái `04/05/06/07/09`) | Không đổi gì, log `WARN`, xem ở cổng merchant |
+
+- Cấu hình: `payment.reconcile.enabled` (`PAYMENT_RECONCILE_ENABLED`), `interval-ms`, `min-age-minutes`, `requery-interval-minutes`, `max-age-hours`, `batch-size`; `vnpay.query-url`, `vnpay.query-verify-response` (tắt kiểm chữ ký phản hồi nếu định dạng thực tế khác).
+- Payment `FAILED` do job vẫn được đổi thành `SUCCESS` nếu IPN/trình duyệt báo thành công muộn.
+- **Chưa kiểm chứng với VNPay thật.** Thứ tự trường ký lấy từ tài liệu công khai (trang đó ghi công thức chữ ký phản hồi thiếu một toán tử, cần đối chiếu với sandbox).
+- Một instance payment-service thì an toàn; nhiều instance cùng chạy có thể cùng hỏi một payment, ràng buộc `paid_booking_id` chặn ghi thành công hai lần.
+- Không áp dụng cho Razorpay.
+
+## Transaction của `initiatePayment`
+
+`initiatePayment` **không chạy trong transaction DB** (`Propagation.NOT_SUPPORTED`, CLAUDE.md §8.5/§8.6). Luồng: (1) Razorpay: lấy người dùng từ user-service (Feign, ngoài transaction, thiếu dữ liệu thì từ chối trước khi ghi gì); (2) `PaymentRecordService.createPending` ghi payment `PENDING` và commit; (3) tạo link ở cổng (VNPay ký tại chỗ, Razorpay gọi HTTP) ngoài transaction; (4) `attachLink` ghi link và ngày tạo giao dịch VNPay (transaction ngắn thứ hai). Nhờ vậy không giữ kết nối DB trong lúc chờ mạng.
+
+- Không tạo được link (Razorpay lỗi, VNPay chưa cấu hình...): `markLinkCreationFailed` đặt payment `FAILED` (không để `PENDING` mồ côi) rồi ném lỗi như trước. Không phát event thất bại: booking-service tự bù trừ khi `initiate` ném lỗi.
+- Giữa bước 2 và 4 payment tồn tại không có link (`checkout_url` rỗng): `initiate` gọi lặp không tái dùng payment đó. Nếu tiến trình chết đúng lúc này payment `PENDING` không link sẽ được job đối soát chuyển `FAILED` khi quá hạn.
+
+## Razorpay: quy đổi VND sang INR theo tỷ giá thị trường Việt Nam
+
+Giá vé và `payments.amount` luôn là **VND**, nhưng Razorpay thu **INR**. Trước đây số VND bị gửi đi như thể là INR (1.150.000 VND thành 1.150.000 INR), nên vượt hạn mức ("amount exceeds maximum amount allowed") hoặc sai số tiền. Nay `initiate` quy đổi trước khi tạo link:
+
+- **Nguồn tỷ giá:** bảng tỷ giá công khai của Vietcombank (XML, `fx.vietcombank-url`). Mặc định dùng cột **Transfer** (ngân hàng *mua* INR chuyển khoản: đúng chiều bên bán nhận INR rồi đổi về VND); `FX_RATE_TYPE=sell` dùng giá bán ra.
+- **Công thức:** `INR(paise) = ceil(VND × 100 × (1 + biên%) / tỷ giá)`, làm tròn **lên** để bên bán không bị thiệt vì làm tròn. Tối thiểu 1 INR.
+- **Biên an toàn** `fx.margin-percent` (`FX_MARGIN_PERCENT`, mặc định **1,0%**, cho phép 0-50): bù trượt giá giữa lúc báo giá và lúc Razorpay quyết toán (rủi ro này do bên bán chịu). Đặt `0` để thu đúng tỷ giá thị trường. Số tiền khách thấy (`chargeAmount`) đã gồm biên; `exchangeRate` là tỷ giá thị trường và `exchangeRateMarginPercent` là biên. Biên được lưu cùng payment (`fx_margin_percent`).
+- **Chặn dữ liệu lỗi:** tỷ giá mới lệch quá `fx.max-change-percent` (20%) so với tỷ giá đang dùng bị bỏ qua (log `ERROR`) và dùng tiếp tỷ giá cũ; sau một lần lấy bảng lỗi sẽ chờ 1 phút mới thử lại (không gọi Vietcombank cho từng thanh toán).
+- **Lưu cùng payment:** `charge_currency`, `charge_amount_minor` (paise), `fx_rate` (VND cho 1 INR), `fx_source`. `PaymentInitiateResponse` trả thêm `chargeCurrency`, `chargeAmount`, `exchangeRate`, `exchangeRateSource` để giao diện hiển thị "khách trả bao nhiêu INR, theo tỷ giá nào". VNPay không đổi (các trường này null).
+- **Đối chiếu lúc xác nhận:** `verify` Razorpay chỉ chấp nhận khi số tiền và loại tiền Razorpay đã thu **khớp** số đã quy đổi (payment cũ chưa có số quy đổi thì bỏ qua kiểm tra).
+- **Không đoán tỷ giá:** bảng được cache `fx.cache-minutes` (60). Lấy bảng mới lỗi thì dùng tỷ giá đã có tối đa `fx.max-stale-hours` (24) giờ; quá hạn thì dùng `FX_FALLBACK_VND_PER_INR` nếu cấu hình tay (mặc định **không có**); không còn gì đáng tin thì **từ chối** tạo thanh toán Razorpay (400). Nhánh VNPay không bị ảnh hưởng.
+- **An toàn:** đọc XML cấm DOCTYPE/thực thể ngoài; timeout ngắn (3s/5s) cho lời gọi lấy bảng.
+- `RazorpayService.createPaymentLink` từ chối payment không có số quy đổi, không bao giờ gửi VND như INR.
+- **Hoàn tiền Razorpay:** `RazorpayRefundService` gọi API refund của Razorpay, dùng chung khung hoàn tiền (bảng `refunds`, một refund/payment, SUCCESS/REJECTED/UNKNOWN, API admin retry). Số hoàn tính **theo tỷ lệ trên số INR đã thu**, không quy đổi lại theo tỷ giá hôm nay: hoàn toàn bộ trả đúng số INR đã thu; hoàn một phần trả `đã thu × (VND hoàn / VND đã trả)`. Lỗi HTTP 4xx (kể cả `BAD_REQUEST_ERROR` và 404 khi không tìm thấy payment) là `REJECTED` (chưa hoàn, retry tự do); 5xx/timeout/lỗi mạng/không đọc được là `UNKNOWN` (tiền có thể đã hoàn: admin xác nhận ở cổng rồi retry với `confirmNotRefunded=true`). Payment Razorpay tạo trước khi có số quy đổi thì ghi `FAILED` kèm lý do để hoàn tay.
+- **Đã kiểm chứng với dịch vụ thật (Razorpay test mode + bảng tỷ giá Vietcombank, 2026-11-20):** lấy được tỷ giá 274,43; link Razorpay tạo thành công và Razorpay lưu đúng số INR đã quy đổi (trước đây lỗi vượt hạn mức); hoàn tiền payment không tồn tại trả "Status Code: 404" và được phân loại `REJECTED`.
+- **Giới hạn còn lại:** chưa kiểm chứng hoàn tiền Razorpay trên một payment đã capture thật (cần khách hoàn tất thanh toán trên trang Razorpay, không tự động hoá được); phụ thuộc định dạng bảng tỷ giá của Vietcombank (đổi định dạng thì lấy tỷ giá lỗi và hệ thống dùng tỷ giá cũ tối đa 24 giờ rồi từ chối Razorpay); trượt giá vượt biên vẫn do bên bán chịu; Razorpay vẫn trừ phí giao dịch của họ khi hoàn (không do hệ thống kiểm soát). Cột mới chỉ là thêm cột nên `ddl-auto: update` tự xử lý, không cần migration.
+
+## Hạn link VNPay theo booking và IP thật của khách
+
+**Hạn link = hạn booking.** `booking.payment-window-minutes` (mặc định 15) được định nghĩa ở MỘT nơi (`PaymentWindow` trong booking-service) và dùng cho cả hạn booking lẫn hạn link, nên hai thứ không lệch nhau. booking-service gửi `PaymentInitiateRequest.expiresAt = booking.createdAt + window`; `VNPayService` đặt `vnp_ExpireDate` đúng thời điểm đó (giây). Khách không trả được sau khi booking đã hết hạn.
+
+- Booking sắp hết hạn (< 1 phút) hoặc đã hết hạn: **không tạo link chết**, `initiate` trả 400 ("payment window ... closed"). Hạn quá xa bị chặn ở 24 giờ. Không gửi `expiresAt` thì dùng 15 phút.
+- `PaymentInitiateResponse.expiresAt` trả hạn của link để frontend đếm ngược (kèm trong response tạo booking). Payment lưu `link_expires_at`.
+- **Tái dùng link** (`initiate` gọi lặp) theo hạn thật của link: còn dùng được nếu còn ≥ 1 phút trước hạn (payment cũ chưa lưu hạn: 10 phút từ lúc tạo như trước).
+- **Job đối soát** chuyển payment `PENDING` quá hạn sang `FAILED` sau *hạn link + 15 phút chờ kết quả muộn* (payment cũ: 30 phút từ lúc tạo).
+- **Razorpay** cũng đặt `expire_by` (đã thử với Razorpay test mode). Razorpay đòi hạn link cách lúc tạo ít nhất 15 phút, nên link sống `max(hạn booking, lúc tạo + 16 phút)`: với cửa sổ 15 phút link dài hơn booking tối đa ~1 phút. Thanh toán rơi vào khoảng lệch đó được booking-service tự hoàn tiền toàn bộ (xem `refund.md`, thanh toán đến muộn).
+
+**IP thật của khách (`vnp_IpAddr`).** api-gateway ghi đè `X-Forwarded-For` bằng IP khách (địa chỉ kết nối TCP) trên MỌI route, bỏ giá trị client tự gửi (chống giả IP); `gateway.client-ip.trust-forwarded-for=true` chỉ bật khi gateway đứng sau reverse proxy tin cậy (nginx...) đã tự ghi header, khi đó lấy địa chỉ hợp lệ đầu tiên. booking-service chuyển tiếp đúng header này sang payment-service (`FeignAuthForwardingConfig`, chỉ header này, không copy mọi header). payment-service chỉ nhận địa chỉ IP hợp lệ (`ClientIp`, `ClientIpPolicy`), nên dữ liệu lạ không vào được tham số được ký. Theo tài liệu VNPay `vnp_IpAddr` là Alphanumeric[7,45] và ví dụ chỉ có IPv4 (không nói rõ có nhận IPv6): địa chỉ IPv4-mapped (`::ffff:a.b.c.d`) được đổi về IPv4; **IPv6 thật mặc định KHÔNG được gửi** mà dùng `127.0.0.1` (gửi IPv6 mà VNPay từ chối thì khách không trả được tiền, nặng hơn việc mất tín hiệu chống gian lận), bật bằng `VNPAY_ALLOW_IPV6_CLIENT_IP=true` sau khi đã xác nhận với VNPay; địa chỉ ngắn hơn 7 ký tự (như `::1`) bị loại; thiếu hoặc không hợp lệ thì `127.0.0.1`.
+
+- Khi chạy qua Docker Desktop, kết nối từ máy chủ vào gateway đến từ địa chỉ cầu nối của Docker (đã thấy `172.22.0.1`), không phải IP LAN của máy: đây là hành vi của Docker chứ không phải lỗi. Môi trường thật: đặt `trust-forwarded-for` theo cấu hình reverse proxy.
+- `vnp_IpAddr` của lời gọi hoàn tiền và tra cứu là IP máy chủ gọi API (`vnpay.refund-ip-addr`), không liên quan tới IP khách.
+- Đã kiểm chứng E2E full stack (docker-compose, 2026-11-20): `vnp_ExpireDate` khớp hạn booking tới giây, `expiresAt` trong response khớp, và `X-Forwarded-For` giả (`6.6.6.6`) bị thay bằng IP kết nối thật; chữ ký link vẫn đúng.
+- Tài liệu VNPay không nêu hạn tối thiểu/tối đa cho `vnp_ExpireDate` (ví dụ của họ dùng 15 phút) và `vnp_TxnRef` chỉ cần duy nhất trong ngày (payment id là UUID nên đủ). Chưa kiểm chứng với VNPay thật việc VNPay xử lý `vnp_ExpireDate` sát ranh giới. Payment tạo trước thay đổi này chưa có `link_expires_at` (cột mới, `ddl-auto: update` tự thêm).
+
 ## 11. Việc cần làm (bám ROADMAP Section 12)
 
 **Ở `payment-service` (module mới):**

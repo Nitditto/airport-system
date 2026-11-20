@@ -117,3 +117,4 @@ Tài liệu theo từng mảng kiến trúc/tính năng — mỗi file có phầ
 | [observability.md](features/observability.md) | ⬜ Chưa làm | Correlation ID/Tracing (Zipkin), structured logging, metrics (Prometheus/Grafana) |
 | [booking-service.md](features/booking-service.md) | ⬜ Thiết kế | Domain Booking — service điều phối trung tâm |
 | [payment-service.md](features/payment-service.md) | 🟢 Đã có | Domain Payment — tích hợp Razorpay |
+| [refund.md](features/refund.md) | 🟡 Có code, chưa kiểm chứng với VNPay thật | Hoàn tiền khi huỷ booking: chính sách theo FareRules, thiết kế an toàn cho tiền, vận hành refund thất bại |

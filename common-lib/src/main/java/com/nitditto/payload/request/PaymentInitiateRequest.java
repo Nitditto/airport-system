@@ -30,4 +30,10 @@ public class PaymentInitiateRequest {
     private Double amount;
 
     private String description;
+
+    /**
+     * Thời điểm booking hết hạn thanh toán (booking-service tính từ {@code booking.payment-window-minutes}). Link thanh toán
+     * của cổng hết hạn đúng lúc này để khách không trả được sau khi booking đã hết hạn. Null = dùng thời hạn mặc định của cổng.
+     */
+    private java.time.Instant expiresAt;
 }

@@ -46,6 +46,9 @@ public class RouteConfig {
     // booking-service gọi qua Feign nội bộ, không qua gateway; qua gateway chỉ ADMIN. So khớp theo chuỗi con (không
     // phân biệt hoa thường) để đường dẫn biến thể như /api/payments/./initiate hay /initiate;x cũng không lọt.
     private static final List<String> INTERNAL_PAYMENT_SEGMENTS = List.of("initiate", "batch-by-ids");
+    // booking-service /{id}/confirm-payment: payment-service gọi qua Eureka (không qua gateway). Response là TOÀN BỘ chi
+    // tiết booking nên cho user thường gọi qua gateway là lộ dữ liệu booking của người khác; qua gateway chỉ ADMIN.
+    private static final List<String> INTERNAL_BOOKING_SEGMENTS = List.of("confirm-payment");
     private static final Pattern AIRLINE_LISTING_PATH = Pattern.compile("^/api/airlines/?$");
 
     /**
@@ -58,7 +61,9 @@ public class RouteConfig {
             new PublicRead(HttpMethod.GET, Pattern.compile("^/api/flight-instances/search/?$")),
             new PublicRead(HttpMethod.GET, Pattern.compile("^/api/cabin-classes/aircraft/[^/]+/?$")),
             new PublicRead(HttpMethod.POST, Pattern.compile("^/api/fares/search/?$")),
-            new PublicRead(HttpMethod.GET, Pattern.compile("^/api/payments/check-payment-vnpay/?$")));
+            new PublicRead(HttpMethod.GET, Pattern.compile("^/api/payments/check-payment-vnpay/?$")),
+            // IPN của VNPay (server gọi server, không có JWT): payment-service kiểm chữ ký trước khi làm gì.
+            new PublicRead(HttpMethod.GET, Pattern.compile("^/api/payments/vnpay-ipn/?$")));
 
     private record PublicRead(HttpMethod method, Pattern path) {
     }
@@ -69,15 +74,24 @@ public class RouteConfig {
 
     private final JwtUtil jwtUtil;
 
-    public RouteConfig(final JwtUtil jwtUtil) {
+    private static final String FORWARDED_FOR = "X-Forwarded-For";
+
+    // false (mặc định): gateway là điểm vào của Internet nên IP khách = địa chỉ của kết nối TCP, bỏ qua mọi X-Forwarded-For
+    // client tự gửi (chống giả IP). true: gateway đứng sau reverse proxy tin cậy (nginx...) đã ghi X-Forwarded-For; lấy địa chỉ đầu.
+    private final boolean trustForwardedFor;
+
+    public RouteConfig(final JwtUtil jwtUtil,
+            @org.springframework.beans.factory.annotation.Value("${gateway.client-ip.trust-forwarded-for:false}")
+            final boolean trustForwardedFor) {
         this.jwtUtil = jwtUtil;
+        this.trustForwardedFor = trustForwardedFor;
     }
 
     @Bean
     public RouterFunction<ServerResponse> authRoutes() {
         return GatewayRouterFunctions.route("auth-routes")
                 .route(RequestPredicates.path("/auth/**"), HandlerFunctions.http())
-                .before(this::stripIdentityHeaders)
+                .before(request -> this.withClientIp(this.stripIdentityHeaders(request)))
                 .filter(LoadBalancerFilterFunctions.lb("user-service"))
                 .build();
     }
@@ -128,7 +142,7 @@ public class RouteConfig {
 
     @Bean
     public RouterFunction<ServerResponse> bookingServiceRoutes() {
-        return this.route("booking-service-routes", "booking-service", this.authenticated(ANY_AUTHENTICATED),
+        return this.route("booking-service-routes", "booking-service", this::bookingAccess,
                 "/api/bookings/**");
     }
 
@@ -144,9 +158,9 @@ public class RouteConfig {
         for (final String path : paths) {
             builder.route(RequestPredicates.path(path), HandlerFunctions.http());
         }
-        return builder.before(request -> this.isPublicRead(request)
+        return builder.before(request -> this.withClientIp(this.isPublicRead(request)
                         ? this.stripIdentityHeaders(request)
-                        : access.apply(request))
+                        : access.apply(request)))
                 .filter(LoadBalancerFilterFunctions.lb(serviceId))
                 .build();
     }
@@ -166,12 +180,29 @@ public class RouteConfig {
         return request -> this.secured(request, writeRoles);
     }
 
-    /** Thanh toán: đăng nhập là đủ, trừ các lệnh nội bộ (khởi tạo thanh toán, tra theo danh sách booking) chỉ dành cho ADMIN. */
+    // Hoàn tiền (yêu cầu, retry, danh sách): booking-service gọi qua Feign nội bộ; qua gateway chỉ ADMIN, MỌI method (kể
+    // cả GET danh sách, vì lộ thông tin hoàn tiền của người khác). Khớp theo chuỗi con như INTERNAL_PAYMENT_SEGMENTS.
+    private static final List<String> ADMIN_ONLY_PAYMENT_SEGMENTS = List.of("refund");
+
+    /** Thanh toán: đăng nhập là đủ, trừ các lệnh nội bộ (khởi tạo thanh toán, tra theo danh sách booking, hoàn tiền) chỉ dành cho ADMIN. */
     private ServerRequest paymentAccess(final ServerRequest request) {
         final ServerRequest authenticated = this.secured(request, ANY_AUTHENTICATED);
         final String path = authenticated.path().toLowerCase(java.util.Locale.ROOT);
+        if (ADMIN_ONLY_PAYMENT_SEGMENTS.stream().anyMatch(path::contains)) {
+            return this.requireAnyRole(authenticated, ADMIN);
+        }
         if (HttpMethod.POST.equals(authenticated.method())
                 && INTERNAL_PAYMENT_SEGMENTS.stream().anyMatch(path::contains)) {
+            return this.requireAnyRole(authenticated, ADMIN);
+        }
+        return authenticated;
+    }
+
+    /** Booking: đăng nhập là đủ (ownership kiểm tra ở service), trừ lệnh nội bộ xác nhận thanh toán chỉ dành cho ADMIN. */
+    private ServerRequest bookingAccess(final ServerRequest request) {
+        final ServerRequest authenticated = this.secured(request, ANY_AUTHENTICATED);
+        final String path = authenticated.path().toLowerCase(java.util.Locale.ROOT);
+        if (INTERNAL_BOOKING_SEGMENTS.stream().anyMatch(path::contains)) {
             return this.requireAnyRole(authenticated, ADMIN);
         }
         return authenticated;
@@ -224,6 +255,35 @@ public class RouteConfig {
                     headers.set(USER_EMAIL_HEADER, email);
                     headers.set(USER_ROLES_HEADER, authorities);
                 }).build();
+    }
+
+    /**
+     * Ghi đè {@code X-Forwarded-For} bằng IP thật của khách để service phía sau (payment-service: vnp_IpAddr) dùng. Luôn
+     * {@code set} (không {@code add}) nên giá trị client tự gửi không bao giờ đi tiếp trừ khi {@code trustForwardedFor}.
+     */
+    ServerRequest withClientIp(final ServerRequest request) {
+        final String ip = this.clientIpOf(request);
+        return ServerRequest.from(request).headers(headers -> {
+            if (ip == null) {
+                headers.remove(FORWARDED_FOR);
+            } else {
+                headers.set(FORWARDED_FOR, ip);
+            }
+        }).build();
+    }
+
+    private String clientIpOf(final ServerRequest request) {
+        if (this.trustForwardedFor) {
+            final String forwarded = request.headers().firstHeader(FORWARDED_FOR);
+            if (forwarded != null) {
+                final String first = forwarded.split(",", 2)[0].trim();
+                if (ClientIpFormat.isIpLiteral(first)) {
+                    return first;
+                }
+            }
+        }
+        return request.remoteAddress().map(address -> address.getAddress() == null ? null
+                : address.getAddress().getHostAddress()).orElse(null);
     }
 
     private ServerRequest stripIdentityHeaders(final ServerRequest request) {
