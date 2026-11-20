@@ -18,6 +18,7 @@ import com.nitditto.payload.request.PaymentVerifyRequest;
 import com.nitditto.payload.response.PaymentInitiateResponse;
 import com.nitditto.payload.response.PaymentLinkResponse;
 import com.nitditto.repository.PaymentRepository;
+import com.nitditto.service.PaymentRecordService;
 import com.nitditto.service.PaymentService;
 import com.nitditto.service.gateway.RazorpayService;
 import com.nitditto.service.gateway.VNPayQueryService;
@@ -31,6 +32,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -56,6 +58,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final ApplicationEventPublisher eventPublisher;
     private final UserClient userClient;
     private final Clock clock;
+    private final PaymentRecordService paymentRecordService;
 
     // Link VNPay hết hạn sau 15 phút: chỉ trả lại link cũ khi khách còn dư thời gian để dùng nó.
     private static final Duration REUSE_WINDOW = Duration.ofMinutes(10);
@@ -71,8 +74,10 @@ public class PaymentServiceImpl implements PaymentService {
                         .enabled(this.vnPayService.isConfigured()).build());
     }
 
+    // KHÔNG chạy trong transaction DB (CLAUDE.md §8.5, §8.6): có gọi user-service và cổng thanh toán. Các bước ghi DB là
+    // những transaction ngắn riêng ở PaymentRecordService, commit trước khi gọi mạng.
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PaymentInitiateResponse initiatePayment(final PaymentInitiateRequest request) {
         log.info("Initiating payment for bookingId={}, userId={}, gateway={}", request.getBookingId(), request.getUserId(), request.getPaymentGateway());
         if (!this.paymentRepository.findByBookingIdAndStatusIn(request.getBookingId(),
@@ -84,36 +89,33 @@ public class PaymentServiceImpl implements PaymentService {
             return reused;
         }
 
-        Payment payment = Payment.builder()
-                .userId(request.getUserId())
-                .bookingId(request.getBookingId())
-                .amount(request.getAmount())
-                .provider(request.getPaymentGateway())
-                .status(PaymentStatus.PENDING)
-                .build();
-        payment = this.paymentRepository.save(payment);
+        final PaymentGateway gateway = request.getPaymentGateway();
+        if (gateway != PaymentGateway.VNPAY && gateway != PaymentGateway.RAZORPAY) {
+            throw new BusinessException("Payment gateway not supported yet: " + gateway);
+        }
+        // Bước 1 (mạng, không transaction): dữ liệu người dùng cho Razorpay, lấy TRƯỚC khi ghi bất cứ thứ gì.
+        final UserDTO user = gateway == PaymentGateway.RAZORPAY ? this.fetchUser(request.getUserId()) : null;
 
+        // Bước 2: ghi payment PENDING, commit ngay (transaction ngắn).
+        final Payment payment = this.paymentRecordService.createPending(request);
+
+        // Bước 3 (mạng, không transaction): tạo link ở cổng.
         final PaymentLinkResponse paymentLink;
-        if (request.getPaymentGateway() == PaymentGateway.VNPAY) {
-            paymentLink = this.vnPayService.createPaymentLink(payment, "127.0.0.1");
-            payment.setProviderCreateDate(paymentLink.getCreateDate());
-        } else if (request.getPaymentGateway() == PaymentGateway.RAZORPAY) {
-            // todo: thay bằng gọi user-service thật (RestClient/WebClient) khi có; hiện đang stub
-            final UserDTO user = this.userClient.getUserById(request.getUserId()).getBody().getData();
-
-            try {
-                paymentLink = this.razorpayService.createPaymentLink(user, payment);
-            } catch (RazorpayException ex) {
-                log.error("Razorpay createPaymentLink failed for paymentId={}", payment.getId(), ex);
-                throw new BusinessException("Failed to create payment link: " + ex.getMessage());
-            }
-        } else {
-            throw new BusinessException("Payment gateway not supported yet: " + request.getPaymentGateway());
+        try {
+            paymentLink = gateway == PaymentGateway.VNPAY
+                    ? this.vnPayService.createPaymentLink(payment, "127.0.0.1")
+                    : this.razorpayService.createPaymentLink(user, payment);
+        } catch (final RazorpayException ex) {
+            log.error("Razorpay createPaymentLink failed for paymentId={}", payment.getId(), ex);
+            this.paymentRecordService.markLinkCreationFailed(payment.getId(), "Could not create payment link");
+            throw new BusinessException("Failed to create payment link: " + ex.getMessage());
+        } catch (final RuntimeException ex) {
+            this.paymentRecordService.markLinkCreationFailed(payment.getId(), "Could not create payment link");
+            throw ex;
         }
 
-        payment.setProviderPaymentId(paymentLink.getPaymentLinkId());
-        payment.setCheckoutUrl(paymentLink.getPaymentLinkUrl());
-        this.paymentRepository.save(payment);
+        // Bước 4: gắn link vào payment (transaction ngắn thứ hai).
+        this.paymentRecordService.attachLink(payment.getId(), paymentLink);
 
         return PaymentInitiateResponse.builder()
                 .paymentId(payment.getId())
@@ -125,6 +127,15 @@ public class PaymentServiceImpl implements PaymentService {
                 .success(true)
                 .message("Payment initiated successfully")
                 .build();
+    }
+
+    private UserDTO fetchUser(final UUID userId) {
+        final var response = this.userClient.getUserById(userId);
+        final UserDTO user = response == null || response.getBody() == null ? null : response.getBody().getData();
+        if (user == null) {
+            throw new BusinessException("Could not load the paying user: " + userId);
+        }
+        return user;
     }
 
     /**
