@@ -12,6 +12,7 @@ import com.nitditto.payload.response.RefundResponse;
 import com.nitditto.repository.PaymentRepository;
 import com.nitditto.repository.RefundRepository;
 import com.nitditto.service.RefundService;
+import com.nitditto.service.gateway.RazorpayRefundService;
 import com.nitditto.service.gateway.VNPayRefundService;
 import com.nitditto.service.gateway.VNPayRefundService.Outcome;
 import java.time.ZoneId;
@@ -44,6 +45,7 @@ public class RefundServiceImpl implements RefundService {
   private final PaymentRepository paymentRepository;
   private final RefundRepository refundRepository;
   private final VNPayRefundService vnPayRefundService;
+  private final RazorpayRefundService razorpayRefundService;
   private final TransactionTemplate transactionTemplate;
 
   @Override
@@ -66,7 +68,7 @@ public class RefundServiceImpl implements RefundService {
       }
       // FAILED không rõ kết quả, hoặc PENDING bị bỏ dở (tiến trình chết giữa lúc gọi cổng): tiền có thể đã hoàn.
       if ((refund.isOutcomeUnknown() || refund.getStatus() == RefundStatus.PENDING) && !confirmNotRefunded) {
-        throw new BusinessException("The previous attempt may have refunded the customer. Check the VNPay merchant "
+        throw new BusinessException("The previous attempt may have refunded the customer. Check the payment gateway's merchant "
             + "portal, then retry with confirmNotRefunded=true");
       }
       refund.setStatus(RefundStatus.PENDING);
@@ -129,7 +131,9 @@ public class RefundServiceImpl implements RefundService {
 
   // ---- bước 2 + 3: gọi cổng rồi ghi kết quả ----
 
-  private record Prepared(UUID paymentId, PaymentGateway provider, VNPayRefundService.Command command) {
+  /** Đúng một trong {@code vnpay}/{@code razorpay}/{@code rejection} có giá trị, theo cổng của payment. */
+  private record Prepared(UUID paymentId, PaymentGateway provider, VNPayRefundService.Command vnpay,
+      RazorpayRefundService.Command razorpay, String rejection) {
   }
 
   private RefundResponse execute(final UUID refundId, final String requestedBy) {
@@ -144,10 +148,14 @@ public class RefundServiceImpl implements RefundService {
       return this.current(refundId);
     }
 
-    final VNPayRefundService.Result result = prepared.provider() == PaymentGateway.VNPAY
-        ? this.vnPayRefundService.refund(prepared.command())
-        : new VNPayRefundService.Result(Outcome.REJECTED, null,
-            "Refund is not supported for provider " + prepared.provider() + ": refund manually", null);
+    final VNPayRefundService.Result result;
+    if (prepared.rejection() != null) {
+      result = new VNPayRefundService.Result(Outcome.REJECTED, null, prepared.rejection(), null);
+    } else if (prepared.provider() == PaymentGateway.VNPAY) {
+      result = this.vnPayRefundService.refund(prepared.vnpay());
+    } else {
+      result = this.razorpayRefundService.refund(prepared.razorpay());
+    }
 
     return this.transactionTemplate.execute(status -> this.record(refundId, prepared.paymentId(), result));
   }
@@ -167,11 +175,43 @@ public class RefundServiceImpl implements RefundService {
     this.refundRepository.saveAndFlush(refund);
 
     final boolean full = payment.getAmount() != null && Math.abs(payment.getAmount() - refund.getAmount()) < 0.0001;
+    if (payment.getProvider() == PaymentGateway.RAZORPAY) {
+      return this.prepareRazorpay(payment, refund, full, requestId);
+    }
+    if (payment.getProvider() != PaymentGateway.VNPAY) {
+      return new Prepared(payment.getId(), payment.getProvider(), null, null,
+          "Refund is not supported for provider " + payment.getProvider() + ": refund manually");
+    }
     final String orderInfo = "Refund booking " + refund.getBookingId();
     final VNPayRefundService.Command command = new VNPayRefundService.Command(payment.getId().toString(),
         refund.getAmount(), full, payment.getTransactionId(), this.originalTransactionDate(payment), orderInfo,
         requestedBy == null || requestedBy.isBlank() ? "airline-system" : requestedBy, requestId);
-    return new Prepared(payment.getId(), payment.getProvider(), command);
+    return new Prepared(payment.getId(), payment.getProvider(), command, null, null);
+  }
+
+  /**
+   * Razorpay đã thu INR (số đã quy đổi lúc tạo link), nên hoàn theo TỶ LỆ trên số INR đã thu chứ không quy đổi lại theo
+   * tỷ giá hôm nay: hoàn toàn bộ trả đúng số INR đã thu, hoàn một phần trả {@code đã thu × (VND hoàn / VND đã trả)}.
+   * Như vậy trượt tỷ giá không làm khách nhận nhiều hơn hoặc ít hơn phần tương ứng của mình.
+   */
+  private Prepared prepareRazorpay(final Payment payment, final Refund refund, final boolean full,
+      final String requestId) {
+    if (payment.getChargeAmountMinor() == null || payment.getAmount() == null || payment.getAmount() <= 0) {
+      return new Prepared(payment.getId(), payment.getProvider(), null, null,
+          "The payment has no recorded Razorpay charge amount (created before currency conversion): refund manually");
+    }
+    final long charged = payment.getChargeAmountMinor();
+    final long minor = full ? charged : Math.min(charged, java.math.BigDecimal.valueOf(charged)
+        .multiply(java.math.BigDecimal.valueOf(refund.getAmount()))
+        .divide(java.math.BigDecimal.valueOf(payment.getAmount()), 0, java.math.RoundingMode.HALF_UP).longValue());
+    if (minor <= 0) {
+      return new Prepared(payment.getId(), payment.getProvider(), null, null,
+          "The refund is too small to be expressed in the Razorpay currency: refund manually");
+    }
+    final String razorpayPaymentId = payment.getTransactionId() != null && !payment.getTransactionId().isBlank()
+        ? payment.getTransactionId() : payment.getProviderPaymentId();
+    return new Prepared(payment.getId(), payment.getProvider(), null,
+        new RazorpayRefundService.Command(razorpayPaymentId, minor, requestId), null);
   }
 
   private RefundResponse record(final UUID refundId, final UUID paymentId, final VNPayRefundService.Result result) {
@@ -198,7 +238,7 @@ public class RefundServiceImpl implements RefundService {
       case UNKNOWN -> {
         refund.setStatus(RefundStatus.FAILED);
         refund.setOutcomeUnknown(true);
-        refund.setFailureReason(truncate("UNKNOWN OUTCOME, verify in the VNPay portal before retrying: "
+        refund.setFailureReason(truncate("UNKNOWN OUTCOME, verify in the gateway's merchant portal before retrying: "
             + result.message()));
         log.error("Refund {} has an UNKNOWN outcome for booking {}: {}", refundId, refund.getBookingId(),
             result.message());

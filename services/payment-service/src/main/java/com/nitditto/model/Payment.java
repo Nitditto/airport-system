@@ -76,6 +76,10 @@ public class Payment extends BaseEntity {
     @Column(name = "checkout_url", length = 2048)
     private String checkoutUrl;
 
+    /** Link thanh toán hết hạn lúc này (null: link không có hạn hoặc payment cũ). Dùng để tái dùng link và đối soát. */
+    @Column(name = "link_expires_at")
+    private Instant linkExpiresAt;
+
     /**
      * Bằng bookingId khi payment này là payment thành công của booking, NULL nếu không. Unique: DB bảo đảm một booking
      * chỉ có một payment thành công kể cả khi hai kết quả thanh toán về song song.
@@ -86,5 +90,24 @@ public class Payment extends BaseEntity {
     /** Lần gần nhất job đối soát tra cứu payment này ở cổng thanh toán: để không hỏi lại dồn dập. */
     @Column(name = "last_reconciled_at")
     private Instant lastReconciledAt;
+
+    /**
+     * Cổng thu loại tiền khác VND (Razorpay: INR): số tiền khách thật sự phải trả theo đơn vị nhỏ nhất, loại tiền, tỷ giá
+     * (VND cho 1 đơn vị) và nguồn. {@code amount} vẫn là VND. Null với cổng thu đúng VND.
+     */
+    @Column(name = "charge_currency", length = 3)
+    private String chargeCurrency;
+
+    @Column(name = "charge_amount_minor")
+    private Long chargeAmountMinor;
+
+    @Column(name = "fx_rate")
+    private Double fxRate;
+
+    @Column(name = "fx_margin_percent")
+    private Double fxMarginPercent;
+
+    @Column(name = "fx_source", length = 200)
+    private String fxSource;
 
 }

@@ -61,6 +61,18 @@ vnpay:
   # API tra cứu giao dịch (querydr), cùng endpoint merchant_webapi với hoàn tiền.
   query-url: ${VNPAY_QUERY_URL:https://sandbox.vnpayment.vn/merchant_webapi/api/transaction}
   query-verify-response: ${VNPAY_QUERY_VERIFY_RESPONSE:true}
+  # IPv6 của khách vào vnp_IpAddr: tài liệu VNPay chỉ nêu ví dụ IPv4 nên mặc định tắt (gửi 127.0.0.1 thay thế).
+  allow-ipv6-client-ip: ${VNPAY_ALLOW_IPV6_CLIENT_IP:false}
+
+# Tỷ giá VND -> INR cho Razorpay (bảng tỷ giá công khai của Vietcombank). Xem VietcombankExchangeRateService.
+fx:
+  vietcombank-url: ${FX_RATES_URL:https://portal.vietcombank.com.vn/Usercontrols/TVPortal.TyGia/pXML.aspx}
+  rate-type: ${FX_RATE_TYPE:transfer}          # transfer = mua chuyển khoản (mặc định) | sell = bán ra
+  cache-minutes: 60
+  max-stale-hours: 24                          # lấy bảng mới lỗi: dùng tỷ giá cũ tối đa chừng này giờ
+  fallback-vnd-per-inr: ${FX_FALLBACK_VND_PER_INR:}   # rỗng = không có tỷ giá dự phòng (lỗi thì từ chối Razorpay)
+  margin-percent: ${FX_MARGIN_PERCENT:1.0}            # biên an toàn cộng vào số INR thu (bù trượt giá), 0-50
+  max-change-percent: 20                       # tỷ giá mới lệch quá mức này so với tỷ giá đang dùng bị bỏ qua
 
 # Job đối soát payment VNPay còn PENDING (xem PendingPaymentReconciler).
 payment:

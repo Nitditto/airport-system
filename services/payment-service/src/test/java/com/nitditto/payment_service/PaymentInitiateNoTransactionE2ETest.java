@@ -60,18 +60,23 @@ class PaymentInitiateNoTransactionE2ETest {
   @MockitoBean
   private UserClient userClient;
   @MockitoBean
+  private com.nitditto.service.gateway.ExchangeRateService exchangeRateService;
+  @MockitoBean
   private com.nitditto.client.BookingClient bookingClient;
   @MockitoBean
   private org.springframework.kafka.core.KafkaTemplate<String, Object> kafkaTemplate;
 
   private final List<Boolean> transactionOpenDuringCalls = new ArrayList<>();
   private final List<Boolean> paymentCommittedDuringGatewayCall = new ArrayList<>();
+  private final List<String> chargeSeenByRazorpay = new ArrayList<>();
   private final UUID userId = UUID.randomUUID();
   private final UUID bookingId = UUID.randomUUID();
 
   @BeforeEach
   void setUp() throws Exception {
-    Mockito.reset(this.razorpayService, this.userClient);
+    Mockito.reset(this.razorpayService, this.userClient, this.exchangeRateService);
+    when(this.exchangeRateService.quoteFromVnd(any(), org.mockito.ArgumentMatchers.anyDouble())).thenReturn(
+        new com.nitditto.service.gateway.ExchangeRateService.Quote("INR", 91_000L, 274.43, 1.0, "test feed"));
     this.transactionOpenDuringCalls.clear();
     this.paymentCommittedDuringGatewayCall.clear();
     final UserDTO user = new UserDTO();
@@ -97,9 +102,10 @@ class PaymentInitiateNoTransactionE2ETest {
 
   @Test
   void razorpayInitiate_callsTheNetworkOutsideAnyTransaction_afterThePaymentIsAlreadyCommitted() throws Exception {
-    when(this.razorpayService.createPaymentLink(any(), any())).thenAnswer(inv -> {
+    when(this.razorpayService.createPaymentLink(any(), any(), any())).thenAnswer(inv -> {
       this.transactionOpenDuringCalls.add(TransactionSynchronizationManager.isActualTransactionActive());
       final Payment arg = inv.getArgument(1);
+      this.chargeSeenByRazorpay.add(arg.getChargeAmountMinor() + " " + arg.getChargeCurrency());
       // đọc từ một luồng khác nghĩa là chỉ thấy dữ liệu ĐÃ COMMIT
       final boolean committed = java.util.concurrent.CompletableFuture
           .supplyAsync(() -> this.paymentRepository.findById(arg.getId()).isPresent()).get();
@@ -115,11 +121,18 @@ class PaymentInitiateNoTransactionE2ETest {
     assertThat(saved.getStatus()).isEqualTo(PaymentStatus.PENDING);
     assertThat(saved.getCheckoutUrl()).isEqualTo("https://rzp.test/pay");
     assertThat(saved.getProviderPaymentId()).isEqualTo("plink_1");
+    // số quy đổi được lưu xuống DB và là số được gửi cho Razorpay
+    assertThat(this.chargeSeenByRazorpay).containsExactly("91000 INR");
+    assertThat(saved.getChargeAmountMinor()).isEqualTo(91_000L);
+    assertThat(saved.getChargeCurrency()).isEqualTo("INR");
+    assertThat(saved.getFxRate()).isEqualTo(274.43);
+    assertThat(saved.getFxMarginPercent()).isEqualTo(1.0);
+    assertThat(saved.getAmount()).isEqualTo(250000.0);
   }
 
   @Test
   void whenRazorpayFails_thePaymentIsMarkedFailed_notLeftPending_andTheErrorIsReported() throws Exception {
-    when(this.razorpayService.createPaymentLink(any(), any()))
+    when(this.razorpayService.createPaymentLink(any(), any(), any()))
         .thenThrow(new RazorpayException("amount exceeds maximum amount allowed"));
 
     assertThatThrownBy(() -> this.paymentService.initiatePayment(request(PaymentGateway.RAZORPAY)))

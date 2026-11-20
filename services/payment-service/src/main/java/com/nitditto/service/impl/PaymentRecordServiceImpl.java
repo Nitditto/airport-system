@@ -7,6 +7,7 @@ import com.nitditto.payload.request.PaymentInitiateRequest;
 import com.nitditto.payload.response.PaymentLinkResponse;
 import com.nitditto.repository.PaymentRepository;
 import com.nitditto.service.PaymentRecordService;
+import com.nitditto.service.gateway.ExchangeRateService;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,14 +23,18 @@ public class PaymentRecordServiceImpl implements PaymentRecordService {
 
     @Override
     @Transactional
-    public Payment createPending(final PaymentInitiateRequest request) {
-        return this.paymentRepository.save(Payment.builder()
+    public Payment createPending(final PaymentInitiateRequest request, final ExchangeRateService.Quote quote) {
+        final Payment.PaymentBuilder builder = Payment.builder()
                 .userId(request.getUserId())
                 .bookingId(request.getBookingId())
                 .amount(request.getAmount())
                 .provider(request.getPaymentGateway())
-                .status(PaymentStatus.PENDING)
-                .build());
+                .status(PaymentStatus.PENDING);
+        if (quote != null) {
+            builder.chargeCurrency(quote.currency()).chargeAmountMinor(quote.amountMinor()).fxRate(quote.rate())
+                    .fxMarginPercent(quote.marginPercent()).fxSource(quote.source());
+        }
+        return this.paymentRepository.save(builder.build());
     }
 
     @Override
@@ -38,6 +43,7 @@ public class PaymentRecordServiceImpl implements PaymentRecordService {
         final Payment payment = this.load(paymentId);
         payment.setProviderPaymentId(link.getPaymentLinkId());
         payment.setCheckoutUrl(link.getPaymentLinkUrl());
+        payment.setLinkExpiresAt(link.getExpiresAt());
         if (link.getCreateDate() != null) {
             payment.setProviderCreateDate(link.getCreateDate());
         }

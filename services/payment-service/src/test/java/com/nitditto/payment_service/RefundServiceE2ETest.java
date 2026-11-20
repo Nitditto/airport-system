@@ -75,12 +75,14 @@ class RefundServiceE2ETest {
   private MockMvc mockMvc;
   @MockitoBean
   private VNPayRefundService vnPayRefundService;
+  @MockitoBean
+  private com.nitditto.service.gateway.RazorpayRefundService razorpayRefundService;
 
   @BeforeEach
   void clean() {
     this.refundRepository.deleteAll();
     this.paymentRepository.deleteAll();
-    reset(this.vnPayRefundService);
+    reset(this.vnPayRefundService, this.razorpayRefundService);
   }
 
   @AfterEach
@@ -233,14 +235,77 @@ class RefundServiceE2ETest {
   }
 
   @Test
-  void aGatewayThatCannotRefund_isRecordedAsFailed_withoutCallingVnpay() {
-    final Payment payment = this.paidPayment(PaymentGateway.RAZORPAY);
+  void aRazorpayPaymentWithoutARecordedChargeAmount_isRecordedAsFailed_forManualRefund() {
+    final Payment payment = this.paidPayment(PaymentGateway.RAZORPAY); // tạo trước khi có quy đổi tiền tệ
+
+    final RefundResponse response = this.refundService.requestRefund(request(payment, 1000.0));
+
+    assertThat(response.getStatus()).isEqualTo(RefundStatus.FAILED);
+    assertThat(response.getFailureReason()).contains("no recorded Razorpay charge amount").contains("refund manually");
+    verify(this.vnPayRefundService, never()).refund(any());
+    verify(this.razorpayRefundService, never()).refund(any());
+  }
+
+  @Test
+  void aProviderWithoutRefundSupport_isRecordedAsFailed_withoutCallingAnyGateway() {
+    final Payment payment = this.paidPayment(PaymentGateway.STRIPE);
 
     final RefundResponse response = this.refundService.requestRefund(request(payment, 1000.0));
 
     assertThat(response.getStatus()).isEqualTo(RefundStatus.FAILED);
     assertThat(response.getFailureReason()).contains("not supported").contains("refund manually");
     verify(this.vnPayRefundService, never()).refund(any());
+    verify(this.razorpayRefundService, never()).refund(any());
+  }
+
+  @Test
+  void razorpayPartialRefund_isProportionalToTheInrAlreadyCharged_notRepricedAtTodaysRate() {
+    final Payment payment = this.paidRazorpayPayment(419_233L);
+    when(this.razorpayRefundService.refund(any())).thenReturn(rzpOk("rfnd_1"));
+
+    final RefundResponse response = this.refundService.requestRefund(request(payment, 1_050_000.0));
+
+    final ArgumentCaptor<com.nitditto.service.gateway.RazorpayRefundService.Command> sent =
+        ArgumentCaptor.forClass(com.nitditto.service.gateway.RazorpayRefundService.Command.class);
+    verify(this.razorpayRefundService).refund(sent.capture());
+    // 419.233 paise x 1.050.000 / 1.150.000 = 382.778 paise
+    assertThat(sent.getValue().amountMinor()).isEqualTo(382_778L);
+    assertThat(sent.getValue().razorpayPaymentId()).isEqualTo("pay_RZP1");
+    assertThat(sent.getValue().receipt()).isNotBlank();
+    assertThat(response.getStatus()).isEqualTo(RefundStatus.SUCCESS);
+    assertThat(response.getProviderTransactionNo()).isEqualTo("rfnd_1");
+    assertThat(this.paymentRepository.findById(payment.getId()).orElseThrow().getStatus())
+        .isEqualTo(PaymentStatus.REFUNDED);
+    verify(this.vnPayRefundService, never()).refund(any());
+  }
+
+  @Test
+  void razorpayFullRefund_returnsExactlyTheInrThatWasCharged() {
+    final Payment payment = this.paidRazorpayPayment(419_233L);
+    when(this.razorpayRefundService.refund(any())).thenReturn(rzpOk("rfnd_2"));
+
+    this.refundService.requestRefund(request(payment, PAID));
+
+    final ArgumentCaptor<com.nitditto.service.gateway.RazorpayRefundService.Command> sent =
+        ArgumentCaptor.forClass(com.nitditto.service.gateway.RazorpayRefundService.Command.class);
+    verify(this.razorpayRefundService).refund(sent.capture());
+    assertThat(sent.getValue().amountMinor()).isEqualTo(419_233L);
+  }
+
+  @Test
+  void razorpayRefundRejected_isRetryableWithoutConfirmation_andUnknownNeedsConfirmation() {
+    final Payment payment = this.paidRazorpayPayment(419_233L);
+    when(this.razorpayRefundService.refund(any())).thenReturn(new Result(Outcome.UNKNOWN, null, "timeout", null));
+
+    final RefundResponse first = this.refundService.requestRefund(request(payment, PAID));
+
+    assertThat(first.getStatus()).isEqualTo(RefundStatus.FAILED);
+    assertThat(first.getFailureReason()).startsWith("UNKNOWN OUTCOME");
+    assertThatThrownBy(() -> this.refundService.retry(first.getRefundId(), false))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("confirmNotRefunded");
+
+    when(this.razorpayRefundService.refund(any())).thenReturn(rzpOk("rfnd_3"));
+    assertThat(this.refundService.retry(first.getRefundId(), true).getStatus()).isEqualTo(RefundStatus.SUCCESS);
   }
 
   @Test
@@ -338,6 +403,17 @@ class RefundServiceE2ETest {
   private static RefundRequest request(final Payment payment, final double amount) {
     return RefundRequest.builder().bookingId(payment.getBookingId()).amount(amount).reason("Booking cancelled")
         .requestedBy("user-1").build();
+  }
+
+  private Payment paidRazorpayPayment(final long chargeMinor) {
+    return this.paymentRepository.save(Payment.builder().userId(UUID.randomUUID()).bookingId(UUID.randomUUID())
+        .amount(PAID).provider(PaymentGateway.RAZORPAY).status(PaymentStatus.SUCCESS).transactionId("pay_RZP1")
+        .providerPaymentId("pay_RZP1").chargeCurrency("INR").chargeAmountMinor(chargeMinor).fxRate(274.43)
+        .fxMarginPercent(1.0).build());
+  }
+
+  private static Result rzpOk(final String refundId) {
+    return new Result(Outcome.SUCCESS, "processed", "Refund processed", refundId);
   }
 
   private static Result ok(final String transactionNo) {

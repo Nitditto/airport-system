@@ -57,6 +57,8 @@ class PaymentServiceImplTest {
   private ApplicationEventPublisher eventPublisher;
   @Mock
   private UserClient userClient;
+  @Mock
+  private com.nitditto.service.gateway.ExchangeRateService exchangeRateService;
 
   private PaymentServiceImpl service;
 
@@ -70,7 +72,8 @@ class PaymentServiceImplTest {
     ReflectionTestUtils.setField(vnPayService, "vnpHashSecret", SECRET);
     this.service = new PaymentServiceImpl(this.paymentRepository, this.razorpayService, vnPayService,
         this.eventPublisher, this.userClient, CLOCK,
-        new com.nitditto.service.impl.PaymentRecordServiceImpl(this.paymentRepository));
+        new com.nitditto.service.impl.PaymentRecordServiceImpl(this.paymentRepository),
+        new com.nitditto.service.gateway.ClientIpPolicy(false), this.exchangeRateService);
 
     this.payment = Payment.builder().userId(UUID.randomUUID()).bookingId(this.bookingId).amount(250.0)
         .status(PaymentStatus.PENDING).build();
@@ -265,6 +268,109 @@ class PaymentServiceImplTest {
         .put("status", "captured")
         .put("notes", new JSONObject().put("payment_id", this.payment.getId().toString()));
     when(this.razorpayService.fetchPaymentDetails(razorpayPaymentId)).thenReturn(details);
+  }
+
+  // ---- Razorpay: quy đổi VND -> INR theo tỷ giá thị trường ----
+
+  private static final com.nitditto.service.gateway.ExchangeRateService.Quote QUOTE =
+      new com.nitditto.service.gateway.ExchangeRateService.Quote("INR", 41_926L, 274.43, 1.0,
+          "Vietcombank transfer rate (feed 11/20/2026)");
+
+  private com.nitditto.payload.request.PaymentInitiateRequest razorpayRequest() {
+    return com.nitditto.payload.request.PaymentInitiateRequest.builder().userId(this.payment.getUserId())
+        .bookingId(this.bookingId).paymentGateway(PaymentGateway.RAZORPAY).amount(1_150_500.0).description("d").build();
+  }
+
+  private void givenUserAndRazorpayLink() throws Exception {
+    final com.nitditto.payload.dto.UserDTO user = new com.nitditto.payload.dto.UserDTO();
+    user.setId(this.payment.getUserId());
+    when(this.userClient.getUserById(any())).thenReturn(org.springframework.http.ResponseEntity
+        .ok(com.nitditto.payload.response.ApiResponse.success(user)));
+    when(this.razorpayService.createPaymentLink(any(), any(), any())).thenReturn(
+        com.nitditto.payload.response.PaymentLinkResponse.builder().paymentLinkId("plink_1")
+            .paymentLinkUrl("https://rzp.test/pay").build());
+    givenSaveAssignsIds();
+  }
+
+  @Test
+  void razorpayInitiate_chargesTheConvertedInrAmount_keepsVndAsTheBookingAmount_andTellsTheCaller() throws Exception {
+    givenUserAndRazorpayLink();
+    when(this.exchangeRateService.quoteFromVnd("INR", 1_150_500.0)).thenReturn(QUOTE);
+
+    final var response = this.service.initiatePayment(razorpayRequest());
+
+    final ArgumentCaptor<Payment> sent = ArgumentCaptor.forClass(Payment.class);
+    verify(this.razorpayService).createPaymentLink(any(), sent.capture(), any());
+    assertThat(sent.getValue().getAmount()).isEqualTo(1_150_500.0); // VND của booking không đổi
+    assertThat(sent.getValue().getChargeCurrency()).isEqualTo("INR");
+    assertThat(sent.getValue().getChargeAmountMinor()).isEqualTo(41_926L);
+    assertThat(sent.getValue().getFxRate()).isEqualTo(274.43);
+    assertThat(sent.getValue().getFxSource()).contains("Vietcombank");
+    assertThat(response.getAmount()).isEqualTo(1_150_500.0);
+    assertThat(response.getChargeCurrency()).isEqualTo("INR");
+    assertThat(response.getChargeAmount()).isEqualTo(419.26);
+    assertThat(response.getExchangeRate()).isEqualTo(274.43);
+    assertThat(response.getExchangeRateMarginPercent()).isEqualTo(1.0);
+    assertThat(sent.getValue().getFxMarginPercent()).isEqualTo(1.0);
+    assertThat(response.getExchangeRateSource()).contains("Vietcombank");
+  }
+
+  @Test
+  void razorpayInitiate_withoutAReliableRate_isRefusedBeforeAnythingIsWritten() throws Exception {
+    final com.nitditto.payload.dto.UserDTO user = new com.nitditto.payload.dto.UserDTO();
+    when(this.userClient.getUserById(any())).thenReturn(org.springframework.http.ResponseEntity
+        .ok(com.nitditto.payload.response.ApiResponse.success(user)));
+    when(this.exchangeRateService.quoteFromVnd(any(), org.mockito.ArgumentMatchers.anyDouble()))
+        .thenThrow(new BusinessException("Razorpay payment is temporarily unavailable: no reliable VND/INR exchange rate"));
+
+    assertThatThrownBy(() -> this.service.initiatePayment(razorpayRequest()))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("exchange rate");
+
+    verify(this.paymentRepository, never()).save(any(Payment.class));
+    verify(this.razorpayService, never()).createPaymentLink(any(), any(), any());
+  }
+
+  @Test
+  void vnpayInitiate_isNotConverted_andCarriesNoChargeInformation() {
+    givenSaveAssignsIds();
+
+    final var response = this.service.initiatePayment(initiateRequest());
+
+    verify(this.exchangeRateService, never()).quoteFromVnd(any(), org.mockito.ArgumentMatchers.anyDouble());
+    assertThat(response.getChargeCurrency()).isNull();
+    assertThat(response.getChargeAmount()).isNull();
+  }
+
+  @Test
+  void razorpayVerify_rejectsACaptureWhoseAmountOrCurrencyDiffersFromWhatWasQuoted() throws Exception {
+    this.payment.setChargeCurrency("INR");
+    this.payment.setChargeAmountMinor(41_926L);
+    givenPaymentFound();
+    final JSONObject details = new JSONObject().put("status", "captured").put("amount", 100).put("currency", "INR")
+        .put("notes", new JSONObject().put("payment_id", this.payment.getId().toString()));
+    when(this.razorpayService.fetchPaymentDetails("pay_cheap")).thenReturn(details);
+
+    assertThatThrownBy(() -> this.service.verifyPayment(
+        PaymentVerifyRequest.builder().razorpayPaymentId("pay_cheap").build(), this.payment.getUserId()))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("amount does not match");
+
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
+  }
+
+  @Test
+  void razorpayVerify_acceptsACaptureThatMatchesTheQuotedAmount() throws Exception {
+    this.payment.setChargeCurrency("INR");
+    this.payment.setChargeAmountMinor(41_926L);
+    givenPaymentFound();
+    final JSONObject details = new JSONObject().put("status", "captured").put("amount", 41_926).put("currency", "INR")
+        .put("notes", new JSONObject().put("payment_id", this.payment.getId().toString()));
+    when(this.razorpayService.fetchPaymentDetails("pay_ok")).thenReturn(details);
+
+    final PaymentDTO result = this.service.verifyPayment(
+        PaymentVerifyRequest.builder().razorpayPaymentId("pay_ok").build(), this.payment.getUserId());
+
+    assertThat(result.getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
   }
 
   // ---- initiate idempotent + một payment thành công cho mỗi booking ----
@@ -502,6 +608,62 @@ class PaymentServiceImplTest {
     });
     when(this.paymentRepository.findById(any(UUID.class)))
         .thenAnswer(inv -> Optional.ofNullable(store.get(inv.<UUID>getArgument(0))));
+  }
+
+  // ---- hạn link VNPay theo booking + IP thật của khách ----
+
+  @Test
+  void initiate_sendsTheCustomersIpAndTheBookingExpiryToVnpay_andReportsTheLinkExpiry() {
+    givenSaveAssignsIds();
+    final java.time.Instant bookingExpiry = java.time.Instant.now().plusSeconds(11 * 60);
+    final var request = initiateRequest();
+    request.setExpiresAt(bookingExpiry);
+
+    final var response = this.service.initiatePayment(request, "203.0.113.5, 10.0.0.2");
+
+    final java.net.URI url = java.net.URI.create(response.getCheckoutUrl());
+    assertThat(url.getRawQuery()).contains("vnp_IpAddr=203.0.113.5&");
+    assertThat(response.getExpiresAt()).isEqualTo(bookingExpiry.atZone(java.time.ZoneId.of("Asia/Ho_Chi_Minh"))
+        .withNano(0).toInstant());
+    final ArgumentCaptor<Payment> saved = ArgumentCaptor.forClass(Payment.class);
+    verify(this.paymentRepository, times(2)).save(saved.capture());
+    assertThat(saved.getAllValues().get(1).getLinkExpiresAt()).isEqualTo(response.getExpiresAt());
+  }
+
+  @Test
+  void initiate_withoutAForwardedFor_usesTheLoopbackFallback_andAForgedValueNeverReachesVnpay() {
+    givenSaveAssignsIds();
+
+    final var plain = this.service.initiatePayment(initiateRequest(), null);
+    final var forged = this.service.initiatePayment(initiateRequest(), "x&vnp_Amount=1");
+
+    assertThat(java.net.URI.create(plain.getCheckoutUrl()).getRawQuery()).contains("vnp_IpAddr=127.0.0.1&");
+    assertThat(java.net.URI.create(forged.getCheckoutUrl()).getRawQuery()).contains("vnp_IpAddr=127.0.0.1&");
+  }
+
+  @Test
+  void initiate_reusesTheLinkUntilJustBeforeItsRealExpiry() {
+    final Payment pending = pendingLink(CLOCK.instant().minusSeconds(60));
+    pending.setLinkExpiresAt(CLOCK.instant().plusSeconds(5 * 60)); // booking cho 5 phút nữa
+    givenPendingFor(pending);
+
+    final var response = this.service.initiatePayment(initiateRequest());
+
+    assertThat(response.getPaymentId()).isEqualTo(pending.getId());
+    assertThat(response.getExpiresAt()).isEqualTo(pending.getLinkExpiresAt());
+    verify(this.paymentRepository, never()).save(any(Payment.class));
+  }
+
+  @Test
+  void initiate_doesNotReuseALinkThatIsAboutToExpire_evenIfItWasCreatedRecently() {
+    final Payment pending = pendingLink(CLOCK.instant().minusSeconds(60));
+    pending.setLinkExpiresAt(CLOCK.instant().plusSeconds(30)); // sắp hết hạn
+    givenPendingFor(pending);
+    givenSaveAssignsIds();
+
+    final var response = this.service.initiatePayment(initiateRequest());
+
+    assertThat(response.getPaymentId()).isNotEqualTo(pending.getId());
   }
 
   private void givenPaymentFound() {
