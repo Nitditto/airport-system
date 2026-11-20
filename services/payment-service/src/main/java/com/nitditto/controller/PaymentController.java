@@ -51,8 +51,10 @@ public class PaymentController {
 
     @PostMapping("/initiate")
     public ResponseEntity<ApiResponse<PaymentInitiateResponse>> initiatePayment(
-            @Valid @RequestBody final PaymentInitiateRequest request) {
-        final PaymentInitiateResponse response = this.paymentService.initiatePayment(request);
+            @Valid @RequestBody final PaymentInitiateRequest request,
+            // IP thật của khách do gateway ghi, booking-service chuyển tiếp: điền vào vnp_IpAddr
+            @RequestHeader(value = "X-Forwarded-For", required = false) final String forwardedFor) {
+        final PaymentInitiateResponse response = this.paymentService.initiatePayment(request, forwardedFor);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

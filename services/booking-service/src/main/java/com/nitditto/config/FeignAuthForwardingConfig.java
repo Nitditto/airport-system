@@ -18,6 +18,8 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @Configuration
 public class FeignAuthForwardingConfig {
 
+  static final String FORWARDED_FOR = "X-Forwarded-For";
+
   @Bean
   public RequestInterceptor authorizationForwardingInterceptor() {
     return template -> {
@@ -28,6 +30,12 @@ public class FeignAuthForwardingConfig {
       if (authorization != null && !authorization.isBlank()
           && !template.headers().containsKey(HttpHeaders.AUTHORIZATION)) {
         template.header(HttpHeaders.AUTHORIZATION, authorization);
+      }
+      // IP thật của khách (gateway ghi đè header này): payment-service điền vào vnp_IpAddr. Chỉ đúng header này, không copy
+      // mọi header của request gốc.
+      final String forwardedFor = attributes.getRequest().getHeader(FORWARDED_FOR);
+      if (forwardedFor != null && !forwardedFor.isBlank() && !template.headers().containsKey(FORWARDED_FOR)) {
+        template.header(FORWARDED_FOR, forwardedFor);
       }
     };
   }

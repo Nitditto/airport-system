@@ -34,6 +34,30 @@ class FeignAuthForwardingConfigTest {
   }
 
   @Test
+  void forwardsTheRealClientIpWrittenByTheGateway_forVnpayIpAddr() {
+    final MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader("X-Forwarded-For", "203.0.113.5");
+    request.addHeader("X-Some-Other-Header", "not-forwarded");
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    final RequestTemplate template = new RequestTemplate();
+
+    this.interceptor.apply(template);
+
+    assertThat(template.headers().get("X-Forwarded-For")).containsExactly("203.0.113.5");
+    assertThat(template.headers()).doesNotContainKey("X-Some-Other-Header"); // chỉ đúng header này, không copy tất cả
+  }
+
+  @Test
+  void doesNotForwardAnythingWhenThereIsNoForwardedFor() {
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+    final RequestTemplate template = new RequestTemplate();
+
+    this.interceptor.apply(template);
+
+    assertThat(template.headers()).doesNotContainKey("X-Forwarded-For");
+  }
+
+  @Test
   void addsNothing_outsideAnHttpRequest_egKafkaListenerOrScheduler() {
     final RequestTemplate template = new RequestTemplate();
 

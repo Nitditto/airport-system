@@ -18,6 +18,16 @@ public class GatewayHttpConfig {
     return Clock.systemUTC();
   }
 
+  /** Lấy bảng tỷ giá: chặn lâu sẽ treo việc tạo thanh toán Razorpay nên timeout ngắn; lỗi thì dùng tỷ giá cache. */
+  @Bean("fxRestClient")
+  public RestClient fxRestClient(@Value("${fx.http.connect-timeout-ms:3000}") final long connectTimeoutMs,
+      @Value("${fx.http.read-timeout-ms:5000}") final long readTimeoutMs) {
+    final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(connectTimeoutMs)).build();
+    final JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+    factory.setReadTimeout(Duration.ofMillis(readTimeoutMs));
+    return RestClient.builder().requestFactory(factory).build();
+  }
+
   /** Timeout rõ ràng: lời gọi hoàn tiền không được treo vô hạn; hết giờ = kết quả KHÔNG RÕ (xem VNPayRefundService). */
   @Bean("vnpayRestClient")
   public RestClient vnpayRestClient(@Value("${vnpay.http.connect-timeout-ms:3000}") final long connectTimeoutMs,

@@ -33,6 +33,7 @@ import com.nitditto.service.BookingRefundService;
 import com.nitditto.service.BookingReadAccess;
 import com.nitditto.service.BookingService;
 import com.nitditto.service.PassengerService;
+import com.nitditto.service.PaymentWindow;
 import com.nitditto.service.PaymentSettlementService;
 import com.nitditto.service.SeatReservationService;
 import com.nitditto.service.TicketService;
@@ -73,6 +74,7 @@ public class BookingServiceImpl implements BookingService {
     private final SeatReservationService seatReservationService;
     private final BookingEnrichmentService bookingEnrichmentService;
     private final BookingConfirmationService bookingConfirmationService;
+    private final PaymentWindow paymentWindow;
     private final PaymentSettlementService paymentSettlementService;
     private final BookingCreationService bookingCreationService;
     private final BookingRefundService bookingRefundService;
@@ -152,6 +154,8 @@ public class BookingServiceImpl implements BookingService {
                 .amount(totalPrice)
                 .paymentGateway(gateway)
                 .description("Payment for booking ID : " + booking.getBookingReference())
+                // link thanh toán hết hạn đúng lúc booking hết hạn: không trả được sau khi booking đã mất hiệu lực
+                .expiresAt(this.paymentWindow.expiresAt(booking))
                 .build();
         return this.paymentClient.initiatePayment(paymentInitiateRequest).getBody().getData();
     }

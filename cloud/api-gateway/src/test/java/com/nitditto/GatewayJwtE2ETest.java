@@ -478,6 +478,16 @@ class GatewayJwtE2ETest {
     }
 
     @Test
+    void aClientSuppliedXForwardedFor_isReplacedByTheRealPeerAddress_beforeReachingTheService() throws Exception {
+      send("GET", "/api/airports", null, Map.of("X-Forwarded-For", "6.6.6.6"), null);
+
+      assertThat(RECEIVED).hasSize(1);
+      final List<String> forwarded = RECEIVED.get(0).headers("X-Forwarded-For");
+      assertThat(forwarded).hasSize(1);
+      assertThat(forwarded.get(0)).isIn("127.0.0.1", "0:0:0:0:0:0:0:1").isNotEqualTo("6.6.6.6");
+    }
+
+    @Test
     void writesOnPublicPaths_stillRequireAuthentication() throws Exception {
       assertThat(send("POST", "/api/airports", null, Map.of(), "{}").statusCode()).isEqualTo(401);
       assertThat(send("DELETE", "/api/airports/" + UUID.randomUUID(), null, Map.of(), null).statusCode())

@@ -3,6 +3,7 @@ package com.nitditto.service;
 import com.nitditto.model.Payment;
 import com.nitditto.payload.request.PaymentInitiateRequest;
 import com.nitditto.payload.response.PaymentLinkResponse;
+import com.nitditto.service.gateway.ExchangeRateService;
 import java.util.UUID;
 
 /**
@@ -12,8 +13,11 @@ import java.util.UUID;
  */
 public interface PaymentRecordService {
 
-    /** Ghi payment {@code PENDING} (chưa có link) và commit. */
-    Payment createPending(PaymentInitiateRequest request);
+    /**
+     * Ghi payment {@code PENDING} (chưa có link) và commit. {@code quote} khác null khi cổng thu loại tiền khác VND: lưu cùng
+     * payment số tiền khách thật sự phải trả và tỷ giá đã dùng.
+     */
+    Payment createPending(PaymentInitiateRequest request, ExchangeRateService.Quote quote);
 
     /** Gắn link đã tạo ở cổng vào payment (id cổng, URL, ngày tạo giao dịch VNPay) và commit. */
     void attachLink(UUID paymentId, PaymentLinkResponse link);

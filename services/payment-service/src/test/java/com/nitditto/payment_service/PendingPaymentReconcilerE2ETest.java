@@ -139,6 +139,26 @@ class PendingPaymentReconcilerE2ETest {
   }
 
   @Test
+  void theGiveUpTimeFollowsTheLinksRealExpiry_notAFixedTimeSinceCreation() {
+    final Payment stillValid = pending(45); // tạo 45 phút trước nhưng link (hạn booking) còn sống
+    stillValid.setLinkExpiresAt(Instant.now().plus(10, ChronoUnit.MINUTES));
+    this.paymentRepository.saveAndFlush(stillValid);
+    final Payment longExpired = pending(45);
+    longExpired.setLinkExpiresAt(Instant.now().minus(20, ChronoUnit.MINUTES)); // quá hạn link + thời gian chờ 15 phút
+    this.paymentRepository.saveAndFlush(longExpired);
+    final Payment justExpired = pending(45);
+    justExpired.setLinkExpiresAt(Instant.now().minus(5, ChronoUnit.MINUTES)); // còn trong thời gian chờ kết quả muộn
+    this.paymentRepository.saveAndFlush(justExpired);
+    when(this.queryService.query(any())).thenReturn(result(Outcome.NOT_FOUND, null));
+
+    this.reconciler.reconcileOnce();
+
+    assertThat(reload(stillValid).getStatus()).isEqualTo(PaymentStatus.PENDING);
+    assertThat(reload(justExpired).getStatus()).isEqualTo(PaymentStatus.PENDING);
+    assertThat(reload(longExpired).getStatus()).isEqualTo(PaymentStatus.FAILED);
+  }
+
+  @Test
   void anUnknownAnswer_changesNothing_butIsNotAskedAgainImmediately() {
     final Payment p = pending(10);
     when(this.queryService.query(any())).thenReturn(result(Outcome.UNKNOWN, null));

@@ -13,6 +13,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -38,6 +40,11 @@ public class VNPayService {
     @Value("${vnpay.return-url}")
     private String vnpReturnUrl;
 
+    /** Hạn mặc định của link khi không biết hạn của booking. */
+    public static final Duration DEFAULT_LINK_LIFETIME = Duration.ofMinutes(15);
+    private static final Duration MIN_LINK_LIFETIME = Duration.ofMinutes(1);
+    private static final Duration MAX_LINK_LIFETIME = Duration.ofHours(24);
+
     private static final DateTimeFormatter VNP_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final ZoneId VIETNAM_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
@@ -46,7 +53,11 @@ public class VNPayService {
                 && this.vnpHashSecret != null && !this.vnpHashSecret.isBlank();
     }
 
-    public PaymentLinkResponse createPaymentLink(final Payment payment, final String ipAddress) {
+    /**
+     * @param ipAddress IP của khách (vnp_IpAddr); thiếu thì {@link ClientIp#FALLBACK}
+     * @param expiresAt link hết hạn lúc này (thường là lúc booking hết hạn thanh toán); null = {@link #DEFAULT_LINK_LIFETIME}
+     */
+    public PaymentLinkResponse createPaymentLink(final Payment payment, final String ipAddress, final Instant expiresAt) {
         if (!this.isConfigured()) {
             throw new BusinessException("VNPay is not configured: set VNPAY_TMN_CODE and VNPAY_HASH_SECRET");
         }
@@ -57,7 +68,16 @@ public class VNPayService {
 
         final ZonedDateTime now = ZonedDateTime.now(VIETNAM_ZONE);
         final String createDate = VNP_DATE_FORMATTER.format(now);
-        final String expireDate = VNP_DATE_FORMATTER.format(now.plusMinutes(15));
+        // Hạn link = hạn thanh toán của booking (không để link sống lâu hơn booking). Booking sắp/đã hết hạn thì không tạo
+        // link chết; hạn quá xa bị chặn ở MAX_LINK_LIFETIME.
+        final Instant nowInstant = now.toInstant();
+        final Instant expiry = expiresAt == null ? nowInstant.plus(DEFAULT_LINK_LIFETIME) : expiresAt;
+        if (expiry.isBefore(nowInstant.plus(MIN_LINK_LIFETIME))) {
+            throw new BusinessException("The payment window of this booking has closed or is about to close");
+        }
+        final ZonedDateTime expireAt = expiry.isAfter(nowInstant.plus(MAX_LINK_LIFETIME))
+                ? now.plus(MAX_LINK_LIFETIME) : expiry.atZone(VIETNAM_ZONE).withNano(0);
+        final String expireDate = VNP_DATE_FORMATTER.format(expireAt);
 
         final Map<String, String> vnpParams = new HashMap<>();
         vnpParams.put("vnp_Version", "2.1.0");
@@ -70,7 +90,7 @@ public class VNPayService {
         vnpParams.put("vnp_OrderType", "other");
         vnpParams.put("vnp_Locale", "vn");
         vnpParams.put("vnp_ReturnUrl", this.vnpReturnUrl);
-        vnpParams.put("vnp_IpAddr", (ipAddress != null && !ipAddress.isBlank()) ? ipAddress : "127.0.0.1");
+        vnpParams.put("vnp_IpAddr", (ipAddress != null && !ipAddress.isBlank()) ? ipAddress : ClientIp.FALLBACK);
         vnpParams.put("vnp_CreateDate", createDate);
         vnpParams.put("vnp_ExpireDate", expireDate);
 
@@ -103,6 +123,7 @@ public class VNPayService {
                 .paymentLinkId(payment.getId().toString())
                 .paymentLinkUrl(paymentUrl)
                 .createDate(createDate)
+                .expiresAt(expireAt.toInstant())
                 .build();
     }
 

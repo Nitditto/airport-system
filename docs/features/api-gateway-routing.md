@@ -204,3 +204,7 @@ cloud/
 Không đặt entity, repository hay `@Entity` nào ở đây — đúng vai trò của Gateway là **định tuyến +
 cross-cutting concern**, không phải nơi chứa business logic. Nếu thấy mình đang viết business logic
 trong 1 filter, đó là dấu hiệu logic đang đặt sai chỗ — nên đẩy về service nghiệp vụ tương ứng.
+
+## IP thật của khách (`X-Forwarded-For`)
+
+Gateway ghi đè header `X-Forwarded-For` trên mọi route bằng IP khách (địa chỉ kết nối TCP) và bỏ giá trị client tự gửi; payment-service dùng nó cho `vnp_IpAddr`. Cấu hình `gateway.client-ip.trust-forwarded-for` (mặc định `false`): chỉ đặt `true` khi gateway đứng sau reverse proxy tin cậy đã tự ghi `X-Forwarded-For`, khi đó lấy địa chỉ IPv4/IPv6 hợp lệ đầu tiên của header (giá trị không hợp lệ bị bỏ, dùng địa chỉ kết nối).

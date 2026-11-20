@@ -14,7 +14,15 @@ import java.util.UUID;
 
 public interface PaymentService {
 
-    PaymentInitiateResponse initiatePayment(PaymentInitiateRequest request);
+    /**
+     * @param clientIp giá trị header X-Forwarded-For do gateway ghi (IP thật của khách); null/không hợp lệ thì dùng
+     *                 {@code ClientIp.FALLBACK}
+     */
+    PaymentInitiateResponse initiatePayment(PaymentInitiateRequest request, String clientIp);
+
+    default PaymentInitiateResponse initiatePayment(final PaymentInitiateRequest request) {
+        return this.initiatePayment(request, null);
+    }
 
     PaymentDTO verifyPayment(PaymentVerifyRequest request, UUID callerUserId);
 

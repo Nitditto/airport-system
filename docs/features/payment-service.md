@@ -311,6 +311,40 @@ Bù cho trường hợp cả trình duyệt lẫn IPN đều không báo kết q
 - Không tạo được link (Razorpay lỗi, VNPay chưa cấu hình...): `markLinkCreationFailed` đặt payment `FAILED` (không để `PENDING` mồ côi) rồi ném lỗi như trước. Không phát event thất bại: booking-service tự bù trừ khi `initiate` ném lỗi.
 - Giữa bước 2 và 4 payment tồn tại không có link (`checkout_url` rỗng): `initiate` gọi lặp không tái dùng payment đó. Nếu tiến trình chết đúng lúc này payment `PENDING` không link sẽ được job đối soát chuyển `FAILED` khi quá hạn.
 
+## Razorpay: quy đổi VND sang INR theo tỷ giá thị trường Việt Nam
+
+Giá vé và `payments.amount` luôn là **VND**, nhưng Razorpay thu **INR**. Trước đây số VND bị gửi đi như thể là INR (1.150.000 VND thành 1.150.000 INR), nên vượt hạn mức ("amount exceeds maximum amount allowed") hoặc sai số tiền. Nay `initiate` quy đổi trước khi tạo link:
+
+- **Nguồn tỷ giá:** bảng tỷ giá công khai của Vietcombank (XML, `fx.vietcombank-url`). Mặc định dùng cột **Transfer** (ngân hàng *mua* INR chuyển khoản: đúng chiều bên bán nhận INR rồi đổi về VND); `FX_RATE_TYPE=sell` dùng giá bán ra.
+- **Công thức:** `INR(paise) = ceil(VND × 100 × (1 + biên%) / tỷ giá)`, làm tròn **lên** để bên bán không bị thiệt vì làm tròn. Tối thiểu 1 INR.
+- **Biên an toàn** `fx.margin-percent` (`FX_MARGIN_PERCENT`, mặc định **1,0%**, cho phép 0-50): bù trượt giá giữa lúc báo giá và lúc Razorpay quyết toán (rủi ro này do bên bán chịu). Đặt `0` để thu đúng tỷ giá thị trường. Số tiền khách thấy (`chargeAmount`) đã gồm biên; `exchangeRate` là tỷ giá thị trường và `exchangeRateMarginPercent` là biên. Biên được lưu cùng payment (`fx_margin_percent`).
+- **Chặn dữ liệu lỗi:** tỷ giá mới lệch quá `fx.max-change-percent` (20%) so với tỷ giá đang dùng bị bỏ qua (log `ERROR`) và dùng tiếp tỷ giá cũ; sau một lần lấy bảng lỗi sẽ chờ 1 phút mới thử lại (không gọi Vietcombank cho từng thanh toán).
+- **Lưu cùng payment:** `charge_currency`, `charge_amount_minor` (paise), `fx_rate` (VND cho 1 INR), `fx_source`. `PaymentInitiateResponse` trả thêm `chargeCurrency`, `chargeAmount`, `exchangeRate`, `exchangeRateSource` để giao diện hiển thị "khách trả bao nhiêu INR, theo tỷ giá nào". VNPay không đổi (các trường này null).
+- **Đối chiếu lúc xác nhận:** `verify` Razorpay chỉ chấp nhận khi số tiền và loại tiền Razorpay đã thu **khớp** số đã quy đổi (payment cũ chưa có số quy đổi thì bỏ qua kiểm tra).
+- **Không đoán tỷ giá:** bảng được cache `fx.cache-minutes` (60). Lấy bảng mới lỗi thì dùng tỷ giá đã có tối đa `fx.max-stale-hours` (24) giờ; quá hạn thì dùng `FX_FALLBACK_VND_PER_INR` nếu cấu hình tay (mặc định **không có**); không còn gì đáng tin thì **từ chối** tạo thanh toán Razorpay (400). Nhánh VNPay không bị ảnh hưởng.
+- **An toàn:** đọc XML cấm DOCTYPE/thực thể ngoài; timeout ngắn (3s/5s) cho lời gọi lấy bảng.
+- `RazorpayService.createPaymentLink` từ chối payment không có số quy đổi, không bao giờ gửi VND như INR.
+- **Hoàn tiền Razorpay:** `RazorpayRefundService` gọi API refund của Razorpay, dùng chung khung hoàn tiền (bảng `refunds`, một refund/payment, SUCCESS/REJECTED/UNKNOWN, API admin retry). Số hoàn tính **theo tỷ lệ trên số INR đã thu**, không quy đổi lại theo tỷ giá hôm nay: hoàn toàn bộ trả đúng số INR đã thu; hoàn một phần trả `đã thu × (VND hoàn / VND đã trả)`. Lỗi HTTP 4xx (kể cả `BAD_REQUEST_ERROR` và 404 khi không tìm thấy payment) là `REJECTED` (chưa hoàn, retry tự do); 5xx/timeout/lỗi mạng/không đọc được là `UNKNOWN` (tiền có thể đã hoàn: admin xác nhận ở cổng rồi retry với `confirmNotRefunded=true`). Payment Razorpay tạo trước khi có số quy đổi thì ghi `FAILED` kèm lý do để hoàn tay.
+- **Đã kiểm chứng với dịch vụ thật (Razorpay test mode + bảng tỷ giá Vietcombank, 2026-11-20):** lấy được tỷ giá 274,43; link Razorpay tạo thành công và Razorpay lưu đúng số INR đã quy đổi (trước đây lỗi vượt hạn mức); hoàn tiền payment không tồn tại trả "Status Code: 404" và được phân loại `REJECTED`.
+- **Giới hạn còn lại:** chưa kiểm chứng hoàn tiền Razorpay trên một payment đã capture thật (cần khách hoàn tất thanh toán trên trang Razorpay, không tự động hoá được); phụ thuộc định dạng bảng tỷ giá của Vietcombank (đổi định dạng thì lấy tỷ giá lỗi và hệ thống dùng tỷ giá cũ tối đa 24 giờ rồi từ chối Razorpay); trượt giá vượt biên vẫn do bên bán chịu; Razorpay vẫn trừ phí giao dịch của họ khi hoàn (không do hệ thống kiểm soát). Cột mới chỉ là thêm cột nên `ddl-auto: update` tự xử lý, không cần migration.
+
+## Hạn link VNPay theo booking và IP thật của khách
+
+**Hạn link = hạn booking.** `booking.payment-window-minutes` (mặc định 15) được định nghĩa ở MỘT nơi (`PaymentWindow` trong booking-service) và dùng cho cả hạn booking lẫn hạn link, nên hai thứ không lệch nhau. booking-service gửi `PaymentInitiateRequest.expiresAt = booking.createdAt + window`; `VNPayService` đặt `vnp_ExpireDate` đúng thời điểm đó (giây). Khách không trả được sau khi booking đã hết hạn.
+
+- Booking sắp hết hạn (< 1 phút) hoặc đã hết hạn: **không tạo link chết**, `initiate` trả 400 ("payment window ... closed"). Hạn quá xa bị chặn ở 24 giờ. Không gửi `expiresAt` thì dùng 15 phút.
+- `PaymentInitiateResponse.expiresAt` trả hạn của link để frontend đếm ngược (kèm trong response tạo booking). Payment lưu `link_expires_at`.
+- **Tái dùng link** (`initiate` gọi lặp) theo hạn thật của link: còn dùng được nếu còn ≥ 1 phút trước hạn (payment cũ chưa lưu hạn: 10 phút từ lúc tạo như trước).
+- **Job đối soát** chuyển payment `PENDING` quá hạn sang `FAILED` sau *hạn link + 15 phút chờ kết quả muộn* (payment cũ: 30 phút từ lúc tạo).
+- **Razorpay** cũng đặt `expire_by` (đã thử với Razorpay test mode). Razorpay đòi hạn link cách lúc tạo ít nhất 15 phút, nên link sống `max(hạn booking, lúc tạo + 16 phút)`: với cửa sổ 15 phút link dài hơn booking tối đa ~1 phút. Thanh toán rơi vào khoảng lệch đó được booking-service tự hoàn tiền toàn bộ (xem `refund.md`, thanh toán đến muộn).
+
+**IP thật của khách (`vnp_IpAddr`).** api-gateway ghi đè `X-Forwarded-For` bằng IP khách (địa chỉ kết nối TCP) trên MỌI route, bỏ giá trị client tự gửi (chống giả IP); `gateway.client-ip.trust-forwarded-for=true` chỉ bật khi gateway đứng sau reverse proxy tin cậy (nginx...) đã tự ghi header, khi đó lấy địa chỉ hợp lệ đầu tiên. booking-service chuyển tiếp đúng header này sang payment-service (`FeignAuthForwardingConfig`, chỉ header này, không copy mọi header). payment-service chỉ nhận địa chỉ IP hợp lệ (`ClientIp`, `ClientIpPolicy`), nên dữ liệu lạ không vào được tham số được ký. Theo tài liệu VNPay `vnp_IpAddr` là Alphanumeric[7,45] và ví dụ chỉ có IPv4 (không nói rõ có nhận IPv6): địa chỉ IPv4-mapped (`::ffff:a.b.c.d`) được đổi về IPv4; **IPv6 thật mặc định KHÔNG được gửi** mà dùng `127.0.0.1` (gửi IPv6 mà VNPay từ chối thì khách không trả được tiền, nặng hơn việc mất tín hiệu chống gian lận), bật bằng `VNPAY_ALLOW_IPV6_CLIENT_IP=true` sau khi đã xác nhận với VNPay; địa chỉ ngắn hơn 7 ký tự (như `::1`) bị loại; thiếu hoặc không hợp lệ thì `127.0.0.1`.
+
+- Khi chạy qua Docker Desktop, kết nối từ máy chủ vào gateway đến từ địa chỉ cầu nối của Docker (đã thấy `172.22.0.1`), không phải IP LAN của máy: đây là hành vi của Docker chứ không phải lỗi. Môi trường thật: đặt `trust-forwarded-for` theo cấu hình reverse proxy.
+- `vnp_IpAddr` của lời gọi hoàn tiền và tra cứu là IP máy chủ gọi API (`vnpay.refund-ip-addr`), không liên quan tới IP khách.
+- Đã kiểm chứng E2E full stack (docker-compose, 2026-11-20): `vnp_ExpireDate` khớp hạn booking tới giây, `expiresAt` trong response khớp, và `X-Forwarded-For` giả (`6.6.6.6`) bị thay bằng IP kết nối thật; chữ ký link vẫn đúng.
+- Tài liệu VNPay không nêu hạn tối thiểu/tối đa cho `vnp_ExpireDate` (ví dụ của họ dùng 15 phút) và `vnp_TxnRef` chỉ cần duy nhất trong ngày (payment id là UUID nên đủ). Chưa kiểm chứng với VNPay thật việc VNPay xử lý `vnp_ExpireDate` sát ranh giới. Payment tạo trước thay đổi này chưa có `link_expires_at` (cột mới, `ddl-auto: update` tự thêm).
+
 ## 11. Việc cần làm (bám ROADMAP Section 12)
 
 **Ở `payment-service` (module mới):**

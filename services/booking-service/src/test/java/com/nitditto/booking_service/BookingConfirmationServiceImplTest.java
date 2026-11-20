@@ -56,7 +56,8 @@ class BookingConfirmationServiceImplTest {
   @BeforeEach
   void setUp() {
     this.service = new BookingConfirmationServiceImpl(this.bookingRepository, this.ticketService,
-        this.paymentClient, this.seatReservationService, Clock.fixed(NOW, ZoneOffset.UTC), 15);
+        this.paymentClient, this.seatReservationService, Clock.fixed(NOW, ZoneOffset.UTC),
+        new com.nitditto.service.PaymentWindow(15));
   }
 
   @Test

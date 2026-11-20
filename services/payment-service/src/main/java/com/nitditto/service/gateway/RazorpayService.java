@@ -8,13 +8,13 @@ import com.razorpay.RazorpayClient;
 import com.razorpay.RazorpayException;
 
 import jakarta.annotation.PostConstruct;
+import java.time.Duration;
+import java.time.Instant;
 import lombok.extern.slf4j.Slf4j;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 
 @Slf4j
 @Service
@@ -52,16 +52,40 @@ public class RazorpayService {
         return this.razorpayClient;
     }
 
+    /** Razorpay đòi {@code expire_by} cách lúc tạo ít nhất 15 phút; thêm 1 phút đệm. */
+    static final Duration MIN_LINK_LIFETIME = Duration.ofMinutes(16);
+
     public PaymentLinkResponse createPaymentLink(final UserDTO user, final Payment payment) throws RazorpayException {
-        final long amountInPaisa = BigDecimal.valueOf(payment.getAmount())
-                .multiply(BigDecimal.valueOf(100))
-                .setScale(0, RoundingMode.HALF_UP)
-                .longValueExact();
+        return this.createPaymentLink(user, payment, null);
+    }
+
+    /**
+     * @param bookingExpiry hạn thanh toán của booking: link hết hạn đúng lúc này nếu Razorpay cho phép; cửa sổ thanh toán
+     *                      ngắn hơn mức tối thiểu của Razorpay thì link sống tối thiểu {@link #MIN_LINK_LIFETIME} (lệch tối
+     *                      đa ~1 phút). Thanh toán rơi vào khoảng lệch này được booking-service tự hoàn tiền toàn bộ.
+     *                      Null = link không có hạn.
+     */
+    public PaymentLinkResponse createPaymentLink(final UserDTO user, final Payment payment, final Instant bookingExpiry)
+            throws RazorpayException {
+        return this.createPaymentLink(user, payment, bookingExpiry, Instant.now());
+    }
+
+    PaymentLinkResponse createPaymentLink(final UserDTO user, final Payment payment, final Instant bookingExpiry,
+            final Instant now) throws RazorpayException {
+        // Giá vé là VND nhưng Razorpay thu INR: số tiền ĐÃ được quy đổi (ExchangeRateService) và lưu trên payment. Không có thì
+        // từ chối chứ không bao giờ gửi số VND như thể đó là INR (lỗi cũ: 1.150.000 VND thành 1.150.000 INR).
+        if (payment.getChargeAmountMinor() == null || payment.getChargeCurrency() == null) {
+            throw new RazorpayException("Payment " + payment.getId() + " has no charge amount in the Razorpay currency");
+        }
 
         final JSONObject paymentLinkRequest = new JSONObject();
-        paymentLinkRequest.put("amount", amountInPaisa);
-        paymentLinkRequest.put("currency", "INR");
+        paymentLinkRequest.put("amount", payment.getChargeAmountMinor());
+        paymentLinkRequest.put("currency", payment.getChargeCurrency());
         paymentLinkRequest.put("description", "Payment for booking " + payment.getBookingId());
+        final Instant expireBy = expireByOf(bookingExpiry, now);
+        if (expireBy != null) {
+            paymentLinkRequest.put("expire_by", expireBy.getEpochSecond());
+        }
 
         final JSONObject customer = new JSONObject();
         customer.put("name", user.getFullName());
@@ -98,7 +122,31 @@ public class RazorpayService {
         return PaymentLinkResponse.builder()
                 .paymentLinkId(paymentLinkId)
                 .paymentLinkUrl(paymentLinkUrl)
+                .expiresAt(expireBy)
                 .build();
+    }
+
+    /** Hạn link gửi cho Razorpay: hạn booking, nhưng không sớm hơn now + {@link #MIN_LINK_LIFETIME}; null nếu không có hạn. */
+    public static Instant expireByOf(final Instant bookingExpiry, final Instant now) {
+        if (bookingExpiry == null) {
+            return null;
+        }
+        final Instant earliestAllowed = now.plus(MIN_LINK_LIFETIME);
+        final Instant expireBy = bookingExpiry.isBefore(earliestAllowed) ? earliestAllowed : bookingExpiry;
+        return expireBy.truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+    }
+
+    /**
+     * Hoàn một phần hoặc toàn bộ một payment đã capture. {@code amountMinor} theo đơn vị nhỏ nhất của loại tiền đã thu (paise).
+     * {@code receipt} (id yêu cầu của hệ thống) được Razorpay lưu kèm để đối chiếu.
+     */
+    public JSONObject refundPayment(final String razorpayPaymentId, final long amountMinor, final String receipt)
+            throws RazorpayException {
+        final JSONObject request = new JSONObject();
+        request.put("amount", amountMinor);
+        request.put("speed", "normal");
+        request.put("receipt", receipt);
+        return this.client().payments.refund(razorpayPaymentId, request).toJson();
     }
 
     public JSONObject fetchPaymentDetails(final String razorpayPaymentId) throws RazorpayException {

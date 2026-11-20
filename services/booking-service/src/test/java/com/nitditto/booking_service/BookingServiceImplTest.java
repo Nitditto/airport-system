@@ -94,6 +94,7 @@ class BookingServiceImplTest {
   private final UUID userId = UUID.randomUUID();
   private final UUID airlineId = UUID.randomUUID();
   private final UUID bookingId = UUID.randomUUID();
+  private static final java.time.Instant BOOKING_CREATED_AT = java.time.Instant.parse("2026-11-20T03:00:00Z");
   private final UUID seatA = UUID.randomUUID();
   private final UUID seatB = UUID.randomUUID();
 
@@ -102,7 +103,7 @@ class BookingServiceImplTest {
     this.service = new BookingServiceImpl(this.bookingRepository, this.passengerService, this.ticketService,
         this.flightClient, this.seatClient, this.ancillaryClient, this.paymentClient, this.fareIntegrationService,
         this.airlineClient, this.seatReservationService, this.bookingEnrichmentService,
-        this.bookingConfirmationService, this.paymentSettlementService, this.bookingCreationService, this.bookingRefundService,
+        this.bookingConfirmationService, new com.nitditto.service.PaymentWindow(15), this.paymentSettlementService, this.bookingCreationService, this.bookingRefundService,
         this.bookingCancellationService);
   }
 
@@ -119,6 +120,20 @@ class BookingServiceImplTest {
     // 2 hành khách x 1000 + phụ thu ghế 150 + hành lý/bảo hiểm 80 + suất ăn 20
     assertThat(captor.getValue().getAmount()).isEqualTo(2 * 1000.0 + 150.0 + 80.0 + 20.0);
     assertThat(captor.getValue().getBookingId()).isEqualTo(this.bookingId);
+  }
+
+  @Test
+  void createBooking_makesThePaymentLinkExpireWhenTheBookingDoes_notAnIndependentTimer() {
+    givenFlightAndPrices(1000.0, 150.0);
+    givenBookingIsCreated();
+    givenPaymentIsInitiated();
+
+    this.service.createBooking(request(this.seatA, this.seatB), this.userId);
+
+    final ArgumentCaptor<PaymentInitiateRequest> captor = ArgumentCaptor.forClass(PaymentInitiateRequest.class);
+    verify(this.paymentClient).initiatePayment(captor.capture());
+    // booking.payment-window-minutes = 15 (cùng một PaymentWindow quyết định cả hạn booking lẫn hạn link)
+    assertThat(captor.getValue().getExpiresAt()).isEqualTo(BOOKING_CREATED_AT.plusSeconds(15 * 60));
   }
 
   @Test
@@ -358,6 +373,7 @@ class BookingServiceImplTest {
       final Booking booking = new Booking();
       booking.setId(this.bookingId);
       booking.setBookingReference("BKTEST001");
+      booking.setCreatedAt(BOOKING_CREATED_AT);
       return booking;
     });
   }
