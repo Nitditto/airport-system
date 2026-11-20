@@ -26,4 +26,11 @@ public interface BookingRefundService {
   }
 
   Outcome refundForCancellation(Booking booking, UUID requesterUserId);
+
+  /**
+   * Hoàn TOÀN BỘ số đã trả cho booking không thể thực hiện (thanh toán đến sau khi booking đã huỷ/hết hạn, hoặc ghế đã mất).
+   * Không áp chính sách hoàn vé: lỗi không thuộc về khách. Idempotent theo payment (payment-service chỉ nhận một refund cho
+   * mỗi payment); payment đã hoàn hoặc không phải SUCCESS thì bỏ qua. Lỗi gọi payment-service nổi lên để người gọi thử lại.
+   */
+  void refundUnfulfillablePayment(UUID bookingId, String reason);
 }
