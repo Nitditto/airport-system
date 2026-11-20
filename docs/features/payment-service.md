@@ -304,6 +304,13 @@ Bù cho trường hợp cả trình duyệt lẫn IPN đều không báo kết q
 - Một instance payment-service thì an toàn; nhiều instance cùng chạy có thể cùng hỏi một payment, ràng buộc `paid_booking_id` chặn ghi thành công hai lần.
 - Không áp dụng cho Razorpay.
 
+## Transaction của `initiatePayment`
+
+`initiatePayment` **không chạy trong transaction DB** (`Propagation.NOT_SUPPORTED`, CLAUDE.md §8.5/§8.6). Luồng: (1) Razorpay: lấy người dùng từ user-service (Feign, ngoài transaction, thiếu dữ liệu thì từ chối trước khi ghi gì); (2) `PaymentRecordService.createPending` ghi payment `PENDING` và commit; (3) tạo link ở cổng (VNPay ký tại chỗ, Razorpay gọi HTTP) ngoài transaction; (4) `attachLink` ghi link và ngày tạo giao dịch VNPay (transaction ngắn thứ hai). Nhờ vậy không giữ kết nối DB trong lúc chờ mạng.
+
+- Không tạo được link (Razorpay lỗi, VNPay chưa cấu hình...): `markLinkCreationFailed` đặt payment `FAILED` (không để `PENDING` mồ côi) rồi ném lỗi như trước. Không phát event thất bại: booking-service tự bù trừ khi `initiate` ném lỗi.
+- Giữa bước 2 và 4 payment tồn tại không có link (`checkout_url` rỗng): `initiate` gọi lặp không tái dùng payment đó. Nếu tiến trình chết đúng lúc này payment `PENDING` không link sẽ được job đối soát chuyển `FAILED` khi quá hạn.
+
 ## 11. Việc cần làm (bám ROADMAP Section 12)
 
 **Ở `payment-service` (module mới):**

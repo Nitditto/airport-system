@@ -69,7 +69,8 @@ class PaymentServiceImplTest {
     ReflectionTestUtils.setField(vnPayService, "vnpTmnCode", "TESTTMN");
     ReflectionTestUtils.setField(vnPayService, "vnpHashSecret", SECRET);
     this.service = new PaymentServiceImpl(this.paymentRepository, this.razorpayService, vnPayService,
-        this.eventPublisher, this.userClient, CLOCK);
+        this.eventPublisher, this.userClient, CLOCK,
+        new com.nitditto.service.impl.PaymentRecordServiceImpl(this.paymentRepository));
 
     this.payment = Payment.builder().userId(UUID.randomUUID()).bookingId(this.bookingId).amount(250.0)
         .status(PaymentStatus.PENDING).build();
@@ -301,13 +302,7 @@ class PaymentServiceImplTest {
   @Test
   void initiate_createsANewPayment_whenTheOldLinkIsTooCloseToExpiry() {
     givenPendingFor(pendingLink(CLOCK.instant().minusSeconds(11 * 60)));
-    when(this.paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
-      final Payment saved = inv.getArgument(0);
-      if (saved.getId() == null) {
-        saved.setId(UUID.randomUUID());
-      }
-      return saved;
-    });
+    givenSaveAssignsIds();
 
     final var response = this.service.initiatePayment(initiateRequest());
 
@@ -322,13 +317,7 @@ class PaymentServiceImplTest {
     final Payment pending = pendingLink(CLOCK.instant().minusSeconds(60));
     pending.setAmount(999.0);
     givenPendingFor(pending);
-    when(this.paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
-      final Payment saved = inv.getArgument(0);
-      if (saved.getId() == null) {
-        saved.setId(UUID.randomUUID());
-      }
-      return saved;
-    });
+    givenSaveAssignsIds();
 
     final var response = this.service.initiatePayment(initiateRequest());
 
@@ -498,6 +487,21 @@ class PaymentServiceImplTest {
         org.mockito.Mockito.mock(com.nitditto.service.RefundService.class)).vnpayIpn(Map.of());
 
     assertThat(response.getBody().RspCode()).isEqualTo("99");
+  }
+
+  // save() gán id như JPA; findById() trả lại payment vừa lưu (bước attachLink nạp lại payment theo id).
+  private void givenSaveAssignsIds() {
+    final java.util.Map<UUID, Payment> store = new java.util.HashMap<>();
+    when(this.paymentRepository.save(any(Payment.class))).thenAnswer(inv -> {
+      final Payment saved = inv.getArgument(0);
+      if (saved.getId() == null) {
+        saved.setId(UUID.randomUUID());
+      }
+      store.put(saved.getId(), saved);
+      return saved;
+    });
+    when(this.paymentRepository.findById(any(UUID.class)))
+        .thenAnswer(inv -> Optional.ofNullable(store.get(inv.<UUID>getArgument(0))));
   }
 
   private void givenPaymentFound() {
