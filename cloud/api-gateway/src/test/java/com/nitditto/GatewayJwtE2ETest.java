@@ -466,6 +466,18 @@ class GatewayJwtE2ETest {
     }
 
     @Test
+    void vnpayIpn_isForwardedWithoutToken_butOnlyForGet() throws Exception {
+      final HttpResponse<String> response = send("GET", "/api/payments/vnpay-ipn?vnp_TxnRef=x", null,
+          Map.of("X-User-Id", SPOOFED), null);
+
+      assertThat(response.statusCode()).isEqualTo(200);
+      assertThat(RECEIVED).hasSize(1);
+      assertThat(RECEIVED.get(0).headers("X-User-Id")).isEmpty();
+      assertThat(send("POST", "/api/payments/vnpay-ipn", null, Map.of(), "{}").statusCode()).isEqualTo(401);
+      assertThat(send("GET", "/api/payments/vnpay-ipn/../initiate", null, Map.of(), null).statusCode()).isEqualTo(401);
+    }
+
+    @Test
     void writesOnPublicPaths_stillRequireAuthentication() throws Exception {
       assertThat(send("POST", "/api/airports", null, Map.of(), "{}").statusCode()).isEqualTo(401);
       assertThat(send("DELETE", "/api/airports/" + UUID.randomUUID(), null, Map.of(), null).statusCode())

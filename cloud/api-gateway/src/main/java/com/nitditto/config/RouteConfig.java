@@ -61,7 +61,9 @@ public class RouteConfig {
             new PublicRead(HttpMethod.GET, Pattern.compile("^/api/flight-instances/search/?$")),
             new PublicRead(HttpMethod.GET, Pattern.compile("^/api/cabin-classes/aircraft/[^/]+/?$")),
             new PublicRead(HttpMethod.POST, Pattern.compile("^/api/fares/search/?$")),
-            new PublicRead(HttpMethod.GET, Pattern.compile("^/api/payments/check-payment-vnpay/?$")));
+            new PublicRead(HttpMethod.GET, Pattern.compile("^/api/payments/check-payment-vnpay/?$")),
+            // IPN của VNPay (server gọi server, không có JWT): payment-service kiểm chữ ký trước khi làm gì.
+            new PublicRead(HttpMethod.GET, Pattern.compile("^/api/payments/vnpay-ipn/?$")));
 
     private record PublicRead(HttpMethod method, Pattern path) {
     }

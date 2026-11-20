@@ -373,6 +373,133 @@ class PaymentServiceImplTest {
     verify(this.eventPublisher, never()).publishEvent(any(Object.class));
   }
 
+  // ---- IPN của VNPay (server-to-server) ----
+
+  @Test
+  void ipn_success_updatesThePayment_andPublishesOnce_evenIfTheCustomerNeverComesBack() {
+    givenPaymentFound();
+
+    final var response = this.service.handleVnpayIpn(vnpResult("00", 25000));
+
+    assertThat(response.RspCode()).isEqualTo("00");
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+    verify(this.eventPublisher, times(1)).publishEvent(any(PaymentSucceededEvent.class));
+  }
+
+  @Test
+  void ipn_calledAgain_answers02_andDoesNotPublishAgain() {
+    givenPaymentFound();
+
+    this.service.handleVnpayIpn(vnpResult("00", 25000));
+    final var second = this.service.handleVnpayIpn(vnpResult("00", 25000));
+
+    assertThat(second.RspCode()).isEqualTo("02");
+    verify(this.eventPublisher, times(1)).publishEvent(any(Object.class));
+  }
+
+  @Test
+  void ipn_afterTheBrowserAlreadyConfirmed_answers02() {
+    givenPaymentFound();
+    this.service.checkPaymentVNPay(vnpResult("00", 25000));
+
+    assertThat(this.service.handleVnpayIpn(vnpResult("00", 25000)).RspCode()).isEqualTo("02");
+    verify(this.eventPublisher, times(1)).publishEvent(any(Object.class));
+  }
+
+  @Test
+  void ipn_invalidSignature_answers97_andTouchesNothing() {
+    final Map<String, String> params = vnpResult("00", 25000);
+    params.put("vnp_Amount", "100"); // đổi sau khi ký
+
+    assertThat(this.service.handleVnpayIpn(params).RspCode()).isEqualTo("97");
+    verify(this.paymentRepository, never()).findById(any(UUID.class));
+    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
+  }
+
+  @Test
+  void ipn_missingSignature_answers97() {
+    final Map<String, String> params = vnpResult("00", 25000);
+    params.remove("vnp_SecureHash");
+
+    assertThat(this.service.handleVnpayIpn(params).RspCode()).isEqualTo("97");
+  }
+
+  @Test
+  void ipn_unknownPayment_answers01() {
+    when(this.paymentRepository.findById(this.payment.getId())).thenReturn(Optional.empty());
+
+    assertThat(this.service.handleVnpayIpn(vnpResult("00", 25000)).RspCode()).isEqualTo("01");
+    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
+  }
+
+  @Test
+  void ipn_validlySignedButWrongAmount_answers04_andDoesNotConfirm() {
+    givenPaymentFound();
+
+    assertThat(this.service.handleVnpayIpn(vnpResult("00", 100)).RspCode()).isEqualTo("04");
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
+  }
+
+  @Test
+  void ipn_cancelledByCustomer_marksFailed_andAnswers00() {
+    givenPaymentFound();
+
+    assertThat(this.service.handleVnpayIpn(vnpResult("24", 25000)).RspCode()).isEqualTo("00");
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+    verify(this.eventPublisher, times(1)).publishEvent(any(PaymentFailedEvent.class));
+  }
+
+  @Test
+  void ipn_aLateSuccess_afterTheBrowserReportedFailure_stillConfirmsThePayment() {
+    givenPaymentFound();
+    this.payment.setStatus(PaymentStatus.FAILED);
+
+    assertThat(this.service.handleVnpayIpn(vnpResult("00", 25000)).RspCode()).isEqualTo("00");
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+  }
+
+  @Test
+  void ipn_aRepeatedFailureOnAnAlreadyFailedPayment_answers02() {
+    givenPaymentFound();
+    this.payment.setStatus(PaymentStatus.FAILED);
+
+    assertThat(this.service.handleVnpayIpn(vnpResult("24", 25000)).RspCode()).isEqualTo("02");
+  }
+
+  @Test
+  void ipn_neverChangesAPaymentThatWasRefunded() {
+    givenPaymentFound();
+    this.payment.setStatus(PaymentStatus.REFUNDED);
+
+    assertThat(this.service.handleVnpayIpn(vnpResult("00", 25000)).RspCode()).isEqualTo("02");
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+  }
+
+  @Test
+  void ipn_aSecondSuccessForAPaidBooking_isRecordedAsDuplicate_andStillAcknowledged() {
+    givenPaymentFound();
+    final Payment first = pendingLink(CLOCK.instant());
+    first.setStatus(PaymentStatus.SUCCESS);
+    when(this.paymentRepository.findByBookingIdAndStatusIn(this.bookingId,
+        List.of(PaymentStatus.SUCCESS, PaymentStatus.REFUNDED))).thenReturn(List.of(first));
+
+    assertThat(this.service.handleVnpayIpn(vnpResult("00", 25000)).RspCode()).isEqualTo("00");
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.DUPLICATE);
+    verify(this.eventPublisher, never()).publishEvent(any(Object.class));
+  }
+
+  @Test
+  void ipnEndpoint_answers99_whenTheServiceFailsUnexpectedly_soVnpayRetries() {
+    final com.nitditto.service.PaymentService failing = org.mockito.Mockito.mock(com.nitditto.service.PaymentService.class);
+    when(failing.handleVnpayIpn(any())).thenThrow(new IllegalStateException("db down"));
+
+    final var response = new com.nitditto.controller.PaymentController(failing,
+        org.mockito.Mockito.mock(com.nitditto.service.RefundService.class)).vnpayIpn(Map.of());
+
+    assertThat(response.getBody().RspCode()).isEqualTo("99");
+  }
+
   private void givenPaymentFound() {
     when(this.paymentRepository.findById(this.payment.getId())).thenReturn(Optional.of(this.payment));
   }

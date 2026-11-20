@@ -268,6 +268,42 @@ chưa có luồng refund (xem §10) — giữ nguyên trong enum cho tương lai
 - **Chặn thu hai lần:** `payments.paid_booking_id` (unique, chỉ gán khi `SUCCESS`, `NULL` ở các dòng còn lại) để MySQL bảo đảm một booking chỉ có một payment thành công kể cả khi hai kết quả về song song. Nếu code thấy booking đã có payment `SUCCESS`/`REFUNDED` khác thì payment mới về được ghi là `DUPLICATE` (khách đã bị trừ tiền, không phát event, không đụng booking) và có log `ERROR`; **admin hoàn tay** vì module refund chỉ hoàn payment trả tiền chính của booking.
 - Còn thiếu: hai `initiate` song song hoàn toàn đồng thời vẫn có thể tạo hai payment `PENDING` (lớp ngoài là `Idempotency-Key` của booking); chưa có endpoint liệt kê/hoàn `DUPLICATE`; chưa có IPN nên khách trả mà đóng tab vẫn phụ thuộc việc quay lại trang kết quả.
 
+## IPN của VNPay
+
+`GET /api/payments/vnpay-ipn` (công khai ở gateway, không JWT): VNPay gọi server-to-server sau khi khách trả tiền, nên payment được cập nhật dù khách đóng tab và không quay lại trang kết quả. Dùng chung logic ghi kết quả với `check-payment-vnpay`, nên một kết quả không bị xử lý hai lần (gồm cả khi trình duyệt và IPN cùng về).
+
+| RspCode | Khi nào | VNPay làm gì |
+|---|---|---|
+| `00` | Đã ghi nhận (kể cả khi payment bị ghi `DUPLICATE`) | dừng |
+| `01` | `vnp_TxnRef` không có payment | gọi lại |
+| `02` | Đã chốt trước đó: `SUCCESS`/`REFUNDED`/`DUPLICATE`, hoặc `FAILED` mà IPN vẫn báo thất bại | dừng |
+| `04` | Số tiền ký không khớp payment (không ghi nhận) | gọi lại |
+| `97` | Sai/thiếu chữ ký (kiểm trước khi chạm DB) | gọi lại |
+| `99` | Lỗi không lường trước | gọi lại |
+
+- Response là JSON thô `{"RspCode","Message"}` do VNPay quy định, **không** bọc `ApiResponse` (ngoại lệ có chủ ý của quy ước §15).
+- Payment `FAILED` vẫn được đổi thành `SUCCESS` nếu IPN báo thành công muộn; payment đã `SUCCESS`/`REFUNDED`/`DUPLICATE` không bao giờ bị đổi.
+- **Cấu hình ở cổng merchant của VNPay:** điền URL IPN công khai trỏ tới gateway, dạng `https://<domain>/api/payments/vnpay-ipn`. Không có URL công khai thì VNPay không gọi được (localhost không dùng được; khi thử cần tunnel như ngrok). Chưa kiểm chứng với VNPay thật.
+- Chưa có: job tra cứu giao dịch chủ động (querydr) cho payment `PENDING` mà IPN cũng không tới.
+
+## Job đối soát payment VNPay (`PendingPaymentReconciler`)
+
+Bù cho trường hợp cả trình duyệt lẫn IPN đều không báo kết quả: cứ 2 phút (cấu hình được) job hỏi VNPay (API `querydr`) về các payment VNPay còn `PENDING`, tạo từ 2 phút đến 48 giờ trước, và chưa được hỏi trong 5 phút gần nhất (hỏi lâu chưa hỏi trước, tối đa 50 payment/lượt). Job **chỉ hỏi cổng, không đoán kết quả**; gọi cổng nằm ngoài transaction DB, mỗi payment áp kết quả trong transaction riêng nên một payment lỗi không chặn các payment khác.
+
+| Kết quả VNPay | Hành động |
+|---|---|
+| Thành công (`vnp_TransactionStatus=00`) và `vnp_Amount` khớp | `SUCCESS` như IPN (phát event, booking được xác nhận) |
+| Thành công nhưng số tiền không khớp | **Không xác nhận**, log `ERROR`, xem tay |
+| Thất bại (`02`) | `FAILED` |
+| Chưa hoàn tất (`01`) hoặc không có giao dịch (mã `91`) | Giữ `PENDING`; sau 30 phút kể từ lúc tạo (link đã hết hạn) thì `FAILED` |
+| Mọi thứ khác (lỗi mạng, sai chữ ký phản hồi, mã lạ, trạng thái `04/05/06/07/09`) | Không đổi gì, log `WARN`, xem ở cổng merchant |
+
+- Cấu hình: `payment.reconcile.enabled` (`PAYMENT_RECONCILE_ENABLED`), `interval-ms`, `min-age-minutes`, `requery-interval-minutes`, `max-age-hours`, `batch-size`; `vnpay.query-url`, `vnpay.query-verify-response` (tắt kiểm chữ ký phản hồi nếu định dạng thực tế khác).
+- Payment `FAILED` do job vẫn được đổi thành `SUCCESS` nếu IPN/trình duyệt báo thành công muộn.
+- **Chưa kiểm chứng với VNPay thật.** Thứ tự trường ký lấy từ tài liệu công khai (trang đó ghi công thức chữ ký phản hồi thiếu một toán tử, cần đối chiếu với sandbox).
+- Một instance payment-service thì an toàn; nhiều instance cùng chạy có thể cùng hỏi một payment, ràng buộc `paid_booking_id` chặn ghi thành công hai lần.
+- Không áp dụng cho Razorpay.
+
 ## 11. Việc cần làm (bám ROADMAP Section 12)
 
 **Ở `payment-service` (module mới):**

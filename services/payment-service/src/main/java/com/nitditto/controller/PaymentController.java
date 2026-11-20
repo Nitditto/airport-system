@@ -10,10 +10,12 @@ import com.nitditto.enums.RefundStatus;
 import com.nitditto.payload.request.RefundRequest;
 import com.nitditto.payload.response.RefundResponse;
 import com.nitditto.service.PaymentService;
+import com.nitditto.service.gateway.VnpayIpnResponse;
 import com.nitditto.service.RefundService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 import java.util.Map;
@@ -33,6 +35,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/payments")
 @RequiredArgsConstructor
@@ -86,6 +89,20 @@ public class PaymentController {
             @RequestParam(defaultValue = "20") final int size) {
         final Pageable pageable = PageRequest.of(page, Math.min(size, 100), Sort.by(Sort.Direction.DESC, "createdAt"));
         return ResponseEntity.ok(ApiResponse.success(this.refundService.list(status, pageable)));
+    }
+
+    /**
+     * IPN của VNPay (URL cấu hình trong cổng merchant). Công khai ở gateway (VNPay không có JWT): an toàn nhờ chữ ký. Trả
+     * JSON thô {RspCode, Message} theo định dạng VNPay đọc, không bọc ApiResponse. Lỗi bất ngờ trả 99 để VNPay gọi lại.
+     */
+    @GetMapping("/vnpay-ipn")
+    public ResponseEntity<VnpayIpnResponse> vnpayIpn(@RequestParam final Map<String, String> allParams) {
+        try {
+            return ResponseEntity.ok(this.paymentService.handleVnpayIpn(allParams));
+        } catch (final RuntimeException ex) {
+            log.error("VNPay IPN failed unexpectedly", ex);
+            return ResponseEntity.ok(VnpayIpnResponse.UNKNOWN_ERROR);
+        }
     }
 
     @PostMapping("/batch-by-ids")
