@@ -15,6 +15,7 @@ import com.nitditto.service.CabinClassService;
 
 import lombok.RequiredArgsConstructor;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -84,6 +85,23 @@ public class CabinClassServiceImpl implements CabinClassService {
                         "CabinClass", "aircraftId+name", aircraftId + "/" + name));
         SeatMap seatMap = seatMapRepository.findByCabinClassId(cabinClass.getId()).orElse(null);
         return CabinClassMapper.toResponse(cabinClass, seatMap);
+    }
+
+    @Override
+    public Map<UUID, CabinClassResponse> getBookableByAircraftIds(final List<UUID> aircraftIds,
+            final CabinClassType name) {
+        if (aircraftIds == null || aircraftIds.isEmpty()) {
+            return Map.of();
+        }
+        // Một query IN; một máy bay chỉ có tối đa một hạng mỗi loại (xem createCabinClass).
+        final Map<UUID, CabinClassResponse> responseByAircraftId = new HashMap<>();
+        for (final CabinClass cabinClass : this.cabinClassRepository
+                .findByAircraftIdInAndName(aircraftIds.stream().distinct().toList(), name)) {
+            if (Boolean.TRUE.equals(cabinClass.getIsActive()) && Boolean.TRUE.equals(cabinClass.getIsBookable())) {
+                responseByAircraftId.put(cabinClass.getAircraftId(), CabinClassMapper.toResponse(cabinClass, null));
+            }
+        }
+        return responseByAircraftId;
     }
 
     @Override

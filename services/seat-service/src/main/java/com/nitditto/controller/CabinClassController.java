@@ -1,6 +1,7 @@
 package com.nitditto.controller;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
@@ -12,9 +13,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.nitditto.enums.CabinClassType;
+import com.nitditto.exception.BusinessException;
 import com.nitditto.payload.request.CabinClassRequest;
 import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.CabinClassResponse;
@@ -27,6 +30,8 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/api/cabin-classes")
 @RequiredArgsConstructor
 public class CabinClassController {
+
+    private static final int MAX_BATCH_SIZE = 200;
 
     private final CabinClassService cabinClassService;
 
@@ -50,6 +55,18 @@ public class CabinClassController {
             @PathVariable("id") UUID id) {
         return ResponseEntity.ok(
                 ApiResponse.success(this.cabinClassService.getByAircraftIdAndName(id, name)));
+    }
+
+    // Nội bộ (flight-ops gọi): không thêm vào nhóm route customer ở gateway.
+    @PostMapping("/batch-by-aircraft-ids")
+    public ResponseEntity<ApiResponse<Map<UUID, CabinClassResponse>>> getBookableByAircraftIds(
+            @RequestParam("cabinClass") final CabinClassType cabinClass,
+            @RequestBody final List<UUID> aircraftIds) {
+        if (aircraftIds.size() > MAX_BATCH_SIZE) {
+            throw new BusinessException("Cannot load more than %d aircraft at once".formatted(MAX_BATCH_SIZE));
+        }
+        return ResponseEntity.ok(ApiResponse.success(
+                this.cabinClassService.getBookableByAircraftIds(aircraftIds, cabinClass)));
     }
 
     @GetMapping("/aircraft/{id}")
