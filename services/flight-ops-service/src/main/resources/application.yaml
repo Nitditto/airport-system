@@ -1,6 +1,8 @@
 server:
   port: 5003
 spring:
+  config:
+    import: "${CONFIG_IMPORT_MODE:optional:}configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
   application:
     name: flight-ops-service
 

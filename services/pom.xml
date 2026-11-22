@@ -18,6 +18,14 @@
     <name/>
     <description/>
 
+    <dependencies>
+        <!-- Config client: lấy cấu hình dùng chung từ cloud/config-server (spring.config.import trong application.yaml). -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-config</artifactId>
+        </dependency>
+    </dependencies>
+
     <modules>
         <module>user-service</module>
         <module>location-service</module>

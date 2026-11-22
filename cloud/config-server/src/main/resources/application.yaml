@@ -1,0 +1,21 @@
+server:
+  port: 8888
+
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: native
+  cloud:
+    config:
+      server:
+        native:
+          # Chạy từ module (mvn -pl cloud/config-server spring-boot:run) thì config-repo nằm ở ../../config-repo;
+          # trong Docker compose set CONFIG_REPO_PATH=/config-repo (thư mục được mount vào container).
+          search-locations: file:${CONFIG_REPO_PATH:../../config-repo}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

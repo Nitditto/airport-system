@@ -1,0 +1,4 @@
+# Tên topic Kafka (CLAUDE.md §9: <domain>.<entity>.<action>).
+kafka:
+  topics:
+    flight-instance-created: flight.instance.created
