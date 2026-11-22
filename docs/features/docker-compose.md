@@ -104,6 +104,7 @@ Các `application.yaml` hardcode `localhost` để chạy local bằng IDE. Tron
 | `SPRING_DATASOURCE_PASSWORD` | 9 service nghiệp vụ | Mặc định `123456`, đổi qua `MYSQL_ROOT_PASSWORD` |
 | `EUREKA_CLIENT_SERVICEURL_DEFAULTZONE` | 9 service nghiệp vụ | `http://service-registry:8761/eureka/` |
 | `EUREKA_URL` | `api-gateway` | Yaml của gateway đã có placeholder `${EUREKA_URL:...}` |
+| `CONFIG_SERVER_URL`, `CONFIG_IMPORT_MODE` | 9 service nghiệp vụ, `api-gateway` | `http://config-server:8888` và rỗng (bỏ `optional:` để config-server là bắt buộc). Xem `config-server.md` |
 | `JWT_SECRET` | `user-service`, `api-gateway` | **Phải giống nhau** (user ký, gateway verify). Thiếu thì compose từ chối chạy |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | `user-service` | Seed tài khoản admin đầu tiên; để trống = không seed |
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | `payment-service` | Key Razorpay test |
@@ -130,13 +131,13 @@ Biến điều khiển chính compose (đặt trong `.env` hoặc shell):
 
 ```
 mysql (healthy) ──┐
-                  ├──▶ 9 service nghiệp vụ
-service-registry ─┤        (started)
-                  └──▶ api-gateway (chỉ chờ service-registry)
+service-registry ─┼──▶ 9 service nghiệp vụ
+config-server ────┤   (healthy)
+                  └──▶ api-gateway (chờ service-registry, config-server)
 ```
 
 - MySQL có healthcheck (`mysqladmin ping`); các service nghiệp vụ dùng `condition: service_healthy`, tránh crash vì kết nối DB khi MySQL chưa sẵn sàng.
-- `service-registry` chỉ chờ `service_started` — image Jib không có `curl` nên chưa có healthcheck. Eureka client tự retry đăng ký, vài giây đầu có thể thấy warning kết nối registry.
+- `config-server` có healthcheck (bash `/dev/tcp` gọi `/actuator/health`, vì image Jib không có curl) và các service chờ `service_healthy`, nên không lao vào kết nối khi JVM chưa lắng nghe :8888. `service-registry` chỉ chờ `service_started` (chưa có healthcheck; có thể làm giống config-server). Eureka client tự retry đăng ký, vài giây đầu có thể thấy warning kết nối registry.
 - Service đăng ký với Eureka bằng IP container (`prefer-ip-address: true`) nên gateway và Feign gọi chéo được trong mạng compose. Sau khi khởi động, đợi khoảng 30–60 giây để gateway thấy đủ instance.
 
 ## 8. Xử lý sự cố
@@ -157,9 +158,9 @@ service-registry ─┤        (started)
 
 - Compose chỉ phục vụ **dev/demo**: mật khẩu MySQL mặc định `123456`, `ddl-auto: update`. Không dùng nguyên trạng cho production.
 - Image dùng tag `SNAPSHOT`, chưa push lên registry, chưa có CI/CD.
-- Chưa healthcheck cho Eureka và các service nghiệp vụ.
+- Mới có healthcheck cho `mysql`, `kafka` và `config-server`; Eureka và các service nghiệp vụ chưa có.
 - Frontend build bằng `Dockerfile` riêng, `VITE_*` nhúng lúc build nên đổi biến phải `--build` lại.
-- Chưa có config server; mọi cấu hình đi qua env của compose.
+- Config server dạng `native` (thư mục `config-repo/`), chưa có Git remote hay refresh runtime; secret và giá trị phụ thuộc môi trường vẫn đi qua env của compose (xem `config-server.md`).
 - Mới xác nhận `docker compose config` hợp lệ; chưa chạy thử `docker compose up` đầy đủ.
 
 ## 10. Dev chỉ cần MySQL

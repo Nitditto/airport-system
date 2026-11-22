@@ -15,6 +15,7 @@ File này chứa **rule và convention** cho Claude Code khi làm việc với r
 | Ngôn ngữ / framework | Java 17, Spring Boot 4.0.7, Spring Cloud 2025.1.0 |
 | Persistence | MySQL 8.4 + Spring Data JPA (Hibernate 7, `ddl-auto: update` — chỉ dev) |
 | Service Registry | Spring Cloud Netflix Eureka (`cloud/service-registry`, :8761) |
+| Config tập trung | Spring Cloud Config Server, profile `native` đọc thư mục `config-repo/` (`cloud/config-server`, :8888) — xem [§20](#20-centralized-config) |
 | API Gateway | Spring Cloud Gateway **Server MVC** (servlet, không phải WebFlux) (`cloud/api-gateway`, :5000) — verify JWT tập trung |
 | Gọi đồng bộ giữa service | Spring Cloud OpenFeign (Apache HttpClient 5), resolve qua Eureka |
 | Event bất đồng bộ | Apache Kafka 4.1 KRaft (`localhost:9092` từ host / `kafka:29092` trong Docker network) + `spring-kafka` |
@@ -24,7 +25,7 @@ File này chứa **rule và convention** cho Claude Code khi làm việc với r
 
 ### Ngoài phạm vi kiến trúc hiện tại
 
-Không giả định các thành phần sau tồn tại: **Config Server** (module đang comment trong `cloud/pom.xml`), Redis, Resilience4j/circuit breaker, Flyway/Liquibase, PostgreSQL, MapStruct, OpenAPI/Swagger, distributed tracing, CI/CD. Khi cần một trong số này, hỏi trước — đừng tự thêm dependency.
+Không giả định các thành phần sau tồn tại: Redis, Resilience4j/circuit breaker, Flyway/Liquibase, PostgreSQL, MapStruct, OpenAPI/Swagger, distributed tracing, CI/CD. Khi cần một trong số này, hỏi trước — đừng tự thêm dependency.
 
 ## 3. Repository & Module Structure
 
@@ -35,6 +36,7 @@ microservices/
 ├── pom.xml                     # Parent POM — version tập trung (java, spring-boot, spring-cloud, jib)
 ├── docker-compose.yml          # Full stack: MySQL + Kafka + Eureka + Gateway + 9 service (+ FE với --profile full)
 ├── docker-compose.dev.yml      # Chỉ hạ tầng (MySQL :3306, Kafka :9092) — chạy service từ IDE
+├── config-repo/                # Cấu hình tập trung do config-server phục vụ (application.yaml dùng chung + <service>.yaml)
 ├── docker/mysql/init.sql       # Tạo database cho từng service
 ├── docker/mysql/migrations/    # Script SQL chạy tay cho DB dev đã tồn tại (xem §17) — KHÔNG mount vào initdb
 ├── common-lib/                 # Shared jar — mọi service phụ thuộc
@@ -49,6 +51,7 @@ microservices/
 │           └── event/          # Integration event (Kafka) dùng bởi ≥ 2 service — xem §9
 ├── cloud/
 │   ├── service-registry/       # Eureka Server
+│   ├── config-server/          # Spring Cloud Config Server (native, đọc ../../config-repo)
 │   └── api-gateway/            # Routing + JWT filter + phân quyền theo role (RouteConfig)
 └── services/
 ```
@@ -59,6 +62,7 @@ microservices/
 |---|---|---|---|
 | `cloud/api-gateway` | 5000 | Routing, central JWT filter, role check | — |
 | `cloud/service-registry` | 8761 | Eureka Server | — |
+| `cloud/config-server` | 8888 | Config tập trung (không publish ra host trong compose) | — |
 | `user-service` | 5001 | Auth (`/auth/**`), phát hành JWT, User | `airline_user` |
 | `airline-core-service` | 5002 | Airline, Aircraft | `airline` |
 | `flight-ops-service` | 5003 | Flight, FlightInstance, FlightSchedule | `airline_flight` |
@@ -69,7 +73,7 @@ microservices/
 | `booking-service` | 5009 | Booking, Ticket, Reservation | `airline_booking` |
 | `payment-service` | 5010 | Payment, cổng VNPay & Razorpay | `airline_payment` |
 
-Thêm service mới: lấy port kế tiếp chưa dùng, khai `spring.application.name` = tên module (đây là tên Eureka/Feign dùng), thêm route ở gateway, database ở `docker/mysql/init.sql`, block ở `docker-compose.yml`, và cập nhật bảng trên.
+Thêm service mới: lấy port kế tiếp chưa dùng, khai `spring.application.name` = tên module (đây là tên Eureka/Feign dùng), thêm route ở gateway, database ở `docker/mysql/init.sql`, block ở `docker-compose.yml` (kèm `CONFIG_IMPORT_MODE`/`CONFIG_SERVER_URL` và `depends_on: config-server: service_healthy`), `spring.config.import` trong `application.yaml` ([§20](#20-centralized-config)), và cập nhật bảng trên.
 
 ### Package layout chuẩn của một service (dưới `com.nitditto`)
 
@@ -105,7 +109,7 @@ docker compose up -d                                # full stack (cần .env có
 docker compose -f docker-compose.dev.yml up -d      # chỉ MySQL + Kafka, service chạy từ IDE
 ```
 
-- **Thứ tự khởi động khi chạy từ IDE:** hạ tầng (dev compose) → `service-registry` → các service → `api-gateway`.
+- **Thứ tự khởi động khi chạy từ IDE:** hạ tầng (dev compose) → `config-server` → `service-registry` → các service → `api-gateway`. Chạy từ IDE `config-server` là tuỳ chọn (client dùng `optional:`, thiếu thì dùng `application.yaml` đóng gói); trong Docker compose nó là bắt buộc.
 - **Chỉ gateway (5000), Eureka (8761), MySQL, Kafka được publish ra host** trong compose. Client/frontend luôn gọi qua gateway, không gọi thẳng port service.
 - Config phụ thuộc môi trường đọc qua biến môi trường có default dev (`${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}`). Secret (`JWT_SECRET`, `VNPAY_*`, `RAZORPAY_*`) **không có default** và nằm trong `.env` (không commit).
 - **Quản lý version:** chỉ khai `<version>` ở root `pom.xml` (`dependencyManagement`/properties) hoặc để BOM Spring Boot/Spring Cloud quản lý. Service con **KHÔNG** ghim version riêng.
@@ -678,6 +682,7 @@ Chỉ 1 service dùng → giữ trong service đó.
 - [ ] Endpoint trả list có phân trang; `@RequestBody` có `@Valid`
 - [ ] Method ghi đụng ≥ 2 bảng có `@Transactional`; cột lọc mới có `@Index`
 - [ ] Inject qua interface, không `*ServiceImpl`
+- [ ] Cấu hình dùng chung mới đặt ở `config-repo/` (không bí mật, không placeholder `${...}`) và service nhận qua `spring.config.import` (§20)
 - [ ] Không commit secret, `.env`, `target/`, `.idea/`, `.vscode/`, `*.iml`
 
 ### Những điều TUYỆT ĐỐI không làm
@@ -697,3 +702,17 @@ Chỉ 1 service dùng → giữ trong service đó.
 - **Hướng dẫn phát triển chi tiết** (ví dụ dài, giải thích) → [`docs/development/`](docs/development/).
 - **Tài liệu từng tính năng hạ tầng** (gateway routing, Eureka, OpenFeign, communication patterns, Docker, payment, booking) → [`docs/features/`](docs/features/).
 - Khi `docs/` mâu thuẫn với file này, **`CLAUDE.md` là nguồn đúng**.
+
+---
+
+## 20. Centralized Config
+
+- `cloud/config-server` (:8888, profile `native`) phục vụ thư mục `config-repo/`: `application.yaml` dùng chung cho mọi client, `<spring.application.name>.yaml` riêng từng service. File riêng thắng file chung.
+- Mọi service nghiệp vụ và `api-gateway` có `spring-cloud-starter-config` và `spring.config.import: ${CONFIG_IMPORT_MODE:optional:}configserver:${CONFIG_SERVER_URL:http://localhost:8888}`. Compose đặt `CONFIG_IMPORT_MODE=""` để bắt buộc; đừng thay bằng `SPRING_CONFIG_IMPORT` (import qua biến môi trường chạy trước `application.yaml` nên mất tên service, chỉ nhận `application.yaml` chung).
+- **Chỉ đặt trong `config-repo/`:** giá trị cố định, không bí mật, không placeholder `${...}` (server tự giải placeholder bằng môi trường của nó). Secret (`JWT_SECRET`, `VNPAY_*`, `RAZORPAY_*`), datasource URL, Eureka URL, Kafka bootstrap vẫn là biến môi trường — biến môi trường thắng config-server, config-server thắng `application.yaml` đóng gói trong jar.
+- `application.yaml` của service giữ giá trị mặc định đủ chạy một mình (dev/test không cần config-server); `server.port`, `spring.application.name`, `spring.config.import` luôn ở local vì cần trước khi gọi server.
+- `service-registry` và `config-server` không import config. Không publish cổng 8888 ra host. Đổi file trong `config-repo/` rồi **restart** service liên quan (chưa có refresh runtime/Spring Cloud Bus).
+- Trong compose, `config-server` có healthcheck (bash `/dev/tcp`, vì image Jib không có curl) và mọi client `depends_on` với `service_healthy`, để không crash vì kết nối khi JVM chưa lắng nghe :8888.
+- Giá trị trùng giữa `config-repo/` và `application.yaml` đóng gói của service: **config-server thắng**, bản đóng gói chỉ là mặc định cho dev/test — đổi giá trị dùng chung thì đổi ở `config-repo/` và nhớ đồng bộ bản đóng gói.
+- Muốn refresh nóng (`@RefreshScope`, Spring Cloud Bus) phải hỏi trước (§2); các thuộc tính chỉ đọc lúc khởi động như JPA/`ddl-auto` không refresh được.
+- Chi tiết: [`docs/features/config-server.md`](docs/features/config-server.md).
