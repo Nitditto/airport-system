@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import com.nitditto.model.CabinClass;
 import com.nitditto.enums.CabinClassType;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -14,6 +15,8 @@ public interface CabinClassRepository extends JpaRepository<CabinClass, UUID> {
     List<CabinClass> findByAircraftId(UUID id);
 
     Optional<CabinClass> findByAircraftIdAndName(UUID id, CabinClassType name);
+
+    List<CabinClass> findByAircraftIdInAndName(Collection<UUID> aircraftIds, CabinClassType name);
 
     boolean existsByCodeAndAircraftId(String code, UUID aircraftId);
 

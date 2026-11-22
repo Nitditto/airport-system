@@ -15,14 +15,12 @@ import com.nitditto.payload.response.FlightInstanceResponse;
 import com.nitditto.repository.FlightInstanceRepository;
 import com.nitditto.repository.FlightRepository;
 import com.nitditto.service.FlightInstanceService;
-import com.nitditto.service.integration.ReferenceData;
-import com.nitditto.service.integration.ReferenceDataLoader;
+import com.nitditto.service.integration.FlightInstanceAssembler;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -48,7 +46,7 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
     private final FlightInstanceRepository flightInstanceRepository;
     private final AirlineClient airlineClient;
     private final LocationClient locationClient;
-    private final ReferenceDataLoader referenceDataLoader;
+    private final FlightInstanceAssembler flightInstanceAssembler;
     // Event được FlightInstanceEventProducer đẩy lên Kafka sau khi transaction commit.
     private final ApplicationEventPublisher eventPublisher;
 
@@ -236,42 +234,6 @@ public class FlightInstanceServiceImpl implements FlightInstanceService {
 
     private Map<UUID, FlightInstanceResponse> toResponses(final List<FlightInstance> instances,
             final Map<UUID, Flight> flightById) {
-        final List<UUID> airlineIds = new ArrayList<>(instances.size());
-        final List<UUID> aircraftIds = new ArrayList<>(instances.size());
-        final List<UUID> airportIds = new ArrayList<>(instances.size() * 2);
-        for (final FlightInstance instance : instances) {
-            final Flight flight = flightById.get(instance.getFlightId());
-            airlineIds.add(instance.getAirlineId());
-            aircraftIds.add(flight != null ? flight.getAircraftId() : null);
-            airportIds.add(departureAirportId(instance, flight));
-            airportIds.add(arrivalAirportId(instance, flight));
-        }
-        final ReferenceData referenceData = this.referenceDataLoader.load(airlineIds, aircraftIds, airportIds);
-
-        final Map<UUID, FlightInstanceResponse> responses = new LinkedHashMap<>(instances.size());
-        for (final FlightInstance instance : instances) {
-            final Flight flight = flightById.get(instance.getFlightId());
-            responses.put(instance.getId(), FlightInstanceMapper.toResponse(instance, flight,
-                    referenceData.aircraft(flight != null ? flight.getAircraftId() : null),
-                    referenceData.airline(instance.getAirlineId()),
-                    referenceData.airport(departureAirportId(instance, flight)),
-                    referenceData.airport(arrivalAirportId(instance, flight))));
-        }
-        return responses;
-    }
-
-    /** Chuyến cũ có thể chưa lưu sân bay riêng — khi đó lấy theo tuyến bay gốc. */
-    private static UUID departureAirportId(final FlightInstance instance, final Flight flight) {
-        if (instance.getDepartureAirportId() != null) {
-            return instance.getDepartureAirportId();
-        }
-        return flight != null ? flight.getDepartureAirportId() : null;
-    }
-
-    private static UUID arrivalAirportId(final FlightInstance instance, final Flight flight) {
-        if (instance.getArrivalAirportId() != null) {
-            return instance.getArrivalAirportId();
-        }
-        return flight != null ? flight.getArrivalAirportId() : null;
+        return this.flightInstanceAssembler.assemble(instances, flightById);
     }
 }

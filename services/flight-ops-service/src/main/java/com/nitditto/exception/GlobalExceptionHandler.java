@@ -7,6 +7,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -29,6 +30,17 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ApiResponse<Void>> handleValidation(final MethodArgumentNotValidException ex) {
     final String message = ex.getBindingResult().getFieldErrors().stream()
         .map(error -> "%s: %s".formatted(error.getField(), error.getDefaultMessage()))
+        .collect(Collectors.joining("; "));
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(message));
+  }
+
+  // Query string sai kiểu (UUID/ngày/enum không parse được) khi bind @ModelAttribute: lỗi của client, không phải 500.
+  @ExceptionHandler(BindException.class)
+  public ResponseEntity<ApiResponse<Void>> handleBind(final BindException ex) {
+    // Lỗi ép kiểu có defaultMessage chứa tên class nội bộ nên chỉ trả thông báo chung.
+    final String message = ex.getBindingResult().getFieldErrors().stream()
+        .map(error -> "%s: %s".formatted(error.getField(),
+            error.isBindingFailure() ? "invalid value" : error.getDefaultMessage()))
         .collect(Collectors.joining("; "));
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(message));
   }

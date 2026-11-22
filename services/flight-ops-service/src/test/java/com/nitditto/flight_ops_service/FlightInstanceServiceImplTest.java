@@ -26,6 +26,7 @@ import com.nitditto.payload.response.FlightInstanceResponse;
 import com.nitditto.repository.FlightInstanceRepository;
 import com.nitditto.repository.FlightRepository;
 import com.nitditto.service.impl.FlightInstanceServiceImpl;
+import com.nitditto.service.integration.FlightInstanceAssembler;
 import com.nitditto.service.integration.ReferenceDataLoader;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -72,7 +73,8 @@ class FlightInstanceServiceImplTest {
   void setUp() {
     // Loader thật bọc quanh client mock: test đếm đúng số lời gọi HTTP mà service gây ra.
     this.service = new FlightInstanceServiceImpl(this.flightRepository, this.flightInstanceRepository,
-        this.airlineClient, this.locationClient, new ReferenceDataLoader(this.airlineClient, this.locationClient),
+        this.airlineClient, this.locationClient,
+        new FlightInstanceAssembler(new ReferenceDataLoader(this.airlineClient, this.locationClient)),
         this.eventPublisher);
   }
 
