@@ -28,10 +28,8 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
   public ResponseEntity<ApiResponse<Void>> handleValidation(final MethodArgumentNotValidException ex) {
-    final String message = ex.getBindingResult().getFieldErrors().stream()
-        .map(error -> "%s: %s".formatted(error.getField(), error.getDefaultMessage()))
-        .collect(Collectors.joining("; "));
-    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(message));
+    // @Valid trên @ModelAttribute cũng ném loại này khi ép kiểu lỗi, nên dùng chung cách che message với handleBind.
+    return this.handleBind(ex);
   }
 
   // Query string sai kiểu (UUID/ngày/enum không parse được) khi bind @ModelAttribute: lỗi của client, không phải 500.
