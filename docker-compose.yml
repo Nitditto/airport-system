@@ -11,6 +11,7 @@
 #
 # Dev FE thường chạy `npm run dev` trên máy host (HMR) và gọi gateway :5000, không cần profile full.
 #
+# config-server (8888) chỉ nằm trong mạng compose.
 # Publish ra host: api-gateway (5000), service-registry (8761), mysql (3307), kafka (9092, chỉ 127.0.0.1),
 # và frontend (5173) khi bật profile full. Nginx của frontend proxy /auth, /api sang gateway.
 # =============================================================================
@@ -24,6 +25,13 @@ x-business-service: &business-service
 x-eureka: &eureka
   EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
 
+x-config: &config
+  # Trong compose config-server là bắt buộc: CONFIG_IMPORT_MODE rỗng bỏ tiền tố "optional:" của spring.config.import
+  # nên service không khởi động nếu chưa có config-server (restart policy sẽ thử lại). Không dùng SPRING_CONFIG_IMPORT:
+  # import khai báo qua biến môi trường chạy trước application.yaml, lúc đó chưa biết spring.application.name.
+  CONFIG_IMPORT_MODE: ""
+  CONFIG_SERVER_URL: http://config-server:8888
+
 x-kafka: &kafka
   SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092   # listener INTERNAL, dành cho container trong mạng compose
 
@@ -32,6 +40,8 @@ x-depends: &depends
     condition: service_healthy
   service-registry:
     condition: service_started
+  config-server:
+    condition: service_healthy
 
 services:
 
@@ -98,6 +108,26 @@ services:
     restart: unless-stopped
     networks: [airline]
 
+  # Config server (native): phục vụ thư mục ./config-repo. Không publish ra host (chỉ container trong mạng compose).
+  # Sửa file trong config-repo rồi restart service liên quan để nhận cấu hình mới (chưa có refresh runtime).
+  config-server:
+    image: ${DOCKER_IMAGE_PREFIX:-nitditto}/config-server:${IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: airline-config-server
+    environment:
+      CONFIG_REPO_PATH: /config-repo
+    volumes:
+      - ./config-repo:/config-repo:ro
+    # Image Jib (Ubuntu) không có curl/wget nhưng có bash: gửi GET /actuator/health qua /dev/tcp và chờ "UP".
+    # Service khách chờ condition: service_healthy nên không lao vào kết nối khi JVM chưa lắng nghe cổng 8888.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8888 && printf 'GET /actuator/health HTTP/1.0\r\n\r\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+    networks: [airline]
+
   api-gateway:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/api-gateway:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-api-gateway
@@ -105,11 +135,14 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       EUREKA_URL: http://service-registry:8761/eureka/
+      <<: *config
     ports:
       - "5000:5000"
     depends_on:
       service-registry:
         condition: service_started
+      config-server:
+        condition: service_healthy
     restart: unless-stopped
     networks: [airline]
 
@@ -118,7 +151,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/user-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-user-service
     environment:
-      <<: *eureka
+      <<: [*eureka, *config]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_user
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
@@ -131,7 +164,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/airline-core-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-core-service
     environment:
-      <<: *eureka
+      <<: [*eureka, *config]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
     depends_on: *depends
@@ -141,7 +174,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/flight-ops-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-flight-ops-service
     environment:
-      <<: [*eureka, *kafka]
+      <<: [*eureka, *config, *kafka]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_flight
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
     depends_on: *depends
@@ -151,7 +184,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/location-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-location-service
     environment:
-      <<: *eureka
+      <<: [*eureka, *config]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_location
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
     depends_on: *depends
@@ -161,7 +194,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/pricing-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-pricing-service
     environment:
-      <<: *eureka
+      <<: [*eureka, *config]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_pricing
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
     depends_on: *depends
@@ -171,7 +204,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/seat-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-seat-service
     environment:
-      <<: [*eureka, *kafka]
+      <<: [*eureka, *config, *kafka]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_seat
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
     depends_on: *depends
@@ -181,7 +214,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/ancillary-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-ancillary-service
     environment:
-      <<: *eureka
+      <<: [*eureka, *config]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_ancillary
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
     depends_on: *depends
@@ -191,7 +224,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/booking-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-booking-service
     environment:
-      <<: [*eureka, *kafka]
+      <<: [*eureka, *config, *kafka]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_booking
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
     depends_on: *depends
@@ -201,7 +234,7 @@ services:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/payment-service:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-payment-service
     environment:
-      <<: [*eureka, *kafka]
+      <<: [*eureka, *config, *kafka]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_payment
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
