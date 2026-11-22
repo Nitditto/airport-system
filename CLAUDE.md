@@ -39,6 +39,7 @@ microservices/
 ├── config-repo/                # Cấu hình tập trung do config-server phục vụ (application.yaml dùng chung + <service>.yaml)
 ├── docker/mysql/init.sql       # Tạo database cho từng service
 ├── docker/mysql/migrations/    # Script SQL chạy tay cho DB dev đã tồn tại (xem §17) — KHÔNG mount vào initdb
+├── docker/mysql/seed/          # Dữ liệu mẫu chuẩn cho mọi service, chạy tay SAU khi service đã tạo schema (xem §17)
 ├── common-lib/                 # Shared jar — mọi service phụ thuộc
 │   └── src/main/java/com/nitditto/
 │       ├── entity/             # BaseEntity (@MappedSuperclass)
@@ -586,6 +587,10 @@ Chỉ 1 service dùng → giữ trong service đó.
 - DB mới phải khai trong `docker/mysql/init.sql`.
 - `ddl-auto: update` chỉ dev. Lên production → Flyway/Liquibase (hỏi trước).
 - **Không** commit credential thật, JWT secret, key cổng thanh toán — dùng biến môi trường + `.env`.
+
+### Dữ liệu mẫu (`docker/mysql/seed/`)
+
+`001-sample-data.sql` nạp user, địa điểm, hãng/máy bay, sơ đồ ghế, chuyến bay 30 ngày tới (kèm cabin + seat instance), fare, suất ăn, dịch vụ thêm, bảo hiểm. **Chạy tay sau khi mọi service đã khởi động** (schema do `ddl-auto` tạo), trên DB trống; không mount vào `initdb`; không chạy trên DB có dữ liệu thật. Idempotent (id cố định tiền tố `5eed` hoặc dẫn xuất bằng `MD5`). Cabin/seat instance được sinh bằng SQL thay cho sự kiện Kafka `flight.instance.created`, nên đổi quy tắc sinh ở `FlightInstanceCabinServiceImpl` hoặc tên cột entity thì **phải sửa seed**. Chi tiết, tài khoản mẫu và cách chạy: [`docker/mysql/seed/README.md`](docker/mysql/seed/README.md).
 
 ### Migration thủ công (`docker/mysql/migrations/`)
 
