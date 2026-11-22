@@ -1,0 +1,26 @@
+# Cấu hình dùng chung cho mọi service nghiệp vụ và api-gateway (config-server phục vụ qua /{application}/{profile}).
+#
+# Quy tắc:
+#   - Chỉ để giá trị cố định, không bí mật. Secret (JWT_SECRET, VNPAY_*, RAZORPAY_*) ở biến môi trường / .env.
+#   - Không dùng placeholder ${...}: config-server tự giải placeholder bằng môi trường của nó, không phải của client.
+#   - Giá trị phụ thuộc môi trường (datasource URL, Eureka URL, Kafka bootstrap) vẫn do biến môi trường ghi đè.
+#   - Giá trị ở đây thắng application.yaml đóng gói trong jar; biến môi trường thắng giá trị ở đây.
+
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+
+spring:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update   # CHỈ DEV (CLAUDE.md §17); production dùng Flyway/Liquibase
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true

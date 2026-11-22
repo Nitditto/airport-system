@@ -2,6 +2,8 @@ server:
   port: 5009
 
 spring:
+  config:
+    import: "${CONFIG_IMPORT_MODE:optional:}configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
   application:
     name: booking-service
 

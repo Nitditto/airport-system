@@ -1,0 +1,5 @@
+# Tên topic Kafka (CLAUDE.md §9: <domain>.<entity>.<action>).
+kafka:
+  topics:
+    payment-transaction-succeeded: payment.transaction.succeeded
+    payment-transaction-failed: payment.transaction.failed

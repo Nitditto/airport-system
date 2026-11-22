@@ -10,6 +10,7 @@ Java 17 · Spring Boot 4.0.7 · Spring Cloud 2025.1.0 (Eureka, Gateway MVC, Open
 |---|---|---|---|
 | `api-gateway` | 5000 | — | Điểm vào duy nhất. Verify JWT, kiểm tra role, gắn header `X-User-Id` / `X-User-Email` / `X-User-Roles` rồi forward qua Eureka |
 | `service-registry` | 8761 | — | Eureka server |
+| `config-server` | 8888 | — | Config tập trung (native, thư mục `config-repo/`); xem `docs/features/config-server.md` |
 | `user-service` | 5001 | `airline_user` | Đăng ký, đăng nhập (`/auth/signup`, `/auth/login`), ký JWT, profile. Seed tài khoản `ROLE_SYSTEM_ADMIN` từ `ADMIN_EMAIL`/`ADMIN_PASSWORD` |
 | `airline-core-service` | 5002 | `airline` | `Airline` (vòng đời `approve` / `suspend` / `ban`), `Aircraft` và số ghế theo hạng |
 | `flight-ops-service` | 5003 | `airline_flight` | `Flight` (tuyến bay của hãng), `FlightSchedule` (ngày bay trong tuần, tạo sẵn `FlightInstance`), `FlightInstance` (chuyến cụ thể theo ngày, `FlightStatus`) |
@@ -86,9 +87,10 @@ cp .env.example .env
    mvn clean install -DskipTests
    ```
 
-3. Chạy theo thứ tự: registry, các service, rồi gateway. Mỗi lệnh chạy trong một terminal riêng:
+3. Chạy theo thứ tự: config-server (tuỳ chọn khi chạy IDE), registry, các service, rồi gateway. Mỗi lệnh chạy trong một terminal riêng:
 
    ```bash
+   mvn -pl cloud/config-server spring-boot:run     # :8888, phục vụ thư mục config-repo/
    mvn -pl cloud/service-registry spring-boot:run
    mvn -pl services/user-service spring-boot:run
    mvn -pl services/airline-core-service spring-boot:run

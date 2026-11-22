@@ -6,7 +6,7 @@ airline core, flight operations, location, pricing, seat, ancillary và user/aut
 
 Mỗi service có **database riêng** (database-per-service), đứng sau `api-gateway` (verify JWT tập trung)
 và đăng ký qua Eureka (`service-registry`). Service gọi nhau bằng OpenFeign với tham chiếu `UUID` thô +
-endpoint batch-fetch. Chưa có config server. Danh sách service, port và quy tắc đầy đủ:
+endpoint batch-fetch. Cấu hình dùng chung do `config-server` (native, thư mục `config-repo/`) phục vụ. Danh sách service, port và quy tắc đầy đủ:
 [`../CLAUDE.md`](../CLAUDE.md).
 
 ## Tech stack
@@ -36,8 +36,8 @@ Reactor 3 cấp: `root pom` → (`common-lib`, `cloud`, `services`) → `service
 `@Embeddable` value object, `BaseEntity`, exception dùng chung. **Không** chứa `@Entity`,
 business logic hay Service/Repository.
 
-`cloud/` hiện là aggregator rỗng — service-registry / config-server / api-gateway mới là
-comment, chưa implement.
+`cloud/` chứa 3 module hạ tầng: `service-registry` (Eureka, :8761), `config-server` (:8888) và
+`api-gateway` (:5000).
 
 ## Cấu trúc một service
 
@@ -119,3 +119,4 @@ Tài liệu theo từng mảng kiến trúc/tính năng — mỗi file có phầ
 | [booking-service.md](features/booking-service.md) | ⬜ Thiết kế | Domain Booking — service điều phối trung tâm |
 | [payment-service.md](features/payment-service.md) | 🟢 Đã có | Domain Payment — tích hợp Razorpay |
 | [refund.md](features/refund.md) | 🟡 Có code, chưa kiểm chứng với VNPay thật | Hoàn tiền khi huỷ booking: chính sách theo FareRules, thiết kế an toàn cho tiền, vận hành refund thất bại |
+| [config-server.md](features/config-server.md) | 🟢 Đã có | Spring Cloud Config Server (native): `config-repo/`, client `optional:` khi chạy IDE và bắt buộc trong compose, quy tắc nội dung, healthcheck |
