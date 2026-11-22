@@ -126,6 +126,10 @@ Biến điều khiển chính compose (đặt trong `.env` hoặc shell):
 - Publish ra host ở `3307` (không phải 3306) để không đụng MySQL cài sẵn trên máy.
 - Khoá chính lưu `binary(16)`; query tay phải bọc `BIN_TO_UUID(id)` / `UUID_TO_BIN('...')`.
 
+## Dữ liệu mẫu
+
+Compose mới có DB trống. Sau khi các service đã chạy (có bảng), nạp dữ liệu mẫu chuẩn bằng `docker/mysql/seed/001-sample-data.sql` (xem [`docker/mysql/seed/README.md`](../../docker/mysql/seed/README.md)): tài khoản mẫu (`admin@airline.local`, `customer1@airline.local`... mật khẩu `Password@123`), 4 hãng, 23 chuyến bay và 630 chuyến cụ thể trong 30 ngày tới, đủ để thử Tìm chuyến → Chọn ghế → Đặt vé.
+
 ## 7. Thứ tự khởi động
 
 ```
