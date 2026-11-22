@@ -458,11 +458,13 @@ class GatewayJwtE2ETest {
     void flightInstanceSearch_cabinClassesByAircraft_andFareSearch_areForwardedWithoutToken() throws Exception {
       assertThat(send("GET", "/api/flight-instances/search?onDate=2027-01-01", null, Map.of(), null)
           .statusCode()).isEqualTo(200);
+      assertThat(send("GET", "/api/flights/search?departureDate=2027-01-01", null, Map.of(), null)
+          .statusCode()).isEqualTo(200);
       assertThat(send("GET", "/api/cabin-classes/aircraft/" + UUID.randomUUID(), null, Map.of(), null)
           .statusCode()).isEqualTo(200);
       assertThat(send("POST", "/api/fares/search?cabinClassId=" + UUID.randomUUID(), null, Map.of(), "[]")
           .statusCode()).isEqualTo(200);
-      assertThat(RECEIVED).hasSize(3);
+      assertThat(RECEIVED).hasSize(4);
     }
 
     @Test
@@ -494,12 +496,14 @@ class GatewayJwtE2ETest {
           .isEqualTo(401);
       assertThat(send("POST", "/api/flight-instances/search", null, Map.of(), "{}").statusCode())
           .isEqualTo(401);
+      assertThat(send("POST", "/api/flights/search", null, Map.of(), "{}").statusCode()).isEqualTo(401);
       assertThat(RECEIVED).isEmpty();
     }
 
     @Test
     void neighbouringPaths_remainProtected() throws Exception {
       for (final String path : List.of("/api/flight-instances", "/api/flight-instances/" + UUID.randomUUID(),
+          "/api/flights", "/api/flights/" + UUID.randomUUID(),
           "/api/cities", "/api/cabin-classes", "/api/cabin-classes/aircraft/" + UUID.randomUUID() + "/name/FIRST",
           "/api/fares", "/api/airports/../users/me")) {
         assertThat(send("GET", path, null, Map.of(), null).statusCode()).as(path).isEqualTo(401);

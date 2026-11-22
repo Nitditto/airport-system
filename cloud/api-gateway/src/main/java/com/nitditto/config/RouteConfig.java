@@ -59,6 +59,7 @@ public class RouteConfig {
     private static final List<PublicRead> PUBLIC_READS = List.of(
             new PublicRead(HttpMethod.GET, Pattern.compile("^/api/airports(/[^/]+|/city/[^/]+)?/?$")),
             new PublicRead(HttpMethod.GET, Pattern.compile("^/api/flight-instances/search/?$")),
+            new PublicRead(HttpMethod.GET, Pattern.compile("^/api/flights/search/?$")),
             new PublicRead(HttpMethod.GET, Pattern.compile("^/api/cabin-classes/aircraft/[^/]+/?$")),
             new PublicRead(HttpMethod.POST, Pattern.compile("^/api/fares/search/?$")),
             new PublicRead(HttpMethod.GET, Pattern.compile("^/api/payments/check-payment-vnpay/?$")),
