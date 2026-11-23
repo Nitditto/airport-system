@@ -547,6 +547,25 @@ class GatewayJwtE2ETest {
     }
 
     @Test
+    void ownerRole_cannotCallInternalConfirmOrFree() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_OWNER, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/seat-instances/confirm-booked", token, Map.of(), "{}").statusCode())
+          .isEqualTo(403);
+      assertThat(send("POST", "/api/seat-instances/free", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("POST", "/api/seat-instances/Free/", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(send("POST", "/api/seat-instances/free;x=1", token, Map.of(), "{}").statusCode()).isEqualTo(403);
+      assertThat(RECEIVED).isEmpty();
+    }
+
+    @Test
+    void adminRole_canCallInternalFree() throws Exception {
+      final String token = token(UUID.randomUUID(), ROLE_ADMIN, SECRET, 60_000);
+
+      assertThat(send("POST", "/api/seat-instances/free", token, Map.of(), "{}").statusCode()).isEqualTo(200);
+    }
+
+    @Test
     void holdWithoutToken_isRejected() throws Exception {
       assertThat(send("POST", "/api/seat-instances/hold", null, Map.of(), "{}").statusCode()).isEqualTo(401);
       assertThat(RECEIVED).isEmpty();
