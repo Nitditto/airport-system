@@ -7,6 +7,7 @@ import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.PaymentGatewayResponse;
 import com.nitditto.payload.response.PaymentInitiateResponse;
 import com.nitditto.enums.RefundStatus;
+import com.nitditto.exception.BusinessException;
 import com.nitditto.payload.request.RefundRequest;
 import com.nitditto.payload.response.RefundResponse;
 import com.nitditto.service.PaymentService;
@@ -14,11 +15,13 @@ import com.nitditto.service.gateway.VnpayIpnResponse;
 import com.nitditto.service.RefundService;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -40,6 +43,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/payments")
 @RequiredArgsConstructor
 public class PaymentController {
+
+    private static final int MAX_PAGE_SIZE = 100;
+    // Trường của Payment (createdAt từ BaseEntity) được phép dùng làm sortBy.
+    private static final Set<String> SORTABLE_PAYMENT_FIELDS = Set.of("createdAt", "amount", "status", "provider",
+            "paidAt");
 
     private final PaymentService paymentService;
     private final RefundService refundService;
@@ -89,7 +97,7 @@ public class PaymentController {
             @RequestParam(required = false) final RefundStatus status,
             @RequestParam(defaultValue = "0") final int page,
             @RequestParam(defaultValue = "20") final int size) {
-        final Pageable pageable = PageRequest.of(page, Math.min(size, 100), Sort.by(Sort.Direction.DESC, "createdAt"));
+        final Pageable pageable = PageRequest.of(page, Math.min(size, MAX_PAGE_SIZE), Sort.by(Sort.Direction.DESC, "createdAt"));
         return ResponseEntity.ok(ApiResponse.success(this.refundService.list(status, pageable)));
     }
 
@@ -109,7 +117,7 @@ public class PaymentController {
 
     @PostMapping("/batch-by-ids")
     public ResponseEntity<ApiResponse<Map<UUID, PaymentDTO>>> getPaymentsByBookingIds(
-            @RequestBody final List<UUID> bookingIds) {
+            @RequestBody @Size(max = 200, message = "At most 200 ids per batch request") final List<UUID> bookingIds) {
         return ResponseEntity.ok(ApiResponse.success(this.paymentService.getPaymentsByBookingIds(bookingIds)));
     }
 
@@ -120,8 +128,16 @@ public class PaymentController {
             @RequestParam(defaultValue = "createdAt") final String sortBy,
             @RequestParam(defaultValue = "DESC") final String sortDirection,
             @RequestHeader("X-User-Id") final UUID userId) {
+        // sortBy đi thẳng vào Sort -> tên lạ ném PropertyReferenceException; size không chặn -> tải cả lịch sử một lần.
+        if (!SORTABLE_PAYMENT_FIELDS.contains(sortBy)) {
+            throw new BusinessException("Cannot sort payments by '%s'; allowed: %s".formatted(sortBy,
+                    SORTABLE_PAYMENT_FIELDS));
+        }
+        if (page < 0) {
+            throw new BusinessException("page must not be negative");
+        }
         final Sort.Direction direction = sortDirection.equalsIgnoreCase("ASC") ? Sort.Direction.ASC : Sort.Direction.DESC;
-        final Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
+        final Pageable pageable = PageRequest.of(page, Math.max(1, Math.min(size, MAX_PAGE_SIZE)), Sort.by(direction, sortBy));
 
         final Page<PaymentDTO> payments = this.paymentService.getAllPayments(userId, pageable);
         return ResponseEntity.ok(ApiResponse.success(payments));
