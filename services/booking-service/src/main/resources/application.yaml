@@ -7,6 +7,12 @@ spring:
   application:
     name: booking-service
 
+  # Mặc định Spring là 2000: một trang lớn kéo theo batch-by-ids > 200 id ở service khác. Vượt -> kẹp về 100.
+  data:
+    web:
+      pageable:
+        max-page-size: 100
+
   datasource:
     url: jdbc:mysql://localhost:3306/airline_booking
     username: root
@@ -35,7 +41,8 @@ spring:
     listener:
       concurrency: 3
 
-# Thời hạn thanh toán cho booking PENDING (khớp thời hạn giữ ghế và link VNPay 15 phút).
+# Thời hạn thanh toán cho booking PENDING (= hạn link VNPay). seat.hold.ttl-minutes (seat-service) phải LỚN HƠN giá trị
+# này (hiện 17) để ghế còn được giữ tới hết hạn thanh toán; đổi một bên thì đổi cả bên kia.
 booking:
   payment-window-minutes: ${BOOKING_PAYMENT_WINDOW_MINUTES:15}
 

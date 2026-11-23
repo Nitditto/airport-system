@@ -4,6 +4,7 @@ import com.nitditto.client.SeatClient;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.payload.request.SeatHoldRequest;
 import com.nitditto.service.SeatReservationService;
+import com.nitditto.service.integration.BookingTargetResolver.BookingTarget;
 import feign.FeignException;
 import java.util.List;
 import java.util.UUID;
@@ -19,11 +20,14 @@ public class SeatReservationServiceImpl implements SeatReservationService {
   private final SeatClient seatClient;
 
   @Override
-  public void hold(final UUID userId, final List<UUID> seatInstanceIds) {
+  public void hold(final UUID userId, final List<UUID> seatInstanceIds, final BookingTarget target) {
+    final SeatHoldRequest request = SeatHoldRequest.builder().seatInstanceIds(seatInstanceIds)
+        .flightInstanceId(target.flightInstanceId()).cabinClassId(target.fare().getCabinClassId()).build();
     try {
-      this.seatClient.hold(userId, request(seatInstanceIds));
+      this.seatClient.hold(userId, request);
     } catch (final FeignException.BadRequest ex) {
-      throw new BusinessException("One or more selected seats are no longer available");
+      throw new BusinessException(
+          "One or more selected seats are no longer available or do not match the chosen flight and fare");
     }
   }
 

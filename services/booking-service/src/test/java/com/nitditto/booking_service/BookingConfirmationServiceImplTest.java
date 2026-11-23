@@ -164,13 +164,14 @@ class BookingConfirmationServiceImplTest {
   }
 
   @Test
-  void expireIfStale_leavesRecentBookingPending() {
+  void expireIfStale_leavesRecentBookingPending_withoutAskingPaymentService() {
     final Booking booking = pendingBooking(NOW.minusSeconds(5 * 60));
-    givenPayment(PaymentStatus.PENDING);
 
     assertThat(this.service.expireIfStale(this.bookingId)).isEqualTo(BookingStatus.PENDING);
 
     assertThat(booking.getBookingStatus()).isEqualTo(BookingStatus.PENDING);
+    // Còn hạn thì không cần biết đã trả chưa: không gọi HTTP trong lúc giữ khoá hàng.
+    verify(this.paymentClient, never()).getPaymentsByBookingIds(any());
   }
 
   @Test
