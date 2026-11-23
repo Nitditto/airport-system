@@ -21,6 +21,7 @@ import com.nitditto.payload.response.FlightCabinAncillaryResponse;
 import com.nitditto.service.FlightCabinAncillaryService;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -72,7 +73,7 @@ public class FlightCabinAncillaryController {
 
   @PostMapping("/batch-by-ids")
   public ResponseEntity<ApiResponse<List<FlightCabinAncillaryResponse>>> getAllByIds(
-      @RequestBody final List<UUID> ids) {
+      @RequestBody @Size(max = 200, message = "At most 200 ids per batch request") final List<UUID> ids) {
     return ResponseEntity.ok(ApiResponse.success(this.flightCabinAncillaryService.getAllByIds(ids)));
   }
 

@@ -5,7 +5,7 @@ import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.FlightInstanceResponse;
 import com.nitditto.service.FlightInstanceService;
 import jakarta.validation.Valid;
-import com.nitditto.exception.BusinessException;
+import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -32,7 +32,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/flight-instances")
 public class FlightInstanceController {
 
-  private static final int MAX_BATCH_SIZE = 200;
 
   private final FlightInstanceService flightInstanceService;
 
@@ -59,10 +58,7 @@ public class FlightInstanceController {
 
   @PostMapping("/batch-by-ids")
   public ResponseEntity<ApiResponse<Map<UUID, FlightInstanceResponse>>> getByIds(
-      @RequestBody final List<UUID> ids) {
-    if (ids.size() > MAX_BATCH_SIZE) {
-      throw new BusinessException("Cannot load more than %d flight instances at once".formatted(MAX_BATCH_SIZE));
-    }
+      @RequestBody @Size(max = 200, message = "At most 200 ids per batch request") final List<UUID> ids) {
     return ResponseEntity.ok(ApiResponse.success(this.flightInstanceService.getByIds(ids)));
   }
 

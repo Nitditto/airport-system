@@ -5,6 +5,7 @@ import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.AirportResponse;
 import com.nitditto.service.AirportService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -42,7 +43,7 @@ public class AirportController {
   /** POST nhưng là thao tác đọc (gateway coi batch-by-ids là đọc) — dùng cho service khác tra nhiều sân bay. */
   @PostMapping("/batch-by-ids")
   public ResponseEntity<ApiResponse<Map<UUID, AirportResponse>>> getAirportsByIds(
-      @RequestBody final List<UUID> ids) {
+      @RequestBody @Size(max = 200, message = "At most 200 ids per batch request") final List<UUID> ids) {
     return ResponseEntity.ok(ApiResponse.success(this.airportService.getAirportsByIds(ids)));
   }
 

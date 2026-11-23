@@ -7,6 +7,7 @@ import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.service.AirlineService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -58,7 +59,7 @@ public class AirlineController {
 
   @PostMapping("/batch-by-ids")
   public ResponseEntity<ApiResponse<Map<UUID, AirlineResponse>>> getAirlinesByIds(
-      @RequestBody final List<UUID> ids) {
+      @RequestBody @Size(max = 200, message = "At most 200 ids per batch request") final List<UUID> ids) {
     return ResponseEntity.ok(ApiResponse.success(this.airlineService.getAirlinesByIds(ids)));
   }
 

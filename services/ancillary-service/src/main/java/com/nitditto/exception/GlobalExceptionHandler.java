@@ -9,7 +9,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.context.MessageSourceResolvable;
+import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -34,6 +37,22 @@ public class GlobalExceptionHandler {
         .map(error -> "%s: %s".formatted(error.getField(), error.getDefaultMessage()))
         .collect(Collectors.joining("; "));
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(message));
+  }
+
+  // Ràng buộc đặt thẳng trên tham số controller (vd. @Size(max = 200) List<UUID> ở batch-by-ids): Spring 7 ném
+  // exception này thay cho MethodArgumentNotValidException. Không bắt thì rơi xuống catch-all thành 500.
+  @ExceptionHandler(HandlerMethodValidationException.class)
+  public ResponseEntity<ApiResponse<Void>> handleMethodValidation(final HandlerMethodValidationException ex) {
+    final String message = ex.getAllErrors().stream().map(MessageSourceResolvable::getDefaultMessage)
+        .collect(Collectors.joining("; "));
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(message));
+  }
+
+  // ?sort=<thuộc tính không tồn tại> trên endpoint nhận Pageable: lỗi của client, không phải 500.
+  @ExceptionHandler(PropertyReferenceException.class)
+  public ResponseEntity<ApiResponse<Void>> handleUnknownProperty(final PropertyReferenceException ex) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(ApiResponse.error("Unknown sort property: " + ex.getPropertyName()));
   }
 
   // UUID sai định dạng ở @PathVariable / @RequestParam, hoặc enum (AncillaryType, CoverageType)

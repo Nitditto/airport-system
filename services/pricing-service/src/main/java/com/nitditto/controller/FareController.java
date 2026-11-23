@@ -5,6 +5,7 @@ import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.FareResponse;
 import com.nitditto.service.FareService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -48,7 +49,7 @@ public class FareController {
 
     @PostMapping("/batch-by-ids")
     public ResponseEntity<ApiResponse<Map<UUID, FareResponse>>> getFaresByIds(
-            @RequestBody final List<UUID> fareIds) {
+            @RequestBody @Size(max = 200, message = "At most 200 ids per batch request") final List<UUID> fareIds) {
         return ResponseEntity.ok(ApiResponse.success(this.fareService.getFareByIds(fareIds)));
     }
 
