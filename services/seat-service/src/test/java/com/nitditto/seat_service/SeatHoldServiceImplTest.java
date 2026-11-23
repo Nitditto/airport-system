@@ -10,11 +10,11 @@ import static org.mockito.Mockito.when;
 import com.nitditto.enums.SeatAvailabilityStatus;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
-import com.nitditto.model.FlightInstanceCabin;
 import com.nitditto.model.SeatInstance;
 import com.nitditto.payload.response.SeatHoldResponse;
 import com.nitditto.repository.FlightInstanceCabinRepository;
 import com.nitditto.repository.SeatInstanceRepository;
+import com.nitditto.service.SeatHoldScope;
 import com.nitditto.service.impl.SeatHoldServiceImpl;
 import java.time.Clock;
 import java.time.Duration;
@@ -120,6 +120,44 @@ class SeatHoldServiceImplTest {
   }
 
   @Test
+  void hold_rejectsSeatsOfAnotherFlightInstance_andHoldsNothing() {
+    final SeatInstance seat = seat();
+    when(this.seatRepository.lockAllByIdIn(List.of(seat.getId()))).thenReturn(List.of(seat));
+
+    assertThatThrownBy(() -> this.service.hold(this.alice, List.of(seat.getId()),
+        new SeatHoldScope(UUID.randomUUID(), null)))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("flight instance");
+
+    assertThat(seat.getHeldBy()).isNull();
+    verify(this.seatRepository, never()).saveAll(any());
+  }
+
+  @Test
+  void hold_rejectsSeatsOutsideTheFareCabinClass() {
+    final SeatInstance seat = seat();
+    when(this.seatRepository.lockAllByIdIn(List.of(seat.getId()))).thenReturn(List.of(seat));
+    when(this.cabinRepository.findAllById(any())).thenReturn(List.of(cabinOfClass(UUID.randomUUID())));
+
+    assertThatThrownBy(() -> this.service.hold(this.alice, List.of(seat.getId()),
+        new SeatHoldScope(this.flightInstanceId, UUID.randomUUID())))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("cabin class");
+
+    assertThat(seat.getHeldBy()).isNull();
+  }
+
+  @Test
+  void hold_acceptsSeatsMatchingFlightAndCabinClass() {
+    final UUID businessClass = UUID.randomUUID();
+    final SeatInstance seat = seat();
+    when(this.seatRepository.lockAllByIdIn(List.of(seat.getId()))).thenReturn(List.of(seat));
+    when(this.cabinRepository.findAllById(any())).thenReturn(List.of(cabinOfClass(businessClass)));
+
+    this.service.hold(this.alice, List.of(seat.getId()), new SeatHoldScope(this.flightInstanceId, businessClass));
+
+    assertThat(seat.getHeldBy()).isEqualTo(this.alice);
+  }
+
+  @Test
   void hold_throwsNotFound_whenASeatDoesNotExist() {
     final UUID unknown = UUID.randomUUID();
     when(this.seatRepository.lockAllByIdIn(List.of(unknown))).thenReturn(List.of());
@@ -149,19 +187,20 @@ class SeatHoldServiceImplTest {
     final SeatInstance seat = seat();
     seat.setHeldBy(this.alice);
     seat.setHeldUntil(NOW.plusSeconds(60));
-    final FlightInstanceCabin cabin = new FlightInstanceCabin();
-    cabin.setId(this.cabinId);
-    cabin.setBookedSeats(3);
-    when(this.seatRepository.lockAllByIdIn(List.of(seat.getId()))).thenReturn(List.of(seat));
-    when(this.cabinRepository.findAllById(any())).thenReturn(List.of(cabin));
+    final SeatInstance second = seat();
+    second.setHeldBy(this.alice);
+    second.setHeldUntil(NOW.plusSeconds(60));
+    when(this.seatRepository.lockAllByIdIn(List.of(seat.getId(), second.getId()))).thenReturn(List.of(seat, second));
 
-    this.service.confirmBooked(this.alice, List.of(seat.getId()));
+    this.service.confirmBooked(this.alice, List.of(seat.getId(), second.getId()));
 
     assertThat(seat.getStatus()).isEqualTo(SeatAvailabilityStatus.BOOKED);
     assertThat(seat.isBooked()).isTrue();
     assertThat(seat.isAvailable()).isFalse();
     assertThat(seat.getHeldBy()).isNull();
-    assertThat(cabin.getBookedSeats()).isEqualTo(4);
+    // Một câu UPDATE nguyên tử cho cả cabin, không đọc-sửa-ghi entity.
+    verify(this.cabinRepository).adjustBookedSeats(this.cabinId, 2, NOW);
+    verify(this.cabinRepository, never()).saveAll(any());
   }
 
   @Test
@@ -183,17 +222,33 @@ class SeatHoldServiceImplTest {
     seat.setStatus(SeatAvailabilityStatus.BOOKED);
     seat.setBooked(true);
     seat.setAvailable(false);
-    final FlightInstanceCabin cabin = new FlightInstanceCabin();
-    cabin.setId(this.cabinId);
-    cabin.setBookedSeats(1);
-    when(this.seatRepository.lockAllByIdIn(List.of(seat.getId()))).thenReturn(List.of(seat));
-    when(this.cabinRepository.findAllById(any())).thenReturn(List.of(cabin));
+    final SeatInstance notBooked = seat();
+    when(this.seatRepository.lockAllByIdIn(List.of(seat.getId(), notBooked.getId())))
+        .thenReturn(List.of(seat, notBooked));
 
-    this.service.free(List.of(seat.getId()));
+    this.service.free(List.of(seat.getId(), notBooked.getId()));
 
     assertThat(seat.getStatus()).isEqualTo(SeatAvailabilityStatus.AVAILABLE);
     assertThat(seat.isAvailable()).isTrue();
-    assertThat(cabin.getBookedSeats()).isZero();
+    // Chỉ ghế từng BOOKED mới trừ bộ đếm.
+    verify(this.cabinRepository).adjustBookedSeats(this.cabinId, -1, NOW);
+  }
+
+  @Test
+  void free_doesNotTouchTheCabinCounter_whenNoSeatWasBooked() {
+    final SeatInstance seat = seat();
+    when(this.seatRepository.lockAllByIdIn(List.of(seat.getId()))).thenReturn(List.of(seat));
+
+    this.service.free(List.of(seat.getId()));
+
+    verify(this.cabinRepository, never()).adjustBookedSeats(any(), org.mockito.ArgumentMatchers.anyInt(), any());
+  }
+
+  private com.nitditto.model.FlightInstanceCabin cabinOfClass(final UUID cabinClassId) {
+    final com.nitditto.model.FlightInstanceCabin cabin = com.nitditto.model.FlightInstanceCabin.builder()
+        .flightInstanceId(this.flightInstanceId).cabinClassId(cabinClassId).build();
+    cabin.setId(this.cabinId);
+    return cabin;
   }
 
   private SeatInstance seat() {

@@ -7,7 +7,11 @@ import java.util.UUID;
 public interface SeatHoldService {
 
   /** Giữ chỗ tạm thời các ghế cho người dùng (TTL cấu hình); bỏ giữ các ghế khác người đó đang giữ trên cùng chuyến. */
-  SeatHoldResponse hold(UUID userId, List<UUID> seatInstanceIds);
+  SeatHoldResponse hold(UUID userId, List<UUID> seatInstanceIds, SeatHoldScope scope);
+
+  default SeatHoldResponse hold(final UUID userId, final List<UUID> seatInstanceIds) {
+    return this.hold(userId, seatInstanceIds, SeatHoldScope.ANY);
+  }
 
   /** Nhả các ghế mà chính người dùng đang giữ (không đụng ghế của người khác). Idempotent. */
   void release(UUID userId, List<UUID> seatInstanceIds);

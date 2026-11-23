@@ -9,6 +9,7 @@ import com.nitditto.payload.response.SeatHoldResponse;
 import com.nitditto.repository.FlightInstanceCabinRepository;
 import com.nitditto.repository.SeatInstanceRepository;
 import com.nitditto.service.SeatHoldPolicy;
+import com.nitditto.service.SeatHoldScope;
 import com.nitditto.service.SeatHoldService;
 import java.time.Clock;
 import java.time.Duration;
@@ -18,8 +19,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -49,10 +50,11 @@ public class SeatHoldServiceImpl implements SeatHoldService {
 
   @Override
   @Transactional
-  public SeatHoldResponse hold(final UUID userId, final List<UUID> seatInstanceIds) {
+  public SeatHoldResponse hold(final UUID userId, final List<UUID> seatInstanceIds, final SeatHoldScope scope) {
     final List<UUID> ids = seatInstanceIds.stream().distinct().toList();
     final Instant now = this.clock.instant();
     final List<SeatInstance> seats = this.lockAll(ids);
+    this.requireWithinScope(seats, scope);
 
     final List<UUID> unavailable = seats.stream()
         .filter(seat -> !SeatHoldPolicy.isOpenFor(seat, userId, now)).map(SeatInstance::getId).toList();
@@ -136,28 +138,39 @@ public class SeatHoldServiceImpl implements SeatHoldService {
     return seats;
   }
 
+  // Kiểm tra ngay trên các hàng ghế vừa khoá: ghế của chuyến khác hoặc hạng khác với fare thì từ chối cả lô.
+  private void requireWithinScope(final List<SeatInstance> seats, final SeatHoldScope scope) {
+    if (scope.flightInstanceId() != null
+        && seats.stream().anyMatch(seat -> !scope.flightInstanceId().equals(seat.getFlightInstanceId()))) {
+      throw new BusinessException("Selected seats do not belong to the requested flight instance");
+    }
+    if (scope.cabinClassId() == null) {
+      return;
+    }
+    final Set<UUID> cabinIds = seats.stream().map(SeatInstance::getFlightInstanceCabinId).collect(Collectors.toSet());
+    final List<FlightInstanceCabin> cabins = this.flightInstanceCabinRepository.findAllById(cabinIds);
+    if (cabins.size() != cabinIds.size()
+        || cabins.stream().anyMatch(cabin -> !scope.cabinClassId().equals(cabin.getCabinClassId()))) {
+      throw new BusinessException("Selected seats are not in the cabin class of the chosen fare");
+    }
+  }
+
   private void clearHold(final SeatInstance seat) {
     seat.setHeldBy(null);
     seat.setHeldUntil(null);
   }
 
   // Giữ số ghế đã bán trên FlightInstanceCabin khớp với trạng thái từng ghế (availableSeats = total - booked).
+  // UPDATE nguyên tử ở DB (xem repository). Duyệt cabin theo thứ tự id cố định để hai giao dịch đụng cùng
+  // nhiều cabin luôn khoá theo cùng thứ tự, không deadlock.
   private void adjustBookedCounters(final List<SeatInstance> seats, final int delta) {
     if (seats.isEmpty()) {
       return;
     }
     final Map<UUID, Long> countByCabin = seats.stream()
-        .collect(Collectors.groupingBy(SeatInstance::getFlightInstanceCabinId, Collectors.counting()));
-    final Map<UUID, FlightInstanceCabin> cabinById = this.flightInstanceCabinRepository
-        .findAllById(countByCabin.keySet()).stream()
-        .collect(Collectors.toMap(FlightInstanceCabin::getId, Function.identity()));
-    countByCabin.forEach((cabinId, count) -> {
-      final FlightInstanceCabin cabin = cabinById.get(cabinId);
-      if (cabin != null) {
-        final int current = cabin.getBookedSeats() != null ? cabin.getBookedSeats() : 0;
-        cabin.setBookedSeats(Math.max(0, current + delta * count.intValue()));
-      }
-    });
-    this.flightInstanceCabinRepository.saveAll(cabinById.values());
+        .collect(Collectors.groupingBy(SeatInstance::getFlightInstanceCabinId, TreeMap::new, Collectors.counting()));
+    final Instant now = this.clock.instant();
+    countByCabin.forEach((cabinId, count) ->
+        this.flightInstanceCabinRepository.adjustBookedSeats(cabinId, delta * count.intValue(), now));
   }
 }

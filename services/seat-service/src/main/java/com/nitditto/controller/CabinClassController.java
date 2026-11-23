@@ -17,13 +17,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.nitditto.enums.CabinClassType;
-import com.nitditto.exception.BusinessException;
 import com.nitditto.payload.request.CabinClassRequest;
 import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.CabinClassResponse;
 import com.nitditto.service.CabinClassService;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -31,7 +31,6 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class CabinClassController {
 
-    private static final int MAX_BATCH_SIZE = 200;
 
     private final CabinClassService cabinClassService;
 
@@ -61,10 +60,7 @@ public class CabinClassController {
     @PostMapping("/batch-by-aircraft-ids")
     public ResponseEntity<ApiResponse<Map<UUID, CabinClassResponse>>> getBookableByAircraftIds(
             @RequestParam("cabinClass") final CabinClassType cabinClass,
-            @RequestBody final List<UUID> aircraftIds) {
-        if (aircraftIds.size() > MAX_BATCH_SIZE) {
-            throw new BusinessException("Cannot load more than %d aircraft at once".formatted(MAX_BATCH_SIZE));
-        }
+            @RequestBody @Size(max = 200, message = "At most 200 ids per batch request") final List<UUID> aircraftIds) {
         return ResponseEntity.ok(ApiResponse.success(
                 this.cabinClassService.getBookableByAircraftIds(aircraftIds, cabinClass)));
     }
