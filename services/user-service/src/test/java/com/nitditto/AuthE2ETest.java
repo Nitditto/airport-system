@@ -237,12 +237,12 @@ class AuthE2ETest {
     }
 
     @Test
-    void signup_withMissingRole_returns400() throws Exception {
+    void signup_withoutRole_createsCustomerAccount() throws Exception {
       postJson("/auth/signup",
           "{\"email\":\"frank@test.com\",\"password\":\"%s\",\"fullName\":\"Frank\"}".formatted(PASSWORD))
-          .andExpect(status().isBadRequest());
+          .andExpect(status().isOk());
 
-      assertThat(userRepository.findByEmail("frank@test.com")).isNull();
+      assertThat(userRepository.findByEmail("frank@test.com").getRole()).isEqualTo(UserRole.ROLE_USER);
     }
 
     @Test
@@ -275,25 +275,36 @@ class AuthE2ETest {
     void signup_asSystemAdmin_returns400_andPersistsNothing() throws Exception {
       postJson("/auth/signup", signupBody("root@test.com", PASSWORD, "Root", UserRole.ROLE_SYSTEM_ADMIN))
           .andExpect(status().isBadRequest())
-          .andExpect(jsonPath("$.message").value("You cannot sign up system admin"));
+          .andExpect(jsonPath("$.message").value("Public sign-up can only create customer accounts"));
 
       assertThat(userRepository.findByEmail("root@test.com")).isNull();
     }
 
     @Test
-    void login_withWrongPassword_returns400() throws Exception {
+    void signup_asAirlineOwner_returns400_andPersistsNothing() throws Exception {
+      postJson("/auth/signup", signupBody("owner2@test.com", PASSWORD, "Owner", UserRole.ROLE_AIRLINE_OWNER))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.message").value("Public sign-up can only create customer accounts"));
+
+      assertThat(userRepository.findByEmail("owner2@test.com")).isNull();
+    }
+
+    // Sai mật khẩu và email không tồn tại phải trả y hệt nhau, nếu không sẽ dò được email đã đăng ký.
+    @Test
+    void login_withWrongPassword_returns401_withGenericMessage() throws Exception {
       saveUser("heidi@test.com", UserRole.ROLE_USER, null);
 
       postJson("/auth/login", loginBody("heidi@test.com", "wrong-password"))
-          .andExpect(status().isBadRequest())
-          .andExpect(jsonPath("$.message").value("Invalid password"));
+          .andExpect(status().isUnauthorized())
+          .andExpect(jsonPath("$.message").value("Invalid email or password"));
     }
 
     @Test
-    void login_withUnknownEmail_returns404() throws Exception {
+    void login_withUnknownEmail_returnsTheSame401_asAWrongPassword() throws Exception {
       postJson("/auth/login", loginBody("ghost@test.com", PASSWORD))
-          .andExpect(status().isNotFound())
-          .andExpect(jsonPath("$.success").value(false));
+          .andExpect(status().isUnauthorized())
+          .andExpect(jsonPath("$.success").value(false))
+          .andExpect(jsonPath("$.message").value("Invalid email or password"));
     }
 
     @Test

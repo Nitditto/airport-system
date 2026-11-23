@@ -5,6 +5,7 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashSet;
@@ -20,9 +21,13 @@ import org.springframework.stereotype.Service;
 public class JwtProvider {
 
   private final SecretKey key;
+  private final Duration ttl;
 
-  public JwtProvider(@Value("${jwt.secret}") final String secret) {
+  // Token không thu hồi được (chưa có refresh token/blacklist) nên TTL là cửa sổ rủi ro khi token bị lộ: để cấu hình.
+  public JwtProvider(@Value("${jwt.secret}") final String secret,
+      @Value("${jwt.ttl-minutes:1440}") final long ttlMinutes) {
     this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+    this.ttl = Duration.ofMinutes(ttlMinutes);
   }
 
   public Claims parseClaims(final String token) throws JwtException {
@@ -38,7 +43,7 @@ public class JwtProvider {
     String roles = populateAuthorities(authorities);
     String jwt = Jwts.builder()
         .issuedAt(new Date())
-        .expiration(new Date(System.currentTimeMillis() + 86400000))
+        .expiration(new Date(System.currentTimeMillis() + this.ttl.toMillis()))
         .claim("email", auth.getName())
         .claim("authorities", roles)
         .claim("userId", userId)
