@@ -12,7 +12,6 @@ import static org.mockito.Mockito.when;
 
 import com.nitditto.client.AirlineClient;
 import com.nitditto.client.AncillaryClient;
-import com.nitditto.client.FlightClient;
 import com.nitditto.client.PaymentClient;
 import com.nitditto.client.SeatClient;
 import com.nitditto.exception.BusinessException;
@@ -21,9 +20,7 @@ import com.nitditto.model.Booking;
 import com.nitditto.payload.request.BookingRequest;
 import com.nitditto.payload.request.PassengerRequest;
 import com.nitditto.payload.request.PaymentInitiateRequest;
-import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.ApiResponse;
-import com.nitditto.payload.response.FlightResponse;
 import com.nitditto.payload.response.BookingResponse;
 import com.nitditto.payload.response.PaymentInitiateResponse;
 import java.util.Map;
@@ -40,6 +37,7 @@ import com.nitditto.service.PassengerService;
 import com.nitditto.service.SeatReservationService;
 import com.nitditto.service.TicketService;
 import com.nitditto.service.impl.BookingServiceImpl;
+import com.nitditto.service.integration.BookingTargetResolver;
 import com.nitditto.service.integration.FareIntegrationService;
 import java.util.List;
 import java.util.UUID;
@@ -63,7 +61,7 @@ class BookingServiceImplTest {
   @Mock
   private TicketService ticketService;
   @Mock
-  private FlightClient flightClient;
+  private BookingTargetResolver bookingTargetResolver;
   @Mock
   private SeatClient seatClient;
   @Mock
@@ -97,11 +95,13 @@ class BookingServiceImplTest {
   private static final java.time.Instant BOOKING_CREATED_AT = java.time.Instant.parse("2026-11-20T03:00:00Z");
   private final UUID seatA = UUID.randomUUID();
   private final UUID seatB = UUID.randomUUID();
+  private final BookingTargetResolver.BookingTarget target = new BookingTargetResolver.BookingTarget(this.airlineId,
+      UUID.randomUUID(), new com.nitditto.payload.response.FareResponse());
 
   @BeforeEach
   void setUp() {
     this.service = new BookingServiceImpl(this.bookingRepository, this.passengerService, this.ticketService,
-        this.flightClient, this.seatClient, this.ancillaryClient, this.paymentClient, this.fareIntegrationService,
+        this.bookingTargetResolver, this.seatClient, this.ancillaryClient, this.paymentClient, this.fareIntegrationService,
         this.airlineClient, this.seatReservationService, this.bookingEnrichmentService,
         this.bookingConfirmationService, new com.nitditto.service.PaymentWindow(15), this.paymentSettlementService, this.bookingCreationService, this.bookingRefundService,
         this.bookingCancellationService);
@@ -144,11 +144,11 @@ class BookingServiceImplTest {
 
     this.service.createBooking(request(this.seatA), this.userId);
 
-    final InOrder order = inOrder(this.flightClient, this.seatClient, this.seatReservationService,
+    final InOrder order = inOrder(this.bookingTargetResolver, this.seatClient, this.seatReservationService,
         this.bookingCreationService, this.paymentClient);
-    order.verify(this.flightClient).getFlightById(any());
+    order.verify(this.bookingTargetResolver).resolve(any());
     order.verify(this.seatClient).calculateSeatPrice(any());
-    order.verify(this.seatReservationService).hold(this.userId, List.of(this.seatA));
+    order.verify(this.seatReservationService).hold(this.userId, List.of(this.seatA), this.target);
     order.verify(this.bookingCreationService).createPending(any(), any(), any(), any());
     order.verify(this.paymentClient).initiatePayment(any());
   }
@@ -169,7 +169,7 @@ class BookingServiceImplTest {
   void createBooking_stopsWithoutCreatingBookingOrPayment_whenASeatIsAlreadyTaken() {
     givenFlightAndPrices(500.0, 0.0);
     doThrow(new BusinessException("One or more selected seats are no longer available"))
-        .when(this.seatReservationService).hold(any(), any());
+        .when(this.seatReservationService).hold(any(), any(), any());
 
     assertThatThrownBy(() -> this.service.createBooking(request(this.seatA), this.userId))
         .isInstanceOf(BusinessException.class);
@@ -180,12 +180,26 @@ class BookingServiceImplTest {
 
   @Test
   void createBooking_doesNotHoldSeats_whenFlightIsUnknown() {
-    when(this.flightClient.getFlightById(any())).thenReturn(ApiResponse.success(null));
+    when(this.bookingTargetResolver.resolve(any()))
+        .thenThrow(new ResourceNotFoundException("FlightInstance", "id", UUID.randomUUID()));
 
     assertThatThrownBy(() -> this.service.createBooking(request(this.seatA), this.userId))
         .isInstanceOf(ResourceNotFoundException.class);
 
-    verify(this.seatReservationService, never()).hold(any(), any());
+    verify(this.seatReservationService, never()).hold(any(), any(), any());
+  }
+
+  @Test
+  void createBooking_doesNotPriceOrHoldSeats_whenFareDoesNotMatchTheFlight() {
+    when(this.bookingTargetResolver.resolve(any()))
+        .thenThrow(new BusinessException("Fare does not belong to the requested flight"));
+
+    assertThatThrownBy(() -> this.service.createBooking(request(this.seatA), this.userId))
+        .isInstanceOf(BusinessException.class);
+
+    verify(this.seatClient, never()).calculateSeatPrice(any());
+    verify(this.seatReservationService, never()).hold(any(), any(), any());
+    verify(this.bookingCreationService, never()).createPending(any(), any(), any(), any());
   }
 
   @Test
@@ -325,7 +339,69 @@ class BookingServiceImplTest {
     assertThatThrownBy(() -> this.service.createBooking(request(this.seatA, this.seatA), this.userId))
         .isInstanceOf(BusinessException.class).hasMessageContaining("different seat");
 
-    verify(this.seatReservationService, never()).hold(any(), any());
+    verify(this.seatReservationService, never()).hold(any(), any(), any());
+  }
+
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.EnumSource(value = BookingStatus.class, names = {"PENDING", "CONFIRMED"})
+  void deleteBooking_rejectsActiveBooking_andDeletesNothing(final BookingStatus status) {
+    final Booking booking = this.bookingIn(status);
+    this.givenBookingExists(booking);
+
+    assertThatThrownBy(() -> this.service.deleteBooking(booking.getId(), this.userId))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("cancel the booking first");
+
+    verify(this.ticketService, never()).deleteTicketsForBooking(any());
+    verify(this.passengerService, never()).deletePassengersForBooking(any());
+    verify(this.bookingRepository, never()).deleteById(any());
+  }
+
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.EnumSource(value = BookingStatus.class, names = {"CANCELLED", "EXPIRED"})
+  void deleteBooking_removesFinishedBooking_childrenFirst(final BookingStatus status) {
+    final Booking booking = this.bookingIn(status);
+    this.givenBookingExists(booking);
+
+    this.service.deleteBooking(booking.getId(), this.userId);
+
+    final InOrder order = inOrder(this.ticketService, this.passengerService, this.bookingRepository);
+    order.verify(this.ticketService).deleteTicketsForBooking(booking.getId());
+    order.verify(this.passengerService).deletePassengersForBooking(booking.getId());
+    order.verify(this.bookingRepository).deleteById(booking.getId());
+  }
+
+  @Test
+  void deleteBooking_byAnotherUser_isRejectedBeforeStatusCheck() {
+    final Booking booking = this.bookingIn(BookingStatus.CANCELLED);
+    this.givenBookingExists(booking);
+
+    assertThatThrownBy(() -> this.service.deleteBooking(booking.getId(), UUID.randomUUID()))
+        .isInstanceOf(BusinessException.class).hasMessageContaining("not allowed to delete");
+
+    verify(this.bookingRepository, never()).deleteById(any());
+  }
+
+  @Test
+  void getAllBookingsByAirline_ownerWithoutAirline_isForbidden() {
+    when(this.airlineClient.getAirlineByOwner(this.userId)).thenThrow(new feign.FeignException.NotFound("none",
+        feign.Request.create(feign.Request.HttpMethod.GET, "/api/airlines/owner", Map.of(), null,
+            java.nio.charset.StandardCharsets.UTF_8, null), null, null));
+
+    assertThatThrownBy(() -> this.service.getAllBookingsByAirline(this.userId, null, null, null,
+        org.springframework.data.domain.Pageable.ofSize(20)))
+        .isInstanceOf(com.nitditto.exception.ForbiddenException.class);
+
+    verify(this.bookingRepository, never()).findAll(any(org.springframework.data.jpa.domain.Specification.class),
+        any(org.springframework.data.domain.Pageable.class));
+  }
+
+  @Test
+  void getAllBookingsByAirline_nullAirlineData_isForbidden() {
+    when(this.airlineClient.getAirlineByOwner(this.userId)).thenReturn(ApiResponse.success(null));
+
+    assertThatThrownBy(() -> this.service.getAllBookingsByAirline(this.userId, null, null, null,
+        org.springframework.data.domain.Pageable.ofSize(20)))
+        .isInstanceOf(com.nitditto.exception.ForbiddenException.class);
   }
 
   private Booking bookingIn(final BookingStatus status) {
@@ -340,6 +416,34 @@ class BookingServiceImplTest {
 
   private void givenBookingExists(final Booking booking) {
     when(this.bookingRepository.findById(booking.getId())).thenReturn(java.util.Optional.of(booking));
+  }
+
+  @Test
+  void listing_doesNotLockOrCallPaymentService_forUnpaidBookingStillInsideItsWindow() {
+    final Booking recent = this.bookingIn(BookingStatus.PENDING);
+    recent.setCreatedAt(java.time.Instant.now());
+    when(this.bookingRepository.findByUserId(any(), any()))
+        .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(recent)));
+    this.givenResponseCanBeBuilt(recent);
+
+    this.service.getBookingsByUser(this.userId, org.springframework.data.domain.Pageable.ofSize(20));
+
+    verify(this.bookingConfirmationService, never()).expireIfStale(any());
+    verify(this.paymentSettlementService, never()).settle(any());
+  }
+
+  @Test
+  void listing_stillExpiresUnpaidBookingPastItsWindow() {
+    final Booking stale = this.bookingIn(BookingStatus.PENDING);
+    stale.setCreatedAt(BOOKING_CREATED_AT);
+    when(this.bookingRepository.findByUserId(any(), any()))
+        .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(stale)));
+    when(this.bookingConfirmationService.expireIfStale(stale.getId())).thenReturn(BookingStatus.EXPIRED);
+    this.givenResponseCanBeBuilt(stale);
+
+    this.service.getBookingsByUser(this.userId, org.springframework.data.domain.Pageable.ofSize(20));
+
+    verify(this.bookingConfirmationService).expireIfStale(stale.getId());
   }
 
   private void givenCancelledResponseCanBeBuilt(final Booking booking) {
@@ -357,12 +461,8 @@ class BookingServiceImplTest {
   }
 
   private void givenFlightAndPrices(final double fare, final double seatPrice) {
-    final FlightResponse flight = new FlightResponse();
-    final AirlineResponse airline = new AirlineResponse();
-    airline.setId(this.airlineId);
-    flight.setAirline(airline);
-    when(this.flightClient.getFlightById(any())).thenReturn(ApiResponse.success(flight));
-    when(this.fareIntegrationService.calculateFareTotal(any())).thenReturn(fare);
+    when(this.bookingTargetResolver.resolve(any())).thenReturn(this.target);
+    when(this.fareIntegrationService.farePerPassenger(this.target.fare())).thenReturn(fare);
     when(this.seatClient.calculateSeatPrice(any())).thenReturn(seatPrice);
     when(this.ancillaryClient.calculateAncillariesPrice(any())).thenReturn(ApiResponse.success(80.0));
     when(this.ancillaryClient.calculateMealPrice(any())).thenReturn(ApiResponse.success(20.0));

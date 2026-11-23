@@ -2,7 +2,6 @@ package com.nitditto.service.impl;
 
 import com.nitditto.client.AirlineClient;
 import com.nitditto.client.AncillaryClient;
-import com.nitditto.client.FlightClient;
 import com.nitditto.client.PaymentClient;
 import com.nitditto.client.SeatClient;
 import com.nitditto.enums.BookingStatus;
@@ -16,9 +15,9 @@ import com.nitditto.model.Booking;
 import com.nitditto.payload.request.BookingRequest;
 import com.nitditto.payload.request.PassengerRequest;
 import com.nitditto.payload.request.PaymentInitiateRequest;
+import com.nitditto.exception.ForbiddenException;
 import com.nitditto.payload.response.AirlineResponse;
 import com.nitditto.payload.response.BookingResponse;
-import com.nitditto.payload.response.FlightResponse;
 import com.nitditto.payload.response.PassengerResponse;
 import com.nitditto.payload.response.PaymentInitiateResponse;
 import com.nitditto.payload.response.TicketResponse;
@@ -37,11 +36,15 @@ import com.nitditto.service.PaymentWindow;
 import com.nitditto.service.PaymentSettlementService;
 import com.nitditto.service.SeatReservationService;
 import com.nitditto.service.TicketService;
+import com.nitditto.service.integration.BookingTargetResolver;
+import com.nitditto.service.integration.BookingTargetResolver.BookingTarget;
 import com.nitditto.service.integration.FareIntegrationService;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -59,13 +62,18 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
+// Không dùng mặc định readOnly của §11: mọi method public ở đây điều phối qua HTTP (enrichment, reconcile, payment).
+// Bọc transaction ngoài sẽ giữ DB connection suốt các lời gọi đó; mỗi bước ghi đã có transaction ngắn riêng.
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
 public class BookingServiceImpl implements BookingService {
+
+    private static final Set<BookingStatus> DELETABLE_STATUSES = EnumSet.of(BookingStatus.CANCELLED,
+            BookingStatus.EXPIRED);
 
     private final BookingRepository bookingRepository;
     private final PassengerService passengerService;
     private final TicketService ticketService;
-    private final FlightClient flightClient;
+    private final BookingTargetResolver bookingTargetResolver;
     private final SeatClient seatClient;
     private final AncillaryClient ancillaryClient;
     private final PaymentClient paymentClient;
@@ -102,13 +110,14 @@ public class BookingServiceImpl implements BookingService {
             throw new BusinessException("Each passenger must be assigned a different seat");
         }
 
-        final UUID airlineId = this.resolveAirlineId(request.getFlightId());
-        final double totalPrice = this.calculateTotalPrice(request, seatInstanceIds);
+        // Đối chiếu flight instance / fare với flightId trước mọi thứ khác; ghế được seat-service kiểm lúc giữ.
+        final BookingTarget target = this.bookingTargetResolver.resolve(request);
+        final double totalPrice = this.calculateTotalPrice(request, target, seatInstanceIds);
 
-        this.seatReservationService.hold(userId, seatInstanceIds);
+        this.seatReservationService.hold(userId, seatInstanceIds, target);
         final Booking booking;
         try {
-            booking = this.bookingCreationService.createPending(request, userId, airlineId, seatInstanceIds);
+            booking = this.bookingCreationService.createPending(request, userId, target.airlineId(), seatInstanceIds);
         } catch (final RuntimeException ex) {
             this.seatReservationService.releaseQuietly(userId, seatInstanceIds);
             throw ex;
@@ -124,16 +133,9 @@ public class BookingServiceImpl implements BookingService {
         }
     }
 
-    private UUID resolveAirlineId(final UUID flightId) {
-        final FlightResponse flight = this.flightClient.getFlightById(flightId).getData();
-        if (flight == null || flight.getAirline() == null || flight.getAirline().getId() == null) {
-            throw new ResourceNotFoundException("Flight", "id", flightId);
-        }
-        return flight.getAirline().getId();
-    }
-
-    private double calculateTotalPrice(final BookingRequest request, final List<UUID> seatInstanceIds) {
-        final Double farePerPassenger = this.fareIntegrationService.calculateFareTotal(request.getFareId());
+    private double calculateTotalPrice(final BookingRequest request, final BookingTarget target,
+            final List<UUID> seatInstanceIds) {
+        final Double farePerPassenger = this.fareIntegrationService.farePerPassenger(target.fare());
         final Double seatPrice = this.seatClient.calculateSeatPrice(seatInstanceIds);
         // ancillaryIds/mealIds là optional trong BookingRequest; Feign không cho body null (IllegalArgumentException -> 500).
         final Double ancillaryPrice = this.ancillaryClient.calculateAncillariesPrice(
@@ -206,10 +208,14 @@ public class BookingServiceImpl implements BookingService {
     public Page<BookingResponse> getAllBookingsByAirline(final UUID userId, final String search,
             final BookingStatus status, final UUID flightInstanceId, final Pageable pageable) {
 
-        AirlineResponse airlineResponse = airlineClient.getAirlineByOwner(userId).getData();
+        // Owner chưa có hãng (airline-core trả 404 / data null) -> 403 rõ ràng, thay vì NPE hoặc lỗi Feign thành 5xx.
+        final UUID airlineId = this.airlineIdOwnedBy(userId);
+        if (airlineId == null) {
+            throw new ForbiddenException("You do not own an airline");
+        }
 
         final Specification<Booking> spec = Specification
-                .where(BookingSpecs.airlineId(airlineResponse.getId()))
+                .where(BookingSpecs.airlineId(airlineId))
                 .and(BookingSpecs.status(status))
                 .and(BookingSpecs.flightInstanceId(flightInstanceId))
                 .and(BookingSpecs.search(search));
@@ -277,6 +283,11 @@ public class BookingServiceImpl implements BookingService {
         final Booking booking = this.bookingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking", "id", id));
         requireOwner(booking, requesterUserId, "delete");
+        // Chỉ dọn booking đã kết thúc. CONFIRMED (đã trả tiền) / PENDING (link thanh toán còn sống): xoá cứng sẽ bỏ lại
+        // payment không có booking để hoàn và ghế kẹt BOOKED/hold -> phải đi qua cancelBooking (hoàn tiền + nhả ghế).
+        if (!DELETABLE_STATUSES.contains(booking.getBookingStatus())) {
+            throw new BusinessException("Only cancelled or expired bookings can be deleted; cancel the booking first");
+        }
 
         // Không còn cascade -> xoá con trước, cha sau, cùng 1 transaction.
         this.ticketService.deleteTicketsForBooking(id);
@@ -330,9 +341,14 @@ public class BookingServiceImpl implements BookingService {
         if (booking.getBookingStatus() != BookingStatus.PENDING) {
             return;
         }
+        final boolean paid = context.payment() != null
+                && context.payment().getPaymentStatus() == PaymentStatus.SUCCESS;
+        // Chưa trả và còn hạn: không có gì để chữa. Bỏ qua để trang danh sách không khoá hàng + gọi payment-service
+        // cho từng booking PENDING còn hạn.
+        if (!paid && !this.paymentWindow.hasExpired(booking)) {
+            return;
+        }
         try {
-            final boolean paid = context.payment() != null
-                    && context.payment().getPaymentStatus() == PaymentStatus.SUCCESS;
             final BookingStatus status = paid
                     ? this.paymentSettlementService.settle(booking.getId())
                     : this.bookingConfirmationService.expireIfStale(booking.getId());

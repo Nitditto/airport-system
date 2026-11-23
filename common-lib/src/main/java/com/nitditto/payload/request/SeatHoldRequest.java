@@ -18,4 +18,9 @@ public class SeatHoldRequest {
   @NotEmpty(message = "At least one seat instance is required")
   @Size(max = 9, message = "Cannot hold more than 9 seats at once")
   private List<UUID> seatInstanceIds;
+
+  // Tuỳ chọn, chỉ dùng khi hold: có giá trị thì seat-service từ chối ghế không thuộc chuyến / hạng ghế này
+  // (booking-service gửi để khách không ghép ghế chuyến khác hoặc ghế thương gia với fare phổ thông).
+  private UUID flightInstanceId;
+  private UUID cabinClassId;
 }

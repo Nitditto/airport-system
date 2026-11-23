@@ -36,6 +36,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -64,6 +65,9 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentRecordService paymentRecordService;
     private final ClientIpPolicy clientIpPolicy;
     private final ExchangeRateService exchangeRateService;
+    // Transaction ngắn trong method điều phối không chạy trong transaction (gọi @Transactional trong cùng class thì
+    // không qua proxy).
+    private final TransactionOperations transactionOperations;
 
     // Chỉ trả lại link cũ khi khách còn dư thời gian để dùng nó (còn ít nhất chừng này trước hạn thật của link).
     private static final Duration REUSE_MARGIN = Duration.ofMinutes(1);
@@ -197,17 +201,17 @@ public class PaymentServiceImpl implements PaymentService {
                 .expiresAt(pending.getLinkExpiresAt()), pending).build();
     }
 
+    /**
+     * KHÔNG bọc cả method trong transaction (CLAUDE.md §8.5): nhánh Razorpay phải gọi API Razorpay, nếu giữ DB connection
+     * suốt lời gọi đó thì Razorpay chậm sẽ làm cạn pool. Gọi mạng trước, rồi ghi DB trong một transaction ngắn
+     * (event PaymentSucceeded/Failed vẫn phát trong transaction đó nên listener AFTER_COMMIT chạy như cũ).
+     */
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PaymentDTO verifyPayment(final PaymentVerifyRequest request, final UUID callerUserId) {
         if (request.getGateway() == PaymentGateway.VNPAY || (request.getVnpTxnRef() != null && !request.getVnpTxnRef().isBlank())) {
-            final Payment payment = this.findByVnpTxnRef(request.getVnpTxnRef());
-            this.requireOwner(payment, callerUserId);
-            // Không có tham số + chữ ký gốc từ VNPay thì không thể chứng minh khách đã trả tiền.
-            if (request.getVnpParams() == null || request.getVnpParams().isEmpty()) {
-                throw new BusinessException("Missing VNPay parameters");
-            }
-            return this.processVnpayResult(payment, request.getVnpParams());
+            // VNPay: chữ ký kiểm tại chỗ, không có lời gọi mạng nên chỉ cần một transaction.
+            return this.transactionOperations.execute(status -> this.verifyVnpay(request, callerUserId));
         }
 
         final JSONObject paymentDetails;
@@ -217,7 +221,22 @@ public class PaymentServiceImpl implements PaymentService {
             log.error("Razorpay fetchPaymentDetails failed for razorpayPaymentId={}", request.getRazorpayPaymentId(), ex);
             throw new BusinessException("Failed to fetch payment details: " + ex.getMessage());
         }
+        return this.transactionOperations.execute(status ->
+                this.applyRazorpayDetails(request, paymentDetails, callerUserId));
+    }
 
+    private PaymentDTO verifyVnpay(final PaymentVerifyRequest request, final UUID callerUserId) {
+        final Payment payment = this.findByVnpTxnRef(request.getVnpTxnRef());
+        this.requireOwner(payment, callerUserId);
+        // Không có tham số + chữ ký gốc từ VNPay thì không thể chứng minh khách đã trả tiền.
+        if (request.getVnpParams() == null || request.getVnpParams().isEmpty()) {
+            throw new BusinessException("Missing VNPay parameters");
+        }
+        return this.processVnpayResult(payment, request.getVnpParams());
+    }
+
+    private PaymentDTO applyRazorpayDetails(final PaymentVerifyRequest request, final JSONObject paymentDetails,
+            final UUID callerUserId) {
         final JSONObject notes = paymentDetails.optJSONObject("notes");
         final String paymentIdFromNotes = notes == null ? null : notes.optString("payment_id", null);
         if (paymentIdFromNotes == null) {

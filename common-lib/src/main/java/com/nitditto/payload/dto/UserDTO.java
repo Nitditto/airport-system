@@ -3,7 +3,6 @@ package com.nitditto.payload.dto;
 import com.nitditto.enums.UserRole;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
@@ -26,7 +25,7 @@ public class UserDTO {
   @NotBlank(message = "Full name is required")
   private String fullName;
   private String phone;
-  @NotNull(message = "Role is required")
+  // Không bắt buộc khi đăng ký: server luôn gán ROLE_USER (AuthServiceImpl.signup).
   private UserRole role;
   private LocalDateTime lastLogin;
 }

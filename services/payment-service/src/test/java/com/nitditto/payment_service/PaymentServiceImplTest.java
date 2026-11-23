@@ -73,7 +73,8 @@ class PaymentServiceImplTest {
     this.service = new PaymentServiceImpl(this.paymentRepository, this.razorpayService, vnPayService,
         this.eventPublisher, this.userClient, CLOCK,
         new com.nitditto.service.impl.PaymentRecordServiceImpl(this.paymentRepository),
-        new com.nitditto.service.gateway.ClientIpPolicy(false), this.exchangeRateService);
+        new com.nitditto.service.gateway.ClientIpPolicy(false), this.exchangeRateService,
+        org.springframework.transaction.support.TransactionOperations.withoutTransaction());
 
     this.payment = Payment.builder().userId(UUID.randomUUID()).bookingId(this.bookingId).amount(250.0)
         .status(PaymentStatus.PENDING).build();
@@ -248,6 +249,39 @@ class PaymentServiceImplTest {
     final PaymentDTO result = this.service.verifyPayment(request, this.payment.getUserId());
 
     assertThat(result.getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
+  }
+
+  @Test
+  void verifyPayment_razorpay_callsRazorpayOutsideTheTransaction_andWritesInsideIt() throws Exception {
+    final java.util.concurrent.atomic.AtomicBoolean inTransaction = new java.util.concurrent.atomic.AtomicBoolean();
+    final org.springframework.transaction.support.TransactionOperations tracking =
+        new org.springframework.transaction.support.TransactionOperations() {
+          @Override
+          public <T> T execute(final org.springframework.transaction.support.TransactionCallback<T> action) {
+            inTransaction.set(true);
+            try {
+              return action.doInTransaction(null);
+            } finally {
+              inTransaction.set(false);
+            }
+          }
+        };
+    ReflectionTestUtils.setField(this.service, "transactionOperations", tracking);
+    final JSONObject details = new JSONObject().put("status", "captured")
+        .put("notes", new JSONObject().put("payment_id", this.payment.getId().toString()));
+    when(this.razorpayService.fetchPaymentDetails("pay_tx")).thenAnswer(invocation -> {
+      assertThat(inTransaction).as("Razorpay must not be called while holding a DB transaction").isFalse();
+      return details;
+    });
+    when(this.paymentRepository.findById(this.payment.getId())).thenAnswer(invocation -> {
+      assertThat(inTransaction).as("payment must be loaded and written inside the transaction").isTrue();
+      return java.util.Optional.of(this.payment);
+    });
+
+    this.service.verifyPayment(PaymentVerifyRequest.builder().razorpayPaymentId("pay_tx").build(),
+        this.payment.getUserId());
+
+    assertThat(this.payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
   }
 
   @Test

@@ -104,9 +104,12 @@ public class BookingConfirmationServiceImpl implements BookingConfirmationServic
       return booking.getBookingStatus();
     }
     final Instant deadline = this.paymentWindow.expiresAt(booking);
+    // Kiểm hạn trước: booking còn hạn không cần hỏi payment-service (lời gọi HTTP trong lúc giữ khoá hàng).
+    if (this.clock.instant().isBefore(deadline)) {
+      return BookingStatus.PENDING;
+    }
     final PaymentDTO payment = this.findPayment(bookingId);
-    final boolean paid = payment != null && payment.getPaymentStatus() == PaymentStatus.SUCCESS;
-    if (paid || this.clock.instant().isBefore(deadline)) {
+    if (payment != null && payment.getPaymentStatus() == PaymentStatus.SUCCESS) {
       return BookingStatus.PENDING;
     }
 

@@ -263,6 +263,10 @@ ResponseEntity<ApiResponse<Map<UUID, XxxResponse>>> getByIds(@RequestBody @Valid
 
 Gateway coi `POST .../batch-by-ids` là thao tác **đọc** (regex `BATCH_READ_PATH` trong `RouteConfig`) — giữ đúng path pattern này.
 
+- Giới hạn khai bằng `@Size(max = 200)` trên tham số, **không** `if (ids.size() > …)` thủ công. Spring 7 ném `HandlerMethodValidationException` cho ràng buộc trên tham số → mọi `GlobalExceptionHandler` phải map nó về 400 (§14).
+- Phía gọi gom id quá 200 (vd. ghế của cả trang booking) → **chia lô 200**, mỗi lô một lời gọi (mẫu: `ReferenceDataLoader`, `BookingEnrichmentServiceImpl.fetch`).
+- `spring.data.web.pageable.max-page-size: 100` khai ở `config-repo/application.yaml` (và bản đóng gói `application.yaml` của mỗi service làm mặc định dev/test, §20): mặc định Spring là 2000, một trang lớn kéo theo batch vượt 200 ở service khác.
+
 Dữ liệu tổng hợp (count/sum/min) → một aggregate query `group by` trả DTO projection (record), không tính từng dòng.
 
 ### Cấu hình bắt buộc (`application.yaml`)
@@ -336,6 +340,7 @@ Feign ném `FeignException` (subclass theo status: `FeignException.BadRequest`, 
    ```
 
 2. Lời gọi **bù trừ/không quan trọng** (release ghế khi rollback, notify) → method hậu tố `*Quietly`, bắt `RuntimeException`, `log.warn` rồi bỏ qua — không làm hỏng luồng chính.
+   Lời gọi **làm giàu dữ liệu cho màn đọc** được trả rỗng khi service đích lỗi/không với tới, nhưng **không nuốt `FeignException.BadRequest`**: 400 nghĩa là chính request của ta sai (bug), trả rỗng sẽ che nó thành "thiếu dữ liệu" âm thầm.
 3. Mọi service có Feign client khai lưới an toàn `handleFeign(FeignException)` trong `GlobalExceptionHandler` (cùng một bản ở mọi service, mẫu: `flight-ops-service`), log đầy đủ ở server, trả message chung — **không** trả `ex.getMessage()` (lộ URL/body nội bộ):
 
    | Lỗi từ service đích | Trả cho client |
@@ -428,6 +433,9 @@ Client ─(Authorization: Bearer <jwt>)─► api-gateway
   - **Ownership** (owner A không sửa được dữ liệu của owner B) → ở `*ServiceImpl`, đối chiếu `userId` từ header với `ownerId`/`userId` của bản ghi; sai → `BusinessException`/403.
   - **Ngoại lệ có kiểm soát — admin ĐỌC:** `ROLE_SYSTEM_ADMIN` được bỏ qua kiểm tra sở hữu cho thao tác **đọc** (hỗ trợ/kiểm soát). Service đọc header `X-User-Roles` (gateway ghi đè từ JWT, client không giả được; có test) thay vì tự parse token. Thao tác **ghi/huỷ** vẫn chỉ chủ sở hữu, trừ khi có quyết định riêng. Ví dụ: `BookingReadAccess` (booking-service).
 - Không bao giờ nhận danh tính từ body/query param (`userId` trong request body để quyết định quyền là lỗ hổng).
+- Cũng không nhận **quyền** từ body: `POST /auth/signup` (công khai) chỉ tạo `ROLE_USER`, body gửi role khác bị từ chối. Tài khoản owner/admin tạo qua seed hoặc luồng quản trị chỉ ADMIN gọi được.
+- Login sai trả **một** lỗi chung (401 `Invalid email or password`) cho cả email không tồn tại lẫn sai mật khẩu, và cả hai nhánh đều chạy BCrypt — khác mã lỗi hay thời gian phản hồi đều cho dò email đã đăng ký.
+- Đối chiếu các id client gửi cùng nhau (fare ↔ flight ↔ flight instance ↔ ghế ↔ hạng ghế) trước khi tính tiền/giữ chỗ; không tin rằng chúng khớp nhau (mẫu: `BookingTargetResolver`, `SeatHoldScope`).
 - Endpoint nội bộ (chỉ service khác gọi, vd `seat-instances/confirm-booked`, `free`) không được thêm vào nhóm route customer ở gateway.
 - Service chỉ an toàn vì **không lộ port ra ngoài** — không publish port business service trong `docker-compose.yml`.
 - Không log JWT, password, `hash-secret`, key cổng thanh toán.
@@ -445,6 +453,7 @@ Page<FareResponse> getFares(final Pageable pageable) {
 ```
 
 Không có ngoại lệ "lấy tất cả". Riêng `batch-by-ids` không phân trang nhưng chặn `@Size(max = 200)`.
+Endpoint tự dựng `PageRequest` từ `page/size/sortBy` (không dùng `Pageable`) phải tự kẹp `size` (≤ 100), từ chối `page` âm và chỉ nhận `sortBy` trong danh sách trường cho phép — `max-page-size` không áp cho chúng.
 
 ### Các rule khác
 
@@ -477,8 +486,11 @@ public class FareServiceImpl implements FareService {
 ```
 
 - Bắt buộc `@Transactional` cho method ghi đụng ≥ 2 bảng (đặc biệt xoá cha-con, §6).
-- Gọi `this.method()` trong cùng class bỏ qua proxy → không có transaction. Cần thì tách bean.
+- Gọi `this.method()` trong cùng class bỏ qua proxy → không có transaction. Cần thì tách bean, hoặc dùng `TransactionOperations` (mẫu: `PaymentServiceImpl.verifyPayment`).
 - Không gọi Feign/Kafka bên trong transaction ghi nếu tránh được (§8, §9).
+- **Ngoại lệ của mặc định `readOnly`:** service điều phối mà method public gọi HTTP (làm giàu dữ liệu, đối soát, thanh toán) khai mặc định `@Transactional(propagation = NOT_SUPPORTED)` ở class (mẫu: `BookingServiceImpl`) — bọc readOnly sẽ giữ DB connection suốt các lời gọi mạng. Mỗi bước ghi dùng transaction ngắn riêng.
+- **Luồng đọc không được khoá hàng / gọi HTTP cho từng bản ghi.** Việc tự chữa dữ liệu lúc đọc (vd. hết hạn booking) phải kiểm điều kiện rẻ tại chỗ trước (hạn thanh toán) và chỉ đi tiếp khi thật cần.
+- **Bộ đếm tồn kho** (`bookedSeats`, `availableSeats`...) cập nhật bằng UPDATE nguyên tử ở DB (`set x = x + :delta`, kẹp biên trong SQL) hoặc entity có `@Version` — không đọc-sửa-ghi ở Java. Nhiều hàng trong một giao dịch → cập nhật theo thứ tự id cố định để tránh deadlock.
 
 ---
 
@@ -562,6 +574,8 @@ Chỉ 1 service dùng → giữ trong service đó.
   |---|---|
   | `ResourceNotFoundException` | 404 |
   | `BusinessException`, `MethodArgumentNotValidException` | 400 (gom field error thành message) |
+  | `HandlerMethodValidationException` (ràng buộc trên tham số, vd. `@Size` ở batch-by-ids) | 400 |
+  | `PropertyReferenceException` (`?sort=` trường không tồn tại) | 400 |
   | `FeignException` (service có Feign) | 502, message chung |
   | `Exception` (catch-all) | 500, `log.error` đầy đủ, message `"Internal server error"` |
 

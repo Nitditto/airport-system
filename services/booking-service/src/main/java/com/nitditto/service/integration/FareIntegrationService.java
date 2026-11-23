@@ -14,7 +14,11 @@ public class FareIntegrationService {
 
   /** Giá vé của MỘT hành khách (base + thuế/phí + phí hãng + điều chỉnh), cùng công thức pricing-service dùng khi hiển thị. */
   public Double calculateFareTotal(final UUID fareId) {
-    final FareResponse fare = this.pricingClient.getFareById(fareId).getData();
+    return this.farePerPassenger(this.pricingClient.getFareById(fareId).getData());
+  }
+
+  /** Như {@link #calculateFareTotal(UUID)} nhưng dùng fare đã tải (và đã xác thực) sẵn, không gọi lại pricing-service. */
+  public Double farePerPassenger(final FareResponse fare) {
     if (fare.getTotalPrice() != null) {
       return fare.getTotalPrice();
     }

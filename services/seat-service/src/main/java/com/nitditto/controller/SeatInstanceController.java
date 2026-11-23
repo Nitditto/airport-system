@@ -1,13 +1,14 @@
 package com.nitditto.controller;
 
-import com.nitditto.exception.BusinessException;
 import com.nitditto.payload.request.SeatHoldRequest;
 import com.nitditto.payload.response.ApiResponse;
 import com.nitditto.payload.response.SeatHoldResponse;
 import com.nitditto.payload.response.SeatInstanceResponse;
+import com.nitditto.service.SeatHoldScope;
 import com.nitditto.service.SeatHoldService;
 import com.nitditto.service.SeatInstanceService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -24,7 +25,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class SeatInstanceController {
 
-  private static final int MAX_BATCH_SIZE = 200;
 
   private final SeatInstanceService seatInstanceService;
   private final SeatHoldService seatHoldService;
@@ -36,10 +36,7 @@ public class SeatInstanceController {
 
   @PostMapping("/batch-by-ids")
   public ResponseEntity<ApiResponse<Map<UUID, SeatInstanceResponse>>> getSeatInstancesByIds(
-      @RequestBody final List<UUID> seatInstanceIds) {
-    if (seatInstanceIds.size() > MAX_BATCH_SIZE) {
-      throw new BusinessException("Cannot load more than %d seat instances at once".formatted(MAX_BATCH_SIZE));
-    }
+      @RequestBody @Size(max = 200, message = "At most 200 ids per batch request") final List<UUID> seatInstanceIds) {
     return ResponseEntity.ok(ApiResponse.success(this.seatInstanceService.getSeatInstancesByIds(seatInstanceIds)));
   }
 
@@ -47,7 +44,8 @@ public class SeatInstanceController {
   @PostMapping("/hold")
   public ResponseEntity<ApiResponse<SeatHoldResponse>> hold(
       @RequestHeader("X-User-Id") final UUID userId, @Valid @RequestBody final SeatHoldRequest request) {
-    return ResponseEntity.ok(ApiResponse.success(this.seatHoldService.hold(userId, request.getSeatInstanceIds())));
+    final SeatHoldScope scope = new SeatHoldScope(request.getFlightInstanceId(), request.getCabinClassId());
+    return ResponseEntity.ok(ApiResponse.success(this.seatHoldService.hold(userId, request.getSeatInstanceIds(), scope)));
   }
 
   @PostMapping("/release")

@@ -1,8 +1,10 @@
 package com.nitditto.service;
 
 import com.nitditto.model.Booking;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -14,9 +16,25 @@ import org.springframework.stereotype.Component;
 public class PaymentWindow {
 
   private final Duration window;
+  private final Clock clock;
 
-  public PaymentWindow(@Value("${booking.payment-window-minutes:15}") final long minutes) {
+  @Autowired
+  public PaymentWindow(@Value("${booking.payment-window-minutes:15}") final long minutes, final Clock clock) {
     this.window = Duration.ofMinutes(minutes);
+    this.clock = clock;
+  }
+
+  public PaymentWindow(final long minutes) {
+    this(minutes, Clock.systemUTC());
+  }
+
+  /**
+   * Đã quá hạn thanh toán chưa, tính tại chỗ (không khoá hàng, không gọi payment-service). Không có thời điểm tạo
+   * thì coi là đã quá hạn để bước kiểm tra kỹ (có khoá) quyết định.
+   */
+  public boolean hasExpired(final Booking booking) {
+    final Instant deadline = this.expiresAt(booking);
+    return deadline == null || !this.clock.instant().isBefore(deadline);
   }
 
   public Duration duration() {

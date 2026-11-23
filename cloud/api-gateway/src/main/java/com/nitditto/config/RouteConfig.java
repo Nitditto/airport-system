@@ -40,8 +40,10 @@ public class RouteConfig {
     // POST nhưng bản chất là đọc (CLAUDE.md §6): không được coi là thao tác ghi
     private static final Pattern BATCH_READ_PATH = Pattern.compile("^/api/[^/]+/batch-by-ids/?$");
     // Thao tác ghi mà khách hàng (mọi người dùng đăng nhập) được phép: giữ/nhả ghế của chính mình.
-    // confirm-booked và free (nội bộ, booking-service gọi) cố ý KHÔNG nằm đây nên chỉ ADMIN/OWNER gọi được qua gateway.
     private static final Pattern CUSTOMER_WRITE_PATH = Pattern.compile("^/api/seat-instances/(hold|release)/?$");
+    // confirm-booked / free: booking-service gọi qua Feign nội bộ, seat-service không kiểm tra hãng sở hữu ghế. Cho OWNER
+    // gọi qua gateway là để một hãng giải phóng/chốt ghế của hãng khác -> chỉ ADMIN. So khớp chuỗi con như payment.
+    private static final List<String> INTERNAL_SEAT_SEGMENTS = List.of("confirm-booked", "/free");
     // payment-service /initiate (nhận userId và amount từ body) và /batch-by-ids (tra payment của booking bất kỳ) chỉ
     // booking-service gọi qua Feign nội bộ, không qua gateway; qua gateway chỉ ADMIN. So khớp theo chuỗi con (không
     // phân biệt hoa thường) để đường dẫn biến thể như /api/payments/./initiate hay /initiate;x cũng không lọt.
@@ -117,7 +119,7 @@ public class RouteConfig {
 
     @Bean
     public RouterFunction<ServerResponse> seatServiceRoutes() {
-        return this.route("seat-service-routes", "seat-service", this.authenticated(ADMIN_OR_OWNER),
+        return this.route("seat-service-routes", "seat-service", this::seatAccess,
                 "/api/cabin-classes/**", "/api/seat-maps/**", "/api/seats/**",
                 "/api/seat-instances/**", "/api/flight-instance-cabins/**");
     }
@@ -204,6 +206,16 @@ public class RouteConfig {
         final ServerRequest authenticated = this.secured(request, ANY_AUTHENTICATED);
         final String path = authenticated.path().toLowerCase(java.util.Locale.ROOT);
         if (INTERNAL_BOOKING_SEGMENTS.stream().anyMatch(path::contains)) {
+            return this.requireAnyRole(authenticated, ADMIN);
+        }
+        return authenticated;
+    }
+
+    /** Ghế: ghi cần ADMIN/OWNER (trừ hold/release của khách); lệnh nội bộ chốt/giải phóng ghế chỉ dành cho ADMIN. */
+    private ServerRequest seatAccess(final ServerRequest request) {
+        final ServerRequest authenticated = this.secured(request, ADMIN_OR_OWNER);
+        final String path = authenticated.path().toLowerCase(java.util.Locale.ROOT);
+        if (INTERNAL_SEAT_SEGMENTS.stream().anyMatch(path::contains)) {
             return this.requireAnyRole(authenticated, ADMIN);
         }
         return authenticated;

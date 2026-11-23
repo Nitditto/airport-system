@@ -11,6 +11,12 @@ spring:
   application:
     name: payment-service
 
+  # Mặc định Spring là 2000: một trang lớn kéo theo batch-by-ids > 200 id ở service khác. Vượt -> kẹp về 100.
+  data:
+    web:
+      pageable:
+        max-page-size: 100
+
   cloud:
     openfeign:
       httpclient:

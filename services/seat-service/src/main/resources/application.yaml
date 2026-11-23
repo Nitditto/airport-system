@@ -7,6 +7,12 @@ spring:
   application:
     name: seat-service
 
+  # Mặc định Spring là 2000: một trang lớn kéo theo batch-by-ids > 200 id ở service khác. Vượt -> kẹp về 100.
+  data:
+    web:
+      pageable:
+        max-page-size: 100
+
   datasource:
     url: jdbc:mysql://localhost:3306/airline_seat
     username: root
@@ -35,10 +41,12 @@ spring:
     listener:
       concurrency: 3
 
-# Thời gian giữ ghế tạm thời (phút), khớp với thời hạn link thanh toán 15 phút.
+# Thời gian giữ ghế tạm thời (phút). PHẢI lớn hơn booking.payment-window-minutes (booking-service, mặc định 15):
+# hold bắt đầu ngay TRƯỚC khi booking được tạo, nên TTL bằng đúng hạn thanh toán sẽ hết sớm hơn vài giây và ghế có thể
+# bị người khác lấy khi khách vẫn còn được trả tiền. Đệm 2 phút. Đổi một bên thì đổi cả bên kia.
 seat:
   hold:
-    ttl-minutes: ${SEAT_HOLD_TTL_MINUTES:15}
+    ttl-minutes: ${SEAT_HOLD_TTL_MINUTES:17}
   # Phụ thu chọn chỗ mặc định (seat fee, KHÔNG phải giá vé). Ghế mẫu có premiumSuperCharge riêng sẽ dùng giá riêng.
   pricing:
     default-window-surcharge: ${SEAT_DEFAULT_WINDOW_SURCHARGE:1000.0}
