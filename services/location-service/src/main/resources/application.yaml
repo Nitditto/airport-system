@@ -12,6 +12,14 @@ spring:
     web:
       pageable:
         max-page-size: 100
+    # Cache Airport/City (cache-aside). Host qua SPRING_DATA_REDIS_HOST trong compose; timeout ngắn để Redis chết không treo request.
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 500ms
+
+  cache:
+    type: redis
 
   datasource:
     url: jdbc:mysql://localhost:3306/airline_location

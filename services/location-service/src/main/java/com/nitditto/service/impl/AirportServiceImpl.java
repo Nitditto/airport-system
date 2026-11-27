@@ -1,5 +1,8 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.config.AirportBatchCache;
+import com.nitditto.config.EvictLocationCaches;
+import com.nitditto.config.RedisCacheConfig;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.AirportMapper;
@@ -11,7 +14,6 @@ import com.nitditto.repository.AirportRepository;
 import com.nitditto.repository.CityRepository;
 import com.nitditto.service.AirportService;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -19,6 +21,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,9 +34,11 @@ public class AirportServiceImpl implements AirportService {
 
   private final AirportRepository airportRepository;
   private final CityRepository cityRepository;
+  private final AirportBatchCache airportBatchCache;
 
   @Override
   @Transactional
+  @EvictLocationCaches
   public AirportResponse createAirport(final AirportRequest airportRequest) {
     if (this.airportRepository.findByIataCode(airportRequest.getIataCode()).isPresent()) {
       throw new BusinessException("Airport with Iata Code Already Exist");
@@ -49,6 +54,7 @@ public class AirportServiceImpl implements AirportService {
   }
 
   @Override
+  @Cacheable(cacheNames = RedisCacheConfig.AIRPORT, key = "#id")
   public AirportResponse getAirportById(final UUID id) {
     final Airport airport = this.airportRepository.findById(id)
         .orElseThrow(() -> new ResourceNotFoundException("Airport", "id", id));
@@ -64,15 +70,21 @@ public class AirportServiceImpl implements AirportService {
     if (distinctIds.size() > MAX_BATCH_SIZE) {
       throw new BusinessException("Batch size must not exceed " + MAX_BATCH_SIZE);
     }
-    final List<AirportResponse> responses = this.toResponses(this.airportRepository.findAllById(distinctIds));
-    final Map<UUID, AirportResponse> responseById = new HashMap<>(responses.size());
-    for (final AirportResponse response : responses) {
-      responseById.put(response.getId(), response);
+    // Dùng chung cache "airport" với getAirportById: 1 MGET cho cả lô, chỉ id thiếu mới xuống DB rồi ghi lại 1 pipeline.
+    final Map<UUID, AirportResponse> responseById = this.airportBatchCache.getAll(distinctIds);
+    final List<UUID> missedIds = distinctIds.stream().filter(id -> !responseById.containsKey(id)).toList();
+    if (!missedIds.isEmpty()) {
+      final List<AirportResponse> loaded = this.toResponses(this.airportRepository.findAllById(missedIds));
+      for (final AirportResponse response : loaded) {
+        responseById.put(response.getId(), response);
+      }
+      this.airportBatchCache.putAll(loaded);
     }
     return responseById;
   }
 
   @Override
+  @Cacheable(cacheNames = RedisCacheConfig.AIRPORTS)
   public List<AirportResponse> getAllAirports() {
     // TODO(Nhóm C): chưa phân trang - findAll() không giới hạn số dòng, xem CLAUDE.md "Repository & Query Rules"
     return this.toResponses(this.airportRepository.findAll());
@@ -80,6 +92,7 @@ public class AirportServiceImpl implements AirportService {
 
   @Override
   @Transactional
+  @EvictLocationCaches
   public AirportResponse updateAirport(final UUID id, final AirportRequest airportRequest) {
     final Airport existingAirport = this.airportRepository.findById(id)
         .orElseThrow(() -> new ResourceNotFoundException("Airport", "id", id));
@@ -95,6 +108,7 @@ public class AirportServiceImpl implements AirportService {
 
   @Override
   @Transactional
+  @EvictLocationCaches
   public void deleteAirportById(final UUID id) {
     if (!this.airportRepository.existsById(id)) {
       throw new ResourceNotFoundException("Airport", "id", id);
@@ -103,13 +117,15 @@ public class AirportServiceImpl implements AirportService {
   }
 
   @Override
+  @Cacheable(cacheNames = RedisCacheConfig.AIRPORTS_BY_CITY, key = "#cityId")
   public List<AirportResponse> getAirportsByCityId(final UUID cityId) {
     return this.toResponses(this.airportRepository.findByCityId(cityId));
   }
 
   private List<AirportResponse> toResponses(final List<Airport> airports) {
     if (airports.isEmpty()) {
-      return List.of();
+      // ArrayList (không phải List.of): Jackson default typing bỏ type id của lớp final nên cache không đọc lại được.
+      return new ArrayList<>();
     }
 
     final List<UUID> cityIds = airports.stream().map(Airport::getCityId).distinct().toList();

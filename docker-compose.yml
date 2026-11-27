@@ -100,6 +100,19 @@ services:
     restart: unless-stopped
     networks: [airline]
 
+  # Cache cho location-service (Airport/City). Không publish ra host, không cần volume (mất cache chỉ chậm hơn).
+  redis:
+    image: redis:7-alpine
+    container_name: airline-redis
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks: [airline]
+
   service-registry:
     image: ${DOCKER_IMAGE_PREFIX:-nitditto}/service-registry:${IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: airline-service-registry
@@ -187,7 +200,11 @@ services:
       <<: [*eureka, *config]
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/airline_location
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
-    depends_on: *depends
+      SPRING_DATA_REDIS_HOST: redis
+    depends_on:
+      <<: *depends
+      redis:
+        condition: service_started   # không chờ healthy: service vẫn chạy được khi Redis chết (CacheErrorHandler)
 
   pricing-service:
     <<: *business-service

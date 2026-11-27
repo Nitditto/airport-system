@@ -3,7 +3,7 @@
 # Dùng khi chạy các service từ IDE (application.yaml trỏ jdbc:mysql://localhost:3306,
 # user root / password 123456, Eureka chạy từ IDE ở localhost:8761).
 # Service chạy từ IDE kết nối Kafka qua spring.kafka.bootstrap-servers=localhost:9092.
-# BE không dùng Redis / Config Server nên không có container cho chúng.
+# Redis (localhost:6379) chỉ location-service dùng làm cache; BE không dùng Config Server nên không có container cho nó.
 #
 # Usage:
 #   docker compose -f docker-compose.dev.yml up -d
@@ -60,6 +60,19 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
+
+  # Cache cho location-service (Airport/City). Chỉ là cache nên không cần volume.
+  redis:
+    image: redis:7-alpine
+    container_name: airline-redis-dev
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
 volumes:
   mysql-dev-data:

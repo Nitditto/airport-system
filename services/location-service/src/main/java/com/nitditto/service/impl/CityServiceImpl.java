@@ -1,5 +1,7 @@
 package com.nitditto.service.impl;
 
+import com.nitditto.config.EvictLocationCaches;
+import com.nitditto.config.RedisCacheConfig;
 import com.nitditto.exception.BusinessException;
 import com.nitditto.exception.ResourceNotFoundException;
 import com.nitditto.mapper.CityMapper;
@@ -11,6 +13,7 @@ import com.nitditto.repository.CityRepository;
 import com.nitditto.service.CityService;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -26,6 +29,7 @@ public class CityServiceImpl implements CityService {
 
   @Override
   @Transactional
+  @EvictLocationCaches
   public CityResponse createCity(final CityRequest cityRequest) {
 
     if (this.cityRepository.existsByCityCode(cityRequest.getCityCode())) {
@@ -37,6 +41,7 @@ public class CityServiceImpl implements CityService {
   }
 
   @Override
+  @Cacheable(cacheNames = RedisCacheConfig.CITY, key = "#id")
   public CityResponse getCityById(final UUID id) {
     final City city = this.cityRepository.findById(id)
         .orElseThrow(() -> new ResourceNotFoundException("City", "id", id));
@@ -45,6 +50,7 @@ public class CityServiceImpl implements CityService {
 
   @Override
   @Transactional
+  @EvictLocationCaches
   public CityResponse updateCity(final UUID id, final CityRequest cityRequest) {
     final City city = this.cityRepository.findById(id)
         .orElseThrow(() -> new ResourceNotFoundException("City", "id", id));
@@ -57,6 +63,7 @@ public class CityServiceImpl implements CityService {
 
   @Override
   @Transactional
+  @EvictLocationCaches
   public void deleteCityById(final UUID id) {
     if (!this.cityRepository.existsById(id)) {
       throw new ResourceNotFoundException("City", "id", id);
