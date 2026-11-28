@@ -119,4 +119,5 @@ Tài liệu theo từng mảng kiến trúc/tính năng — mỗi file có phầ
 | [booking-service.md](features/booking-service.md) | ⬜ Thiết kế | Domain Booking — service điều phối trung tâm |
 | [payment-service.md](features/payment-service.md) | 🟢 Đã có | Domain Payment — tích hợp Razorpay |
 | [refund.md](features/refund.md) | 🟡 Có code, chưa kiểm chứng với VNPay thật | Hoàn tiền khi huỷ booking: chính sách theo FareRules, thiết kế an toàn cho tiền, vận hành refund thất bại |
+| [redis-cache.md](features/redis-cache.md) | 🟢 Đã có | Redis cache-aside cho Airport/City ở `location-service`: cache nào, key/TTL/serializer, batch MGET, evict, chịu lỗi khi Redis chết, debug |
 | [config-server.md](features/config-server.md) | 🟢 Đã có | Spring Cloud Config Server (native): `config-repo/`, client `optional:` khi chạy IDE và bắt buộc trong compose, quy tắc nội dung, healthcheck |
